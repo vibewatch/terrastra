@@ -261,6 +261,7 @@ export class SolarView {
     this.root.className = 'solar-stage';
     this.root.dataset.testid = 'solar-stage';
     this.renderer = new THREE.WebGLRenderer({ antialias: quality.msaa, powerPreference: 'high-performance' });
+    this.renderer.debug.checkShaderErrors = import.meta.env.DEV;
     this.renderer.setPixelRatio(Math.min(devicePixelRatio || 1, quality.dprMax));
     this.adapt = new AdaptiveResolution(quality.dprMin, Math.min(devicePixelRatio || 1, quality.dprMax));
     this.renderer.setClearColor(SPACE_BG);

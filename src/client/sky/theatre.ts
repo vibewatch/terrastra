@@ -103,6 +103,7 @@ export class Theatre {
     this.siteId = localStorage.getItem(SITE_KEY) ?? 'best';
     this.cv = h('canvas', { class: 'sky-cv', 'data-testid': 'sky-canvas' });
     this.renderer = new THREE.WebGLRenderer({ canvas: this.cv, antialias: opts.msaa ?? !opts.lowfx, powerPreference: 'high-performance' });
+    this.renderer.debug.checkShaderErrors = import.meta.env.DEV;
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, opts.dprMax ?? 1.75, opts.lowfx ? 1 : 2));
     // the same frame-time budget as the Earth and the Solar System: drop resolution on a struggling phone, win it back later
     if (!opts.lowfx) this.adapt = new AdaptiveResolution(Math.min(0.75, this.renderer.getPixelRatio()), this.renderer.getPixelRatio());

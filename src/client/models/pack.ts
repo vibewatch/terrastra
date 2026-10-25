@@ -39,6 +39,28 @@ function packMat(m: THREE.Material): PackedMat {
   return { type, p };
 }
 
+/**
+ * Normals and vertex colours shipped as 16-bit normalised integers instead of floats: a third less GPU memory for the
+ * models (millions of vertices once the globe is populated) with no visible difference. Null keeps the attribute as is.
+ */
+function quantized(name: string, a: THREE.BufferAttribute): Int16Array | Uint16Array | null {
+  const src = a.array;
+  if (!(src instanceof Float32Array) || a.normalized || a.itemSize !== 3) return null;
+  if (name === 'normal') {
+    for (let i = 0; i < src.length; i++) if (!(Math.abs(src[i]) <= 1.0001)) return null;
+    const out = new Int16Array(src.length);
+    for (let i = 0; i < src.length; i++) out[i] = Math.round(Math.max(-1, Math.min(1, src[i])) * 32767);
+    return out;
+  }
+  if (name === 'color') {
+    for (let i = 0; i < src.length; i++) if (!(src[i] >= -0.0001 && src[i] <= 1.0001)) return null;
+    const out = new Uint16Array(src.length);
+    for (let i = 0; i < src.length; i++) out[i] = Math.round(Math.max(0, Math.min(1, src[i])) * 65535);
+    return out;
+  }
+  return null;
+}
+
 /** Serialises a model tree. `sent` remembers geometry ids already shipped (shared cached geometries are sent once). */
 export function packModel(root: THREE.Object3D, sent?: Set<string>): { model: PackedModel; transfer: ArrayBuffer[] } {
   const geos: PackedGeo[] = [], mats: PackedMat[] = [], transfer: ArrayBuffer[] = [];
@@ -54,9 +76,10 @@ export function packModel(root: THREE.Object3D, sent?: Set<string>): { model: Pa
     for (const [name, a] of Object.entries(g.attributes)) {
       if ((a as THREE.InterleavedBufferAttribute).isInterleavedBufferAttribute) throw new Error('interleaved attribute');
       const ba = a as THREE.BufferAttribute;
-      const array = (ba.array as PackedAttr['array']).slice();
+      const q = quantized(name, ba);
+      const array = q ?? (ba.array as PackedAttr['array']).slice();
       transfer.push(array.buffer as ArrayBuffer);
-      attrs.push({ name, array, itemSize: ba.itemSize, normalized: ba.normalized });
+      attrs.push({ name, array, itemSize: ba.itemSize, normalized: q ? true : ba.normalized });
     }
     const pg: PackedGeo = { id: g.uuid, attrs };
     if (g.index) { pg.index = (g.index.array as Uint16Array | Uint32Array).slice(); transfer.push(pg.index.buffer as ArrayBuffer); }

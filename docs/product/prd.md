@@ -51,6 +51,7 @@ Terrastra offers comparable play value with a small, fast, privacy-respecting bu
 | F13 | Guestbook: signed-in posting, link stripping, kind-words filter, community reports auto-hide | P2 |
 | F14 | Static encyclopedia pages per item (+ ko), indexes, sitemap, robots, 404 | P1 |
 | F15 | Low-FX mode (`?lowfx=1`) and WebGL failure fallback | P1 |
+| F16 | Flat world map: Equal Earth / Mercator / plate carrée, pan and zoom, borders, country names, catalogue pins, `#map` deep link | P1 |
 
 ### 5.2 Out of scope (this release)
 * Google OAuth (only the email link). An admin layout editor and realtime layout streaming. Background music.

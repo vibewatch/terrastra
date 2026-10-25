@@ -9,9 +9,9 @@ test('home: globe, top bar, zoom readout, hints @mobile', async ({ page }, info)
   await openApp(page);
   await expect(page.locator('h1')).toHaveText('Terrastra');
   await expect(page.getByTestId('zoom')).toHaveText('×4.0');
-  for (const id of ['btn-search', 'btn-photo', 'btn-hub', 'btn-menu', 'level-switch']) await expect(page.getByTestId(id)).toBeVisible();
-  // one Explore hub holds every activity, on four shelves; the top bar keeps only search, photo, hub and settings
-  await expect(page.locator('.topbar .tool')).toHaveCount(4);
+  for (const id of ['btn-search', 'btn-photo', 'btn-map', 'btn-hub', 'btn-menu', 'level-switch']) await expect(page.getByTestId(id)).toBeVisible();
+  // one Explore hub holds every activity, on four shelves; the top bar keeps only search, photo, flat map, hub and settings
+  await expect(page.locator('.topbar .tool')).toHaveCount(5);
   await page.getByTestId('btn-hub').click();
   for (const [tab, ids] of [['learn', ['menu-lessons', 'menu-tours']], ['look', ['menu-sky', 'menu-tonight', 'menu-time', 'menu-compare', 'menu-bookmarks']], ['play', ['menu-daily', 'menu-placeit', 'menu-quiz']], ['me', ['menu-passport', 'menu-collection', 'menu-album']]] as const) {
     await page.getByTestId('hub-tab-' + tab).click();
@@ -71,6 +71,47 @@ test('hovering or tapping a country outlines it and names it', async ({ page }) 
   await expect.poll(() => page.evaluate(() => (window as any).__pp.globe.hiShown?.a2)).toBe('FR');
   // the finer 1:50m shapes (small states included) arrive once the globe is idle
   await expect.poll(() => page.evaluate(() => (window as any).__pp.globe.borderShapes?.length ?? 0), { timeout: 30_000 }).toBeGreaterThan(200);
+});
+
+test('flat world map: projections, zoom, countries, pins, back to the globe', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', e => errors.push(e.message));
+  await openApp(page);
+  await flyTo(page, 46.6, 2.4, 2);
+  await page.getByTestId('btn-map').click();
+  const map = page.getByTestId('flatmap');
+  await expect(map).toBeVisible();
+  // the map opens on the meridian the globe was looking at (the whole world fits, so it stays vertically centred)
+  const [, lon] = await page.evaluate(() => (window as any).__pp.map().center());
+  expect(Math.abs(lon - 2.4)).toBeLessThan(3);
+  await page.getByTestId('proj-mercator').click();
+  await expect(page.getByTestId('proj-mercator')).toHaveAttribute('aria-checked', 'true');
+  await expect(page.getByTestId('proj-equalearth')).toHaveAttribute('aria-checked', 'false');
+  const z0 = await page.evaluate(() => (window as any).__pp.map().zoom);
+  const france = () => page.evaluate(() => (window as any).__pp.map().toScreen(46.6, 2.4) as [number, number]);
+  // the wheel zooms about the cursor, so France stays under it; hovering names the country
+  let [fx, fy] = await france();
+  await page.mouse.move(fx, fy);
+  await page.mouse.wheel(0, -600);
+  await expect.poll(() => page.evaluate(() => (window as any).__pp.map().zoom)).toBeGreaterThan(z0 * 1.2);
+  [fx, fy] = await france();
+  await page.mouse.move(fx + 1, fy);
+  await expect(page.getByTestId('map-country-tag')).toContainText('France');
+  await shot(page, 'desktop_05b_flatmap');
+  // a pin opens the same info card as on the globe
+  const pin = page.getByTestId('map-pin').first();
+  await expect(pin).toBeVisible();
+  await pin.click();
+  await expect(page.getByTestId('info')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('info')).toBeHidden();
+  await page.keyboard.press('Escape');
+  await expect(map).toBeHidden();
+  await expect(page.locator('canvas.globe-canvas')).toBeVisible();
+  // deep link straight into the map (the hash is consumed, as for lessons and tours)
+  await openApp(page, '/?lowfx=1&notut#map');
+  await expect(page.getByTestId('flatmap')).toBeVisible();
+  expect(errors).toEqual([]);
 });
 
 test('menu: toggles layers & names, language persists', async ({ page }) => {

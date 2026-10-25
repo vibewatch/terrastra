@@ -34,6 +34,29 @@ export function borderPositions(topo: Topology, radius = 1.0015): Float32Array {
   return pos;
 }
 
+const llCache = new WeakMap<Topology, Float32Array>();
+
+/** The same land borders as flat-map segments `[lon1,lat1, lon2,lat2, …]` in degrees, ≤ 1° each. */
+export function borderLonLat(topo: Topology): Float32Array {
+  const hit = llCache.get(topo);
+  if (hit) return hit;
+  const m = mesh(topo, topo.objects.countries as GeometryCollection as never, (a, b) => a !== b);
+  const out: number[] = [];
+  for (const line of m.coordinates) {
+    for (let i = 0; i < line.length - 1; i++) {
+      const [lon1, lat1] = line[i], [lon2, lat2] = line[i + 1];
+      if (Math.abs(lon1 - lon2) > 90) continue;
+      const n = Math.max(1, Math.ceil(Math.max(Math.abs(lon2 - lon1), Math.abs(lat2 - lat1)) / STEP_DEG));
+      for (let k = 0; k < n; k++) {
+        out.push(lon1 + ((lon2 - lon1) * k) / n, lat1 + ((lat2 - lat1) * k) / n, lon1 + ((lon2 - lon1) * (k + 1)) / n, lat1 + ((lat2 - lat1) * (k + 1)) / n);
+      }
+    }
+  }
+  const ll = new Float32Array(out);
+  llCache.set(topo, ll);
+  return ll;
+}
+
 /** Line segments of every ring (coast included) of one country. */
 export function outlinePositions(f: Feature<Polygon | MultiPolygon>, radius = 1.0025): Float32Array {
   const polys = f.geometry.type === 'Polygon' ? [f.geometry.coordinates] : f.geometry.coordinates;

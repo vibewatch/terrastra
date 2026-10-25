@@ -38,6 +38,16 @@ Companion to the [PRD](prd.md). The constants listed here are the source of trut
 | Render loop | `requestAnimationFrame`; renders only when `dirty` or animating (vehicles/animals). Low-FX: DPR 1, no AA, 64×32 sphere, 300 stars |
 | Failure | When the WebGL context cannot be created, a full-screen friendly message is shown (`role=alert`) |
 
+## 2a. Flat world map [`src/client/map/flatmap.ts`, `src/client/map/proj.ts`]
+| Item | Spec |
+|---|---|
+| Open / close | Top-bar map button or `M` (Earth level only); `#map` deep link. Opens on the globe's meridian; closing flies the globe to the map's centre. Esc closes the info card first, then the map. Games, rides, the radio, the Solar System, the sky theatre, tours and lessons close it. While it is open the globe is paused (no frames) |
+| Projections | Equal Earth (default, equal-area, drawn once), Mercator (cut at ±85.05°) and plate carrée (both wrap sideways forever). The choice persists (`pp.mapProj`). "How do maps flatten the Earth?" opens the `projections` lesson |
+| Drawing | One full-screen fragment shader inverse-projects every pixel and samples the globe's painted land (border-free copy) plus relief and night lights. Borders (1:50m once loaded) and the 15° graticule + tropics/polar circles are instanced screen-space quads projected in the vertex shader, so they stay 1–1.5 px thick at any zoom. Only redrawn when the view or the data changes |
+| Input | Drag pans (with inertia); wheel and pinch zoom about the pointer (×1 – ×14); double-click zooms in; arrows pan and `+`/`-` zoom on the focused map; mouse hover is hit-tested once per frame |
+| Labels | Countries (by area, zoom-tiered), then catalogue pins (grid-decluttered, never over a country name), then oceans, cities and grid-line names. Hovering or tapping a country outlines and names it; tapping a pin opens the same info card as on the globe |
+| HUD | Projection switch, a note on what the projection keeps true, a km scale bar for the map centre and the shared zoom + lat/lon readout |
+
 ## 3. Content [`src/shared/data/*`]
 * `CatalogueItem` (see [architecture & data model](../architecture/architecture-and-data-model.md) §3.1). Currently 48 landmarks, 33 animals, 14 discoveries, 10 vehicles and 144 cities, with all text original, in en + ko.
 * Keys: landmarks have no prefix (`eiffel`), animals `an_*`, discoveries `dc_*`, vehicles `vh_*`. Slugs are kebab-case and unique.

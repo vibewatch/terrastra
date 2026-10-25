@@ -48,6 +48,14 @@ export interface ShellHooks {
   overview?: () => void;
   /** From space, back to the globe (the hub's globe-only shelves). */
   toHome?: () => void;
+  /** Flat world map on/off. */
+  toggleMap?: () => void;
+  /** Something needs the 3D globe itself (a ride): leave the flat map. */
+  toGlobe?: () => void;
+  /** The selected item changed (null = none). */
+  onSelect?: (it: CatalogueItem | null) => void;
+  /** Last in line for Escape (true = handled). */
+  escape?: () => boolean;
 }
 
 export class Shell {
@@ -91,6 +99,7 @@ export class Shell {
       h('nav', { class: 'tools', 'data-occludes': true, 'aria-label': t('tools') },
         tool('btn-search', 'search', 'searchKbd', () => this.openSearch()),
         tool('btn-photo', 'camera', 'photo', this.hooks.openPhoto),
+        this.mapBtn = tool('btn-map', 'map', 'flatMap', () => this.hooks.toggleMap?.(), 'earth-only'),
         h('span', { class: 'tools-sep', 'aria-hidden': 'true' }),
         tool('btn-hub', 'collection', 'hub', () => this.toggleHub(), 'tool-hub'),
         tool('btn-menu', 'sliders', 'settings', () => this.toggleMenu())));
@@ -120,6 +129,7 @@ export class Shell {
       }
       const typing = (e.target as Element | null)?.closest?.('input, textarea, .xsel, [contenteditable]');
       if (!typing && !e.metaKey && !e.ctrlKey && !e.altKey && e.key.toLowerCase() === 'h' && !document.querySelector('.sky, .modal:not(.hidden)')) { this.setImmersive(!this.immersive); return; }
+      if (!typing && !e.metaKey && !e.ctrlKey && !e.altKey && e.key.toLowerCase() === 'm' && !this.space && !document.querySelector('.sky, .modal:not(.hidden)')) { this.hooks.toggleMap?.(); return; }
       if (e.key !== 'Escape') return;
       if (closeModal()) return;
       if (this.immersive) { this.setImmersive(false); return; }
@@ -128,7 +138,8 @@ export class Shell {
       if (this.globe.ride) { this.exitRide(); return; }
       if (this.readerOpen) { this.toggleReader(false); return; }
       if (this.current) { this.showItem(null); return; }
-      if (this.time.open) this.time.toggle(false);
+      if (this.time.open) { this.time.toggle(false); return; }
+      this.hooks.escape?.();
     });
     document.addEventListener('pointerdown', e => {
       const tgt = e.target as Node;
@@ -225,20 +236,39 @@ export class Shell {
     document.querySelectorAll<HTMLElement>('[data-i18n]').forEach(el => (el.textContent = t(el.dataset.i18n!)));
     document.title = t('title');
     this.renderHints();
+    if (this.mapBtn) this.mapBtn.title = t(this.mapBtn.getAttribute('aria-pressed') === 'true' ? 'backToGlobe' : 'flatMap');
     this.globe.lang = lang(); this.globe.markDirty();
     if (!this.menu.classList.contains('hidden')) this.renderMenu();
     if (this.current) this.renderInfo(this.current);
   }
 
   private dexClose: boolean | null = null;
-  setZoom(z: number, lat = 0, lon = 0): void {
+  /** The zoom and centre readouts only (the flat map reports here too). */
+  setReadout(z: number, lat: number, lon: number): void {
     this.zoomEl.textContent = '×' + z.toFixed(1);
     const ln = ((lon + 540) % 360) - 180;
     this.coordLat.textContent = `${Math.abs(lat).toFixed(2).padStart(5, '0')}°${lat >= 0 ? 'N' : 'S'}`;
     this.coordLon.textContent = `${Math.abs(ln).toFixed(2).padStart(6, '0')}°${ln >= 0 ? 'E' : 'W'}`;
+  }
+  setZoom(z: number, lat = 0, lon = 0): void {
+    this.setReadout(z, lat, lon);
     // onView fires on every dirty frame; only rebuild the dex row when crossing the collect threshold
     const close = z >= DEX_ZOOM;
     if (this.current?.type === 'animal' && close !== this.dexClose) this.renderDexRow();
+  }
+
+  private mapBtn: HTMLButtonElement | null = null;
+  /** Marks the toolbar's map button as on (the map is showing) or off. */
+  setMapOpen(on: boolean): void {
+    const b = this.mapBtn;
+    if (!b) return;
+    const key = on ? 'backToGlobe' : 'flatMap';
+    b.setAttribute('aria-pressed', String(on));
+    b.title = t(key);
+    b.querySelector('.ico')?.remove();
+    b.insertAdjacentHTML('afterbegin', icon(on ? 'globe' : 'map', 19));
+    const sr = b.querySelector<HTMLElement>('.sr-only');
+    if (sr) { sr.dataset.i18n = key; sr.textContent = t(key); }
   }
 
   /** Switches the global chrome between the globe and the space levels. */
@@ -377,6 +407,7 @@ export class Shell {
     const prev = this.current;
     this.current = item;
     this.globe.select(item?.key ?? null);
+    this.hooks.onSelect?.(item);
     if (!item) {
       stopNarration();
       this.toggleReader(false);
@@ -573,6 +604,7 @@ export class Shell {
 
   // ---------- ride ----------
   async startRide(it: CatalogueItem): Promise<void> {
+    this.hooks.toGlobe?.();
     if (!(await this.globe.prepare(it.key)) || !this.globe.startRide(it.key)) return;
     this.info.classList.add('hidden');
     document.body.classList.add('riding');

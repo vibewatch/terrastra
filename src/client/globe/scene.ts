@@ -65,11 +65,11 @@ export function routeAltitude(kind: NonNullable<CatalogueItem['route']>['kind'],
   if (kind === 'plane' || kind === 'fly') return 1 + Math.max(0.01, s * 1.4);
   return 1.0;
 }
-const GRID_NAMES: Record<string, Record<Lang, string>> = {
+export const GRID_NAMES: Record<string, Record<Lang, string>> = {
   equator: { en: 'Equator', zh: '赤道' }, tropicN: { en: 'Tropic of Cancer', zh: '北回归线' }, tropicS: { en: 'Tropic of Capricorn', zh: '南回归线' },
   arcticC: { en: 'Arctic Circle', zh: '北极圈' }, antarcticC: { en: 'Antarctic Circle', zh: '南极圈' }, prime: { en: 'Prime Meridian', zh: '本初子午线' },
 };
-const OCEANS: [string, Record<Lang, string>, number, number][] = [
+export const OCEANS: [string, Record<Lang, string>, number, number][] = [
   ['pacific', { en: 'PACIFIC OCEAN', zh: '太平洋' }, 0, -150],
   ['pacific2', { en: 'PACIFIC OCEAN', zh: '太平洋' }, 15, 165],
   ['atlantic', { en: 'ATLANTIC OCEAN', zh: '大西洋' }, 15, -40],
@@ -487,6 +487,8 @@ export class Globe {
   init(earthCanvas: HTMLCanvasElement, countries: CountryInfo[], items: CatalogueItem[], borderPositions?: Float32Array): boolean {
     try {
       this.renderer = new THREE.WebGLRenderer({ antialias: this.quality.msaa, alpha: false, powerPreference: 'high-performance' });
+      // production builds skip the synchronous shader-log queries (they stall the GPU pipeline on every new program)
+      this.renderer.debug.checkShaderErrors = import.meta.env.DEV;
     } catch { return false; }
     this.countries = countries;
     const r = this.renderer, q = this.quality;
@@ -761,6 +763,11 @@ export class Globe {
   private horizonCos(margin: number): number { return 1 / Math.max(1.0001, this.camera.position.length()) - margin; }
 
   /** Whether an item should be shown right now, ignoring which side of the globe it is on. */
+  /** Whether an item is switched on for browsing (its layer and any time filter), whatever the zoom: the flat map's pins. */
+  listed(it: CatalogueItem): boolean {
+    return this.settings[TYPE_META[it.type].layer] && (!this.itemFilter || this.itemFilter(it));
+  }
+
   private shown(it: CatalogueItem): boolean {
     const focus = this.selected === it.key || this.ride?.key === it.key;
     if (focus) return true;
@@ -1584,7 +1591,7 @@ export class Globe {
   }
 
   private names = new Map<string, string>();
-  private countryLabel(c: CountryInfo): string {
+  countryLabel(c: CountryInfo): string {
     const k = this.lang + c.a2;
     let s = this.names.get(k);
     if (!s) {

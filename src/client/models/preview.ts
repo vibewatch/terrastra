@@ -59,6 +59,7 @@ function ensureRenderer(w: number, hPx: number): THREE.WebGLRenderer | null {
     try {
       const q = currentQuality();
       sharedRenderer = new THREE.WebGLRenderer({ antialias: q.tier !== 'low', alpha: true, powerPreference: 'high-performance' });
+      sharedRenderer.debug.checkShaderErrors = import.meta.env.DEV;
       sharedRenderer.setPixelRatio(Math.min(q.dprMax, window.devicePixelRatio || 1));
       sharedScene = new THREE.Scene();
       sharedCamera = new THREE.PerspectiveCamera(28, w / hPx, 0.05, 20);

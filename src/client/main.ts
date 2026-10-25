@@ -9,8 +9,8 @@ import { Globe } from './globe/scene.ts';
 import type { SolarUI } from './solar/ui.ts';
 import { detectQuality, lowFxFrom } from './globe/quality.ts';
 import { DEFAULT_H, MAX_H } from './globe/scene.ts';
-import { loadCountries, paintEarth } from './globe/painter.ts';
-import { borderPositions } from './globe/borders.ts';
+import { loadCountries, paintEarth, paintedLand } from './globe/painter.ts';
+import { borderPositions, borderLonLat } from './globe/borders.ts';
 import { CATALOGUE, BY_KEY } from '../shared/data/catalogue.ts';
 import { Shell } from './ui/shell.ts';
 import { h, toast, confetti, closeModal } from './ui/dom.ts';
@@ -41,7 +41,7 @@ const photoMod = later(() => import('./ui/photo.ts'), () => t('photo'));
 const accountMod = lazy(() => import('./ui/account.ts'));
 const account = (use: (m: typeof import('./ui/account.ts')) => void) => void withBusy(accountMod()).then(use, () => toast('⚠️ ' + t('loadFail', { s: t('account') })));
 
-declare global { interface Window { __pp?: { ready: boolean; globe: Globe; shell: Shell; itemScreen: (k: string) => { x: number; y: number } | null; solar: () => SolarUI | null } } }
+declare global { interface Window { __pp?: { ready: boolean; globe: Globe; shell: Shell; itemScreen: (k: string) => { x: number; y: number } | null; solar: () => SolarUI | null; map: () => import('./map/flatmap.ts').FlatMap | null } } }
 
 const params = new URLSearchParams(location.search);
 /** `#solar/jupiter`, `#milkyway/dp_sgr_a`, `#universe` … */
@@ -63,12 +63,15 @@ async function boot(): Promise<void> {
   // a deep link into another scene: fetch that scene's code alongside the Earth's, not after it
   const linkHead = location.hash.slice(1).split('/')[0];
   if (linkHead === 'sky') void import('./sky/index.ts').catch(() => {});
+  else if (linkHead === 'map') void import('./map/flatmap.ts').catch(() => {});
   else if (SCALE_ROUTES[linkHead]) void import('./solar/ui.ts').catch(() => {});
   const topo = (await (await fetch(url('data/countries-110m.json'))).json()) as Topology;
   await Promise.race([document.fonts?.ready, new Promise(r => setTimeout(r, 150))]);
   const countries = loadCountries(topo);
   const texWidth = quality.mapW;
   let fineTopo: Topology | undefined;
+  /** Country shapes for hover/tap lookups: 1:110m, then 1:50m once loaded. */
+  let shapes = countries;
   const paint = () => paintEarth(topo, countries, { political: store.settings.surfaceMode === 'political', borders: store.settings.borders, width: texWidth, borderTopo: fineTopo });
   const repaint = () => { earthCv = paint(); globe.setEarthTexture(earthCv); solar?.view.setEarthCanvas(earthCv); };
 
@@ -100,7 +103,8 @@ async function boot(): Promise<void> {
     await idle();
     globe.setBorderPositions(borderPositions(t50));
     await idle();
-    globe.setCountryShapes(loadCountries(t50));
+    shapes = loadCountries(t50);
+    globe.setCountryShapes(shapes);
     await idle();
     fineTopo = t50;
     if (store.settings.borders) repaint();
@@ -111,7 +115,7 @@ async function boot(): Promise<void> {
   const endLesson = () => { if (document.body.classList.contains('lessoning')) void import('./lessons/player.ts').then(m => m.stopLesson()); };
   const setGameMode = (on: boolean, names?: boolean) => {
     gaming = on;
-    if (on) { navSeq++; endLesson(); }
+    if (on) { navSeq++; endLesson(); closeMap(false); }
     globe.gameMode = on;
     if (on) { shell.showItem(null); shell.toggleMenu(false); shell.time.toggle(false); radio?.toggle(false); }
     document.body.classList.toggle('gaming', on);
@@ -125,6 +129,7 @@ async function boot(): Promise<void> {
   const loadRadio = lazy(() => import('./ui/radio.ts'));
   const toggleRadio = async () => {
     if (gaming || inSolar || classroom()) return;
+    closeMap();
     // live radio can never work offline; say so instead of a failed connection
     if (!navigator.onLine && !radio?.active) { toast('📡 ' + t('radioOffline'), 4000); return; }
     try {
@@ -169,6 +174,7 @@ async function boot(): Promise<void> {
     }
     // the user went elsewhere (back to Earth, a game, another load) while this was loading
     if (seq !== navSeq || inSolar || gaming) return;
+    closeMap(false);
     inSolar = true;
     radio?.suspend(true);
     shell.showItem(null); shell.toggleMenu(false); shell.time.toggle(false);
@@ -212,6 +218,7 @@ async function boot(): Promise<void> {
       return null;
     }
     if (seq !== navSeq || gaming) return null;
+    closeMap(false);
     if (!inSky) { shell.toggleMenu(false); shell.time.toggle(false); }
     // replacing an open theatre runs its onClose first, so the "in the sky" state is set after the swap
     const th = m.openSky(document.body, {
@@ -240,6 +247,57 @@ async function boot(): Promise<void> {
     return th;
   };
 
+  // ---- flat world map (lazy: its own renderer): the globe pauses underneath it ----
+  const loadMap = lazy(() => import('./map/flatmap.ts'));
+  let flatMap: import('./map/flatmap.ts').FlatMap | null = null;
+  let inMap = false;
+  const openMap = async () => {
+    if (inMap || gaming || inSolar || inSky) return;
+    const seq = ++navSeq;
+    let m: typeof import('./map/flatmap.ts');
+    try { m = await withBusy(loadMap()); } catch (e) {
+      console.error(e);
+      if (seq === navSeq) showLoadError(t('flatMap'), () => void openMap(), 'map');
+      return;
+    }
+    if (seq !== navSeq || inMap || gaming || inSolar || inSky) return;
+    endLesson();
+    flatMap ??= new m.FlatMap({
+      globe, quality, lowfx,
+      earthCanvas: () => paintedLand() ?? earthCv,
+      borders: () => borderLonLat(fineTopo ?? topo),
+      countries: () => countries,
+      shapes: () => shapes,
+      selected: () => shell.current,
+      pick: it => shell.showItem(it, false),
+      hover: (it, at) => shell.showHover(it, at),
+      onView: (z, la, lo) => shell.setReadout(z, la, lo),
+      learn: () => { closeMap(false); startLesson('projections'); },
+    });
+    if (!flatMap.el.isConnected) globeEl.after(flatMap.el);
+    inMap = true;
+    if (globe.ride) shell.exitRide();
+    shell.time.toggle(false);
+    shell.toggleMenu(false);
+    radio?.suspend(true);
+    globe.paused = true;
+    document.body.classList.add('flatmap');
+    flatMap.open(globe.lat, globe.lon);
+    shell.setMapOpen(true);
+  };
+  /** Back to the globe; `follow` turns it to where the map was looking. */
+  function closeMap(follow = true): void {
+    if (!inMap || !flatMap) return;
+    inMap = false;
+    const [lat, lon] = flatMap.center();
+    flatMap.close();
+    document.body.classList.remove('flatmap');
+    shell.setMapOpen(false);
+    globe.paused = false;
+    if (!inSky && !inSolar) radio?.suspend(false);
+    if (follow) globe.flyTo(lat, lon, globe.h, 900);
+  }
+
   // ---- guided tours (lazy): they drive the same navigation a user would ----
   const toursMod = later(() => import('./ui/tours.ts'), () => t('tours'));
   const navTo = (hash: string) => {
@@ -250,6 +308,7 @@ async function boot(): Promise<void> {
     earth: (lat, lon, hh) => {
       if (gaming) return;
       if (inSky) sky?.close();
+      closeMap(false);
       shell.showItem(null);
       if (location.hash) history.replaceState(null, '', location.pathname + location.search);
       if (inSolar) leaveSolar(lat, lon, () => globe.flyTo(lat, lon, hh, 1400)); else globe.flyTo(lat, lon, hh, 1600);
@@ -272,6 +331,7 @@ async function boot(): Promise<void> {
     globe, low: quality.tier === 'low',
     toEarth: then => {
       if (inSky) sky?.close();
+      closeMap(false);
       shell.showItem(null); shell.toggleMenu(false);
       if (location.hash) history.replaceState(null, '', location.pathname + location.search);
       if (inSolar) leaveSolar(globe.lat, globe.lon, then); else then();
@@ -307,7 +367,8 @@ async function boot(): Promise<void> {
       const hit = spaceIndex().find(x => x.hash === route);
       return { route, label: hit?.name ?? { en: route, zh: route }, at };
     }
-    const cam = { lat: globe.lat, lon: globe.lon, h: globe.h };
+    const [mlat, mlon] = inMap && flatMap ? flatMap.center() : [globe.lat, globe.lon];
+    const cam = { lat: mlat, lon: mlon, h: globe.h };
     if (shell.current) return { route: shell.current.key, cam, label: shell.current.name, at };
     const where = `${Math.abs(cam.lat).toFixed(1)}°${cam.lat >= 0 ? 'N' : 'S'} ${Math.abs(cam.lon).toFixed(1)}°${cam.lon >= 0 ? 'E' : 'W'}`;
     return { route: '', cam, label: { en: 'Earth · ' + where, zh: '地球 · ' + where }, at };
@@ -329,6 +390,10 @@ async function boot(): Promise<void> {
           return { title: isLevel ? '' : tr(hit!.name, lang()), level: level ? tr(level, lang()) : t('solarSystem'), note: t(head === 'solar' ? 'photoNoteSolar' : 'photoNoteDeep') };
         },
       };
+    }
+    if (inMap && flatMap) {
+      const fm = flatMap;
+      return { capture: async () => fm.capture(), caption: () => ({ title: shell.current ? tr(shell.current.name, lang()) : '', level: t('flatMap').replace(/\s*\(M\)$/, ''), note: t('photoNoteMap') }) };
     }
     return { capture: async () => globe.capture(), caption: () => ({ title: shell.current ? tr(shell.current.name, lang()) : '', level: t('lvEarth'), note: t('photoNoteEarth') }) };
   };
@@ -355,7 +420,15 @@ async function boot(): Promise<void> {
     openSky: () => void openSky(),
     openRadio: () => void toggleRadio(),
     toEarth: it => { if (!inSolar) return false; leaveSolar(it.lat, it.lon, () => shell.showItem(it)); return true; },
-    zoom: inward => { if (!inSolar) return false; solar?.zoom(inward); return true; },
+    zoom: inward => {
+      if (inMap && flatMap) { flatMap.zoomBy(inward ? 1.6 : 1 / 1.6); return true; }
+      if (!inSolar) return false;
+      solar?.zoom(inward); return true;
+    },
+    toggleMap: () => { if (inMap) closeMap(); else void openMap(); },
+    toGlobe: () => closeMap(false),
+    onSelect: it => { if (it && inMap) flatMap?.focus(it); },
+    escape: () => { if (!inMap) return false; closeMap(); return true; },
     overview: () => solar?.overview(),
     toHome: () => { if (inSolar) leaveSolar(globe.lat, globe.lon); },
   });
@@ -403,6 +476,7 @@ async function boot(): Promise<void> {
       // back/forward to the bare page: show the Earth
       if (inSky) sky?.close();
       if (cam) {
+        closeMap(false);
         history.replaceState(null, '', location.pathname + location.search);
         const go = () => globe.flyTo(cam.lat, cam.lon, cam.h, 1400);
         if (inSolar) leaveSolar(cam.lat, cam.lon, go); else go();
@@ -411,6 +485,7 @@ async function boot(): Promise<void> {
     }
     const [head, rest = ''] = hsh.split('/');
     if (head === 'sky') { void openSky(rest || undefined); return; }
+    if (head === 'map') { history.replaceState(null, '', location.pathname + location.search); void openMap(); return; }
     if (head === 'lesson') { if (rest) startLesson(rest); else openLessons(); history.replaceState(null, '', location.pathname + location.search); return; }
     if (head === 'astro') { if (rest) startLesson(rest); else openAstro(); history.replaceState(null, '', location.pathname + location.search); return; }
     if (head === 'tour') { if (rest) startTour(rest); else openTours(); history.replaceState(null, '', location.pathname + location.search); return; }
@@ -438,7 +513,7 @@ async function boot(): Promise<void> {
     loader.classList.add('go');
     setTimeout(() => loader.remove(), 1300);
   } else loader?.remove();
-  window.__pp = { ready: true, globe, shell, itemScreen: k => globe.itemScreen(k), solar: () => solar };
+  window.__pp = { ready: true, globe, shell, itemScreen: k => globe.itemScreen(k), solar: () => solar, map: () => flatMap };
 
   // ---- account (optional) ----
   void api.me().then(async me => {

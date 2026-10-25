@@ -62,6 +62,7 @@ export class AstroStage {
     this.canvas.dataset.testid = 'astro-board';
     this.canvas.hidden = true;
     this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: !opts.low, powerPreference: 'high-performance' });
+    this.renderer.debug.checkShaderErrors = import.meta.env.DEV;
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, opts.low ? 1 : 2));
     this.renderer.setClearColor(0x02040a);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;

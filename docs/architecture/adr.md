@@ -120,6 +120,10 @@ the production build under Xvfb + SwiftShader, with `?lowfx=1` to reduce GPU cos
 camera/scene is dirty or something animates. DPR is capped at 2. Labels refresh at ~8 Hz. `?lowfx=1` (also the default
 under `prefers-reduced-motion`) uses DPR 1, no MSAA, a 512 px map texture, fewer stars and 1 Hz labels.
 Shadows and every item layer can be toggled. Device tiers and frame-time-adaptive DPR: see ADR-015.
+Model geometry ships packed (`models/pack.ts`): normals as normalised Int16 and vertex colours in 0…1 as normalised
+Uint16, which cuts the GPU upload of the globe's models by about a third (≈338 → 232 MB once every model is placed)
+with no visible change. three.js' synchronous shader-error check (`renderer.debug.checkShaderErrors`) runs only in
+development, so production builds never stall on `getProgramInfoLog` when a program compiles.
 
 ## ADR-012: Daily puzzle is computed client-side and deterministically
 **Status:** Accepted
@@ -801,3 +805,21 @@ Above the Solar System the scenes were also static apart from rigid disc spin.
 **Consequences.**
 - \+ Every choice list looks and behaves the same on every platform and in both languages.
 - − Mobile users get the HUD list instead of the platform's wheel or sheet picker.
+
+## ADR-035: A shader-projected flat world map beside the globe
+
+**Status.** Accepted.
+
+**Context.** Kids learn from flat maps at school, and the projections lesson talks about them, but the app only had the globe. Rendering a second copy of the painted map, the borders and the labels in a 2D canvas would duplicate the painter and blur at high zoom.
+
+**Decision.**
+- `map/flatmap.ts` is a lazy chunk with its own WebGL canvas over the globe. The globe is paused while it is open.
+- The background is one full-screen fragment shader: each pixel is inverse-projected (`map/proj.ts`, mirrored in GLSL) and samples the globe's border-free painted land, relief and night lights. No new texture is painted.
+- Borders and the graticule are instanced quads whose ends are projected in the vertex shader, so lines stay sharp and equally thick at every zoom and in every projection. Segments crossing the map edge are clipped in the fragment shader.
+- All three projections are linear in longitude at a given latitude, so panning sideways is just turning the central meridian (no re-projection of data on the CPU).
+- Labels and pins are DOM elements laid out by the same greedy declutter as the globe; pins avoid country names.
+
+**Consequences.**
+- \+ The map always matches the globe (same land colours, borders, items and info card) and costs no extra painting.
+- \+ Sharp at ×14 with no tiles.
+- − Projections must be written twice (TS and GLSL); `tests/unit/proj.test.ts` checks the TS side round-trips.

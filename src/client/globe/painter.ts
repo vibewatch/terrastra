@@ -186,6 +186,8 @@ export function tracePath(targetCtx: CanvasRenderingContext2D, f: Feature<Polygo
 }
 
 let paintedBase: { countries: CountryInfo[]; political: boolean; cv: HTMLCanvasElement } | null = null;
+/** The last painted land without borders (the flat map draws its own crisp vector borders on top). */
+export const paintedLand = (): HTMLCanvasElement | null => paintedBase?.cv ?? null;
 
 export function paintEarth(topo: Topology, countries: CountryInfo[], opts: PaintOpts): HTMLCanvasElement {
   const W = opts.width, H = W / 2;

@@ -22,6 +22,7 @@ const P: Record<string, string> = {
   ride: '<path d="M3 17c3-6 6-9 9-9s6 3 9 9"/><circle cx="12" cy="8" r="2"/><path d="M6 17v3M18 17v3"/>',
   mountain: '<path d="m3 19 6.5-11 4 6.5 2-3L21 19z"/><path d="m7.6 11.2 1.9 1.3 1.6-1.2"/>',
   tag: '<path d="M4 4h7.5l8.5 8.5-7.5 7.5L4 11.5z"/><circle cx="8.5" cy="8.5" r="1.3"/>',
+  map: '<path d="M3.5 6.5 9 4.5l6 2 5.5-2v13l-5.5 2-6-2-5.5 2z"/><path d="M9 4.5v13M15 6.5v13"/>',
   globe: '<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.4 2.4 3.5 5.2 3.5 8.5s-1.1 6.1-3.5 8.5c-2.4-2.4-3.5-5.2-3.5-8.5s1.1-6.1 3.5-8.5z"/>',
   contrast: '<circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v17a8.5 8.5 0 0 0 0-17z" fill="currentColor"/>',
   landmark: '<path d="M3.5 9 12 4l8.5 5zM5 20h14M6.5 10.5v7M10 10.5v7M14 10.5v7M17.5 10.5v7"/>',

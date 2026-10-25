@@ -30,6 +30,8 @@ Browser storage (observed keys): `globe-lang`, `tutorial`, `hint-open`, `names`,
 │  ├─ globe/scene.ts    Globe: renderer, orbit camera (lat,lon,h), input, fly-to, picking, item/vehicle     │
 │  │                    placement + tiers, pins, ride camera, capture, render-on-demand loop, label overlay │
 │  ├─ globe/painter.ts  Equirectangular map texture (political/terrain, borders, graticule) + label anchors │
+│  ├─ map/flatmap.ts    Flat world map (lazy): shader inverse projection of the painted land, GPU lines,    │
+│  │                    labels and pins; map/proj.ts holds Equal Earth / Mercator / plate carrée (TS+GLSL)  │
 │  ├─ models/kit.ts     ~57 procedural toy-model builders, recipe → THREE.Group                             │
 │  ├─ ui/shell.ts       Top bar, hints, zoom buttons, menu, info card / bottom sheet, ride bar              │
 │  ├─ ui/collection.ts  Hub, animal dex, discovery log, stickers                                            │

@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { inferPbr, PBR_ATTR } from '../../src/client/models/pbr.ts';
 import { bakeStaticMeshes } from '../../src/client/models/kit.ts';
 import { box, mat, add, BOX } from '../../src/client/models/prims.ts';
+import { packModel, unpackModel } from '../../src/client/models/pack.ts';
 
 const pbr = (hex: string) => inferPbr(new THREE.Color(hex));
 
@@ -73,5 +74,36 @@ describe('people rig', async () => {
       });
       expect(n, `${pose}/${detail}`).toBeGreaterThan(5);
     }
+  });
+});
+
+describe('model packing', () => {
+  it('ships normals and colours as 16-bit normalised integers that unpack to the same values', () => {
+    const geo = new THREE.BoxGeometry(1, 1, 1);
+    const n = geo.getAttribute('position').count;
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(Array.from({ length: n * 3 }, (_, i) => (i % 7) / 6), 3));
+    const root = new THREE.Group();
+    root.add(new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true })));
+    const out = unpackModel(packModel(root).model).children[0] as THREE.Mesh;
+    const nor = out.geometry.getAttribute('normal') as THREE.BufferAttribute, col = out.geometry.getAttribute('color') as THREE.BufferAttribute;
+    expect(nor.array).toBeInstanceOf(Int16Array);
+    expect(col.array).toBeInstanceOf(Uint16Array);
+    expect(nor.normalized && col.normalized).toBe(true);
+    expect(out.geometry.getAttribute('position').array).toBeInstanceOf(Float32Array);
+    for (let i = 0; i < n; i++) {
+      for (const [q, f] of [[nor, geo.getAttribute('normal')], [col, geo.getAttribute('color')]] as const) {
+        expect(q.getX(i)).toBeCloseTo(f.getX(i), 4);
+        expect(q.getZ(i)).toBeCloseTo(f.getZ(i), 4);
+      }
+    }
+  });
+
+  it('leaves colours outside 0…1 (e.g. HDR tints) as floats', () => {
+    const geo = new THREE.BoxGeometry(1, 1, 1);
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(new Array(geo.getAttribute('position').count * 3).fill(1.5), 3));
+    const root = new THREE.Group();
+    root.add(new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true })));
+    const out = unpackModel(packModel(root).model).children[0] as THREE.Mesh;
+    expect(out.geometry.getAttribute('color').array).toBeInstanceOf(Float32Array);
   });
 });
