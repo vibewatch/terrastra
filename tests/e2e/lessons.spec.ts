@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { fromHub, openApp } from './helpers.ts';
+import { fromHub, openApp, signIn } from './helpers.ts';
 
 type W = { __lesson?: { painted: boolean; lineCount: number; sunLat: number; now: number; playing: boolean } | null; __pp: { globe: { h: number; zoomRange: [number, number] | null; captureTaps: boolean; forceNight: boolean; simTime: number | null; ev: { onGlobeTap?: (a: number, b: number) => void } } } };
 const lesson = (page: Page) => page.evaluate(() => { const l = (window as unknown as W).__lesson; return l ? { painted: l.painted, lines: l.lineCount, sunLat: l.sunLat, now: l.now, playing: l.playing } : null; });
@@ -10,47 +10,47 @@ const beside = async (page: Page) => {
 };
 const globe = (page: Page) => page.evaluate(() => { const g = (window as unknown as W).__pp.globe; return { capture: g.captureTaps, night: g.forceNight, sim: g.simTime }; });
 
-type QW = W & { __quiz?: () => { options?: unknown[]; multi?: number[]; order?: unknown[]; match?: unknown[]; num?: { answer: number }; place?: { at: [number, number] }[]; at?: [number, number]; pick?: string } | null };
-/** The current question's type and what answers it (read from the lesson data). */
+type Key = { pick?: number; picks?: number[]; seq?: number[]; pairs?: number[]; value?: number; at?: [number, number] | [number, number][]; tag?: string };
+type QW = W & { __quiz?: () => { kind: string; key?: Key } | null };
+/** The current question's type and its answer key (the server sends keys only with DEV_LOGIN, for tests). */
 const question = (page: Page) => page.evaluate(() => {
   const q = (window as unknown as QW).__quiz?.();
-  if (!q) return null;
-  const kind = q.multi ? 'multi' : q.options ? 'choice' : q.order ? 'order' : q.match ? 'match' : q.num ? 'num' : q.place ? 'place' : q.pick ? 'pick' : 'at';
-  return { kind, n: q.order?.length ?? q.match?.length ?? 0, num: q.num?.answer ?? 0, place: q.place?.map(p => p.at) ?? [], at: q.at ?? null };
+  return q ? { kind: q.kind, key: q.key! } : null;
 });
 const tapGlobe = (page: Page, [lat, lon]: [number, number]) => page.evaluate(([a, b]) => (window as unknown as W).__pp.globe.ev.onGlobeTap!(a, b), [lat, lon]);
 /** Answers the current question correctly, whatever its type; returns the type. */
 async function answer(page: Page): Promise<string> {
-  const card = page.getByTestId('lesson'), q = (await question(page))!;
+  const card = page.getByTestId('lesson'), { kind, key } = (await question(page))!;
+  expect(key, 'answer key (DEV_LOGIN)').toBeTruthy();
   const check = () => card.getByTestId('lesson-check').click();
-  if (q.kind === 'choice') await card.locator('[data-testid="lesson-opt"][data-right="true"]').click();
-  else if (q.kind === 'multi') {
-    const n = await card.locator('[data-testid="lesson-opt"][data-right="true"]').count();
-    for (let j = 0; j < n; j++) await card.locator('[data-testid="lesson-opt"][data-right="true"]').nth(j).click();
+  const opt = (j: number) => card.locator(`[data-testid="lesson-opt"][data-pos="${j}"]`);
+  if (kind === 'choice') await opt(key.pick!).click();
+  else if (kind === 'multi') {
+    for (const j of key.picks!) await opt(j).click();
     await check();
-  } else if (q.kind === 'order') {
-    for (let p = 0; p < q.n; p++) await card.locator(`[data-testid="lesson-order-item"][data-pos="${p}"]`).click();
+  } else if (kind === 'order') {
+    for (const j of key.seq!) await card.locator(`[data-testid="lesson-order-item"][data-pos="${j}"]`).click();
     await check();
-  } else if (q.kind === 'match') {
-    for (let j = 0; j < q.n; j++) {
+  } else if (kind === 'match') {
+    for (const [j, r] of key.pairs!.entries()) {
       const l = card.locator(`[data-testid="lesson-match-l"][data-pos="${j}"]`);
       if (!/\bon\b/.test((await l.getAttribute('class')) ?? '')) await l.click();
-      await card.locator(`[data-testid="lesson-match-r"][data-pos="${j}"]`).click();
+      await card.locator(`[data-testid="lesson-match-r"][data-pos="${r}"]`).click();
     }
     await check();
-  } else if (q.kind === 'num') {
-    await card.getByTestId('lesson-num').fill(String(q.num));
+  } else if (kind === 'num') {
+    await card.getByTestId('lesson-num').fill(String(key.value));
     await check();
-  } else if (q.kind === 'place') {
+  } else if (kind === 'place') {
     await expect.poll(async () => (await globe(page)).capture).toBe(true);
-    for (let j = 0; j < q.place.length; j++) { await card.locator(`[data-testid="lesson-place-chip"][data-pos="${j}"]`).click(); await tapGlobe(page, q.place[j]); }
+    for (const [j, at] of (key.at as [number, number][]).entries()) { await card.locator(`[data-testid="lesson-place-chip"][data-pos="${j}"]`).click(); await tapGlobe(page, at); }
     await check();
-  } else if (q.kind === 'at') {
+  } else if (kind === 'at') {
     await expect.poll(async () => (await globe(page)).capture).toBe(true);
-    await tapGlobe(page, q.at!);
+    await tapGlobe(page, key.at as [number, number]);
   } else throw new Error('pick questions are answered on the astronomy board');
   await expect(card.getByTestId('lesson-why')).toHaveClass(/ok/);
-  return q.kind;
+  return kind;
 }
 /** From a lesson's steps to its quiz; answers every question and returns their types. */
 async function answerAll(page: Page): Promise<string[]> {
@@ -61,10 +61,49 @@ async function answerAll(page: Page): Promise<string[]> {
   return kinds;
 }
 
+test('guests take the free lessons; signing in opens the rest and keeps the record', async ({ page }) => {
+  test.setTimeout(300_000);
+  const errors: string[] = [];
+  page.on('pageerror', e => errors.push(e.message));
+  await openApp(page);
+  const card = page.getByTestId('lesson');
+  await fromHub(page, 'learn', 'menu-lessons');
+  await expect(page.getByTestId('lesson-list')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId('lesson-shape').locator('.lesson-free')).toBeVisible();
+  await expect(page.getByTestId('lesson-zones')).toHaveAttribute('data-locked', 'true');
+  // a free lesson as a guest: graded on the server, not kept
+  await page.getByTestId('lesson-shape').click();
+  await expect(card).toBeVisible();
+  await answerAll(page);
+  await expect(card.getByTestId('lesson-save-signin')).toBeVisible();
+  await card.getByTestId('lesson-exit').click();
+  // a locked lesson asks to sign in, and the magic link comes back to it
+  await page.evaluate(() => { location.hash = 'lesson/zones'; });
+  await expect(page.getByTestId('lesson-signin')).toBeVisible({ timeout: 30_000 });
+  await page.getByTestId('lesson-signin-go').click();
+  await page.getByTestId('email').fill(`gate.${Date.now()}@example.com`);
+  await page.getByTestId('send-link').click();
+  const link = await page.getByTestId('dev-link').getAttribute('href');
+  expect(link).toContain('/api/auth/callback/email');
+  await page.goto(link!.replace(/^https?:\/\/[^/]+/, ''));
+  // (the app starts the lesson from the link's #lesson/zones, then clears the hash)
+  await expect(card).toBeVisible({ timeout: 90_000 });
+  expect(await page.evaluate(() => (window as unknown as { __run?: () => { id: string } }).__run?.().id)).toBe('zones');
+  const n = (await answerAll(page)).length;
+  await expect(card.getByTestId('lesson-saved')).toBeVisible();
+  // the record is on the server, and on the learner's dashboard
+  const stats = await page.evaluate(() => fetch('/api/me/stats').then(r => r.json()));
+  expect(stats.recent[0]).toMatchObject({ id: 'zones', done: true, best: n, of: n });
+  await page.goto('/account');
+  await expect(page.locator('main')).toContainText(stats.recent[0].title[0]);
+  expect(errors).toEqual([]);
+});
+
 test('geography class: pick a lesson, watch the steps, answer the quiz, leave cleanly', async ({ page }, info) => {
   test.setTimeout(300_000);
   const errors: string[] = [];
   page.on('pageerror', e => errors.push(e.message));
+  await signIn(page);
   await openApp(page);
 
   // the picker, from the menu: all topics by theme, or one curriculum (the Chinese one by textbook volume)
@@ -131,7 +170,7 @@ test('geography class: pick a lesson, watch the steps, answer the quiz, leave cl
   await expect(card.getByTestId('lesson-next')).toBeDisabled();
   expect((await answerAll(page)).length).toBeGreaterThanOrEqual(5);
   // the score card sums up the lesson and offers the next one in the course
-  expect(await card.getByTestId('lesson-keys').locator('li').count()).toBeGreaterThanOrEqual(3);
+  await expect(card.getByTestId('lesson-keys').locator('li').nth(2)).toBeVisible();
   await expect(card.getByTestId('lesson-nextlesson')).toBeVisible();
   await card.getByTestId('lesson-exit').click();
   await expect(card).toHaveCount(0);
@@ -143,13 +182,14 @@ test('geography class: pick a lesson, watch the steps, answer the quiz, leave cl
   await expect(page.getByTestId('lesson-mark')).toHaveCount(0);
 
   // a teacher's deep link opens a lesson; a "find it" question takes a tap on the globe
-  await page.evaluate(() => { location.hash = 'lesson/continents'; });
+  await page.evaluate(() => { location.hash = 'lesson/steps'; });
   await expect(card).toBeVisible({ timeout: 30_000 });
-  await expect(card).toContainText(/continents/i);
+  await expect(card).toContainText(/staircase|steps/i);
   for (let i = 0; i < 12 && !(await question(page)); i++) await card.getByTestId('lesson-next').click();
   // a wrong answer is explained too
-  if ((await question(page))!.kind === 'choice') {
-    await card.locator('[data-testid="lesson-opt"][data-right="false"]').first().click();
+  const first = (await question(page))!;
+  if (first.kind === 'choice') {
+    await card.locator(`[data-testid="lesson-opt"]:not([data-pos="${first.key.pick}"])`).first().click();
     await expect(card.getByTestId('lesson-why')).toHaveClass(/no/);
     await card.getByTestId('lesson-next').click();
   }
@@ -159,11 +199,11 @@ test('geography class: pick a lesson, watch the steps, answer the quiz, leave cl
     if (q.kind === 'at' && !found) {
       found = true;
       await expect.poll(async () => (await globe(page)).capture).toBe(true);
-      await tapGlobe(page, q.at!);
+      await tapGlobe(page, q.key.at as [number, number]);
       await expect(card.getByTestId('lesson-why')).toHaveClass(/ok/);
       await expect(card.getByTestId('lesson-why')).toContainText(/km/);
       expect((await globe(page)).capture).toBe(false);
-      await page.screenshot({ path: info.outputPath('continents-locate.png') });
+      await page.screenshot({ path: info.outputPath('steps-locate.png') });
     } else await answer(page);
     await card.getByTestId('lesson-next').click();
   }
@@ -190,6 +230,7 @@ test('astronomy class: its own course, 3D models on a board of their own, "tap i
   test.setTimeout(300_000);
   const errors: string[] = [];
   page.on('pageerror', e => errors.push(e.message));
+  await signIn(page);
   await openApp(page);
 
   await fromHub(page, 'learn', 'menu-astro');
@@ -253,12 +294,13 @@ test('astronomy class: its own course, 3D models on a board of their own, "tap i
   expect(errors).toEqual([]);
 });
 
-type LW = { __astro?: () => { lab: { params: { id: string; min: number; max: number; step?: number }[]; tasks: { done: (p: Record<string, number>, v: number) => boolean }[] } | null; value: number } | null };
+type LW = { __astro?: () => { value: number } | null; __run?: () => { id: string; step: number } };
 
 test('lesson activities: every question type, a hands-on lab, a lesson about where you live', async ({ page }, info) => {
   test.setTimeout(400_000);
   const errors: string[] = [];
   page.on('pageerror', e => errors.push(e.message));
+  await signIn(page);
   await openApp(page);
   const card = page.getByTestId('lesson');
 
@@ -279,13 +321,9 @@ test('lesson activities: every question type, a hands-on lab, a lesson about whe
   for (let i = 0; i < 10 && !(await card.getByTestId('lesson-lab').count()); i++) await card.getByTestId('lesson-next').click();
   await expect(card.getByTestId('lesson-lab')).toBeVisible();
   await expect(card.getByTestId('lab-task').first()).not.toHaveAttribute('data-done', 'true');
-  // find slider settings that do the first task (the lab's own rule), then set them like a learner would
-  const set = await page.evaluate(() => {
-    const b = (window as unknown as LW).__astro!()!, lab = b.lab!, ps = lab.params, N = 20;
-    const vals = (p: typeof ps[number]) => Array.from({ length: N + 1 }, (_, k) => { const st = p.step ?? (p.max - p.min) / 100, x = p.min + (k * (p.max - p.min)) / N; return p.min + Math.round((x - p.min) / st) * st; });
-    const grid = ps.reduce<Record<string, number>[]>((acc, p) => acc.flatMap(a => vals(p).map(v => ({ ...a, [p.id]: v }))), [{}]);
-    return grid.find(g => lab.tasks[0].done(g, b.value)) ?? null;
-  });
+  // slider settings that do the first task (the server keeps the lab's rules), set like a learner would
+  const { run, value } = await page.evaluate(() => { const w = window as unknown as LW; return { run: w.__run!(), value: w.__astro!()!.value }; });
+  const { params: set } = await (await page.request.post('/api/dev/lab', { data: { lesson: run.id, step: run.step, task: 0, value } })).json();
   expect(set).not.toBeNull();
   for (const [id, v] of Object.entries(set!)) await card.getByTestId('lab-' + id).fill(String(v));
   await expect(card.getByTestId('lab-task').first()).toHaveAttribute('data-done', 'true');

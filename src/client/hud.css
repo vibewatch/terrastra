@@ -529,6 +529,12 @@ body:has(.sky) .tour .tour-card.tour-card { left: 22px; right: auto; top: 112px;
 .lesson-row .small { font-size: .78rem; line-height: 1.38; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .lesson-row .meta { min-width: 46px; text-align: right; font-size: .68rem; padding-top: 2px; }
 .lesson-row.done .meta { color: var(--sig-hi); }
+.lesson-row.locked .tile, .lesson-row.locked strong { opacity: .62; }
+.lesson-row .lesson-lock { display: inline-flex; justify-content: flex-end; color: var(--hud-dim); }
+.lesson-free { margin-left: 7px; padding: 0 6px; border: 1px solid var(--sig-line); border-radius: 999px; color: var(--sig-hi); font-size: .64rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; vertical-align: 2px; }
+.lesson-gate { display: grid; gap: 12px; max-width: 440px; }
+.lesson-gate p { margin: 0; line-height: 1.55; }
+body.busy-lesson { cursor: progress; }
 .lesson-row .tour-link { position: absolute; right: 5px; bottom: 5px; width: 28px; height: 28px; min-width: 0; padding: 0; border-color: transparent; background: transparent; color: var(--hud-dim); }
 .lesson-row .tour-link:hover, .lesson-row .tour-link:focus-visible { color: var(--accent); border-color: var(--hud-line); }
 @media (max-width: 760px) { .lesson-row .tour-pick .meta { display: block; } .lesson-row .tour-pick { padding: 8px 8px 8px 8px; gap: 9px; } }

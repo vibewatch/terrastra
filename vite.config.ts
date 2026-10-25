@@ -4,7 +4,7 @@ import { defineConfig } from 'vite';
 export default defineConfig({
   base: process.env.BASE_PATH ?? '/',
   // NOHMR=1: no live reload (for screenshot QA while files are being edited)
-  server: { port: 5173, proxy: { '/api': 'http://localhost:8787' }, hmr: process.env.NOHMR ? false : undefined },
+  server: { port: 5173, proxy: Object.fromEntries(['/api', '/signin', '/account', '/_next'].map(p => [p, 'http://localhost:3000'])) /* npm run dev:web */, hmr: process.env.NOHMR ? false : undefined },
   build: {
     target: 'es2022',
     chunkSizeWarningLimit: 1200,

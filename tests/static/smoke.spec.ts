@@ -20,6 +20,11 @@ test('static build works below a sub-path', async ({ page }) => {
   await page.locator('#btn-menu').click();
   await expect(page.getByTestId('backup-export')).toBeVisible();
 
+  // lessons live on the server: the static edition points to the full one
+  await page.goto('?lowfx=1&notut#lesson/shape');
+  await ready(page);
+  await expect(page.getByTestId('lesson-full')).toBeVisible({ timeout: 30_000 });
+
   // deep link into a lazy scene (its chunk comes from the sub-path)
   await page.goto('?lowfx=1&notut#milkyway');
   await ready(page);

@@ -1,0 +1,226 @@
+// Terrastra's server database: PostgreSQL in production, SQLite for local development (prisma.config.ts derives the
+// SQLite copy from this file). The connection URL is DATABASE_URL (see prisma/env.ts).
+generator client {
+  provider     = "prisma-client"
+  output       = "../web/generated/prisma"
+  moduleFormat = "esm"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  LEARNER
+  TEACHER
+  ADMIN
+}
+
+enum LessonStatus {
+  STARTED
+  COMPLETED
+}
+
+enum ReactionKind {
+  like
+  visited
+}
+
+// ---------- accounts (NextAuth) ----------
+
+model User {
+  id            String    @id @default(cuid())
+  email         String?   @unique
+  emailVerified DateTime?
+  name          String?
+  image         String?
+  /// public nickname shown in the guestbook; `handleKey` is its lower-case form, unique
+  handle        String?
+  handleKey     String?   @unique
+  role          Role      @default(LEARNER)
+  locale        String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  lastSeenAt    DateTime?
+
+  accounts  Account[]
+  sessions  Session[]
+  progress  ProgressSnapshot?
+  lessons   LessonProgress[]
+  attempts  QuizAttempt[]
+  labTasks  LabTaskCompletion[]
+  events    LearningEvent[]
+  daily     DailyResult[]
+  guestbook GuestbookEntry[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ---------- learner state ----------
+
+/// The explorer's collections (stickers, passport, game records…), merged conflict-free with each device.
+model ProgressSnapshot {
+  userId    String   @id
+  data      Json
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+/// One row per learner and lesson: how far they got and their best quiz score.
+model LessonProgress {
+  userId      String
+  lessonId    String
+  subject     String
+  status      LessonStatus @default(STARTED)
+  stepReached Int          @default(0)
+  steps       Int          @default(0)
+  bestScore   Int          @default(0)
+  lastScore   Int?
+  quizSize    Int          @default(0)
+  /// finished runs through the quiz
+  completions Int          @default(0)
+  timeSpentS  Int          @default(0)
+  startedAt   DateTime     @default(now())
+  lastAt      DateTime     @default(now())
+  completedAt DateTime?
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, lessonId])
+  @@index([userId, lastAt])
+}
+
+/// One run through a lesson; its quiz answers are graded and kept on the server.
+model QuizAttempt {
+  id         String       @id @default(cuid())
+  userId     String
+  lessonId   String
+  /// the place a "where I live" lesson was written about
+  home       Json?
+  total      Int
+  score      Int?
+  startedAt  DateTime     @default(now())
+  finishedAt DateTime?
+  user       User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  answers    QuizAnswer[]
+
+  @@index([userId, lessonId])
+  @@index([userId, startedAt])
+}
+
+model QuizAnswer {
+  attemptId String
+  index     Int
+  kind      String
+  correct   Boolean
+  response  Json
+  at        DateTime    @default(now())
+  attempt   QuizAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+
+  @@id([attemptId, index])
+}
+
+/// A lab task the learner did (checked on the server).
+model LabTaskCompletion {
+  userId   String
+  lessonId String
+  step     Int
+  task     Int
+  at       DateTime @default(now())
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, lessonId, step, task])
+}
+
+/// Activity log: lessons started and finished, daily puzzles… (streaks and the dashboard's timeline).
+model LearningEvent {
+  id     Int      @id @default(autoincrement())
+  userId String
+  type   String
+  ref    String?
+  data   Json?
+  at     DateTime @default(now())
+  user   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, at])
+}
+
+/// Daily Planet: one result per learner and puzzle day.
+model DailyResult {
+  userId  String
+  day     Int
+  won     Boolean
+  guesses Int
+  at      DateTime @default(now())
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, day])
+}
+
+// ---------- community ----------
+
+/// Anonymous like/visited marks per visitor cookie.
+model Reaction {
+  visitor   String
+  item      String
+  kind      ReactionKind
+  createdAt DateTime     @default(now())
+
+  @@id([visitor, item, kind])
+  @@index([item, kind])
+}
+
+model GuestbookEntry {
+  id        Int               @id @default(autoincrement())
+  userId    String?
+  body      String
+  createdAt DateTime          @default(now())
+  reports   Int               @default(0)
+  hidden    Boolean           @default(false)
+  user      User?             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reportsBy GuestbookReport[]
+
+  @@index([hidden, id])
+}
+
+model GuestbookReport {
+  entryId Int
+  visitor String
+  entry   GuestbookEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+
+  @@id([entryId, visitor])
+}

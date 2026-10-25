@@ -292,7 +292,7 @@ test('account: magic link sign-in, nickname, sync, guestbook', async ({ page }) 
   await page.getByTestId('email').fill('kid.explorer@example.com');
   await page.getByTestId('send-link').click();
   const link = await page.getByTestId('dev-link').getAttribute('href');
-  expect(link).toContain('/api/auth/verify?token=');
+  expect(link).toContain('/api/auth/callback/email');
   await page.goto(link!.replace(/^https?:\/\/[^/]+/, ''));
   // the redirect lands on #signed-in, which the app handles once and clears
   await expect.poll(() => page.evaluate(() => location.hash)).toBe('');
@@ -305,6 +305,7 @@ test('account: magic link sign-in, nickname, sync, guestbook', async ({ page }) 
   const server = await page.evaluate(() => fetch('/api/progress').then(r => r.json()));
   expect(Object.keys(server.progress.dex)).toContain('an_lion');
   await shot(page, 'desktop_17_account');
+  await expect(page.getByTestId('my-learning')).toHaveAttribute('href', /\/account/);
   await page.keyboard.press('Escape');
   await fromHub(page, 'me', 'menu-guestbook');
   await page.getByTestId('gb-text').fill('Hello from the e2e test! https://spam.example');

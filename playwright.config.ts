@@ -23,10 +23,11 @@ export default defineConfig({
     { name: 'mobile', use: { ...devices['Pixel 7'], launchOptions: { args: gl } }, grep: /@mobile/ },
   ],
   webServer: {
-    command: `node src/server/index.ts`,
-    env: { PORT: String(PORT), DB_PATH: `/tmp/pp-e2e-${Date.now()}.db`, DEV_LOGIN: '1' },
+    // the built app (`npm run build:web`) on a fresh SQLite database
+    command: `npx prisma db push && npx next start web -p ${PORT}`,
+    env: { DATABASE_URL: `file:/tmp/terrastra-e2e-${Date.now()}.db`, DEV_LOGIN: '1', NEXTAUTH_URL: `http://localhost:${PORT}`, NEXTAUTH_SECRET: 'e2e-only-secret' },
     url: `http://localhost:${PORT}/api/health`,
     reuseExistingServer: false,
-    timeout: 30_000,
+    timeout: 60_000,
   },
 });

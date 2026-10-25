@@ -1,120 +1,116 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import type { Server } from 'node:http';
-import { openDb } from '../../src/server/db.ts';
-import { createApp, cleanText, isBlocked, HANDLE_RE } from '../../src/server/app.ts';
-import { emptyProgress } from '../../src/shared/lib/progress.ts';
-
-let server: Server, base = '';
-beforeAll(async () => {
-  const app = createApp({ db: openDb(':memory:'), devLogin: true, baseUrl: 'http://test', secureCookies: false });
-  await new Promise<void>(r => { server = app.listen(0, () => r()); });
-  const a = server.address();
-  base = `http://127.0.0.1:${typeof a === 'object' && a ? a.port : 0}`;
-});
-afterAll(() => server.close());
-
-const jar = new Map<string, string>();
-async function call(method: string, path: string, body?: unknown, extra: Record<string, string> = {}) {
-  const res = await fetch(base + path, {
-    method, redirect: 'manual',
-    headers: { ...(body !== undefined ? { 'content-type': 'application/json' } : {}), cookie: [...jar].map(([k, v]) => `${k}=${v}`).join('; '), ...extra },
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
-  for (const c of res.headers.getSetCookie()) { const [kv] = c.split(';'); const [k, v] = kv.split('='); if (v) jar.set(k, v); else jar.delete(k); }
-  const text = await res.text();
-  let json: any = null; try { json = JSON.parse(text); } catch { /* not json */ }
-  return { status: res.status, json, location: res.headers.get('location') };
-}
-
-describe('auth', () => {
-  it('rejects bad email, non-JSON and cross-origin writes', async () => {
-    expect((await call('POST', '/api/auth/request', { email: 'nope' })).status).toBe(400);
-    const r = await fetch(base + '/api/auth/request', { method: 'POST', headers: { 'content-type': 'text/plain' }, body: 'x' });
-    expect(r.status).toBe(415);
-    expect((await call('POST', '/api/auth/request', { email: 'a@b.co' }, { origin: 'https://evil.example' })).status).toBe(403);
-    expect((await call('POST', '/api/auth/request', { email: 'a@b.co' }, { origin: 'null' })).status).toBe(403);
-  });
-  it('requires a session for private endpoints', async () => {
-    expect((await call('GET', '/api/progress')).status).toBe(401);
-    expect((await call('POST', '/api/guestbook', { body: 'hi' })).status).toBe(401);
-    expect((await call('GET', '/api/me')).json).toEqual({ user: null });
-  });
-  it('magic link signs in once; token cannot be reused', async () => {
-    const r = await call('POST', '/api/auth/request', { email: 'Kid@Example.com' });
-    expect(r.status).toBe(200);
-    const path = new URL(r.json.devLink).pathname + new URL(r.json.devLink).search;
-    const v = await call('GET', path);
-    expect(v.status).toBe(302); expect(v.location).toBe('/#signed-in');
-    expect((await call('GET', '/api/me')).json.user.email).toBe('kid@example.com');
-    const again = await fetch(base + path, { redirect: 'manual' });
-    expect(again.headers.get('location')).toBe('/#auth-error');
-    expect((await fetch(base + '/api/auth/verify?token=garbage', { redirect: 'manual' })).headers.get('location')).toBe('/#auth-error');
-  });
-});
-
-describe('profile, progress, reactions, guestbook', () => {
-  it('validates nickname', async () => {
-    expect((await call('PUT', '/api/profile', { handle: 'x' })).status).toBe(400);
-    expect((await call('PUT', '/api/profile', { handle: 'idiot99' })).status).toBe(400);
-    const ok = await call('PUT', '/api/profile', { handle: '探险家_01' });
-    expect(ok.status).toBe(200); expect(ok.json.user.handle).toBe('探险家_01');
-  });
-  it('a malformed cookie from another app does not break the session; the public origin passes the CSRF check', async () => {
-    const mine = [...jar].map(([k, v]) => `${k}=${v}`).join('; ');
-    expect((await call('GET', '/api/me', undefined, { cookie: 'other=%E0%A4%A; ' + mine })).json.user).not.toBeNull();
-    expect((await call('PUT', '/api/progress', { progress: emptyProgress() }, { origin: 'http://test' })).status).toBe(200);
-  });
-  it('merges progress on PUT', async () => {
-    const p1 = emptyProgress(); p1.dex = { an_lion: 100 }; p1.updatedAt = 1;
-    expect((await call('PUT', '/api/progress', { progress: p1 })).json.progress.dex).toEqual({ an_lion: 100 });
-    const p2 = emptyProgress(); p2.dex = { an_panda: 200, an_lion: 50 }; p2.updatedAt = 2;
-    const r = await call('PUT', '/api/progress', { progress: p2 });
-    expect(r.json.progress.dex).toEqual({ an_lion: 50, an_panda: 200 });
-    expect((await call('GET', '/api/progress')).json.progress.dex).toEqual({ an_lion: 50, an_panda: 200 });
-    expect((await call('PUT', '/api/progress', { progress: { v: 9 } })).status).toBe(400);
-    expect((await call('PUT', '/api/progress', { progress: { ...emptyProgress(), dex: null } })).status).toBe(400);
-  });
-  it('reactions are idempotent per visitor and validated', async () => {
-    expect((await call('POST', '/api/reactions', { key: 'eiffel', kind: 'like', on: true })).json).toEqual({ like: 1, visited: 0 });
-    expect((await call('POST', '/api/reactions', { key: 'eiffel', kind: 'like', on: true })).json).toEqual({ like: 1, visited: 0 });
-    expect((await call('POST', '/api/reactions', { key: 'eiffel', kind: 'like', on: false })).json).toEqual({ like: 0, visited: 0 });
-    expect((await call('POST', '/api/reactions', { key: 'nope', kind: 'like', on: true })).status).toBe(400);
-    expect((await call('POST', '/api/reactions', { key: 'eiffel', kind: 'love', on: true })).status).toBe(400);
-  });
-  it('guestbook cleans links, blocks unkind words, hides after 3 reports', async () => {
-    const r = await call('POST', '/api/guestbook', { body: 'Hello <b>world</b> https://x.example/y' });
-    expect(r.status).toBe(201);
-    expect(r.json.entry.body).toBe('Hello <b>world</b> 🔗');
-    expect(r.json.entry.handle).toBe('探险家_01');
-    expect((await call('POST', '/api/guestbook', { body: 'you are dumb' })).status).toBe(400);
-    expect((await call('POST', '/api/guestbook', { body: '   ' })).status).toBe(400);
-    const id = r.json.entry.id;
-    // requests without a visitor cookie don't count (each would be a new visitor)
-    for (let i = 0; i < 3; i++) await fetch(base + `/api/guestbook/${id}/report`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
-    expect((await call('GET', '/api/guestbook')).json.entries.find((e: any) => e.id === id)).toBeDefined();
-    for (let i = 0; i < 3; i++) {
-      const vid = `${String(i).repeat(32)}`.slice(0, 32).replace(/[^a-f0-9]/g, 'a');
-      await fetch(base + `/api/guestbook/${id}/report`, { method: 'POST', headers: { 'content-type': 'application/json', cookie: `pp_vid=${vid}` }, body: '{}' });
-    }
-    expect((await call('GET', '/api/guestbook')).json.entries.find((e: any) => e.id === id)).toBeUndefined();
-  });
-  it('rate limits guestbook posts', async () => {
-    const codes: number[] = [];
-    for (let i = 0; i < 6; i++) codes.push((await call('POST', '/api/guestbook', { body: 'hi ' + i })).status);
-    expect(codes).toContain(429);
-  });
-  it('logout and account deletion', async () => {
-    expect((await call('DELETE', '/api/me')).status).toBe(200);
-    expect((await call('GET', '/api/me')).json.user).toBeNull();
-  });
-});
+import { describe, it, expect } from 'vitest';
+import { readFileSync, existsSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { cleanText, isBlocked, HANDLE_RE, EMAIL_RE, limiter, streak } from '../../src/server/rules.ts';
+import { answerKey, catalogue, content, FREE_LESSONS, grade, kindOf, labCheck, labSolve, lessonById, parseHome, wireLesson } from '../../src/server/lessons.ts';
+import { HOMES } from './lesson-check.ts';
+import type { Lesson } from '../../src/server/lessons.ts';
+import type { Home } from '../../src/shared/lessons/wire.ts';
 
 describe('helpers', () => {
-  it('cleanText / isBlocked / HANDLE_RE', () => {
+  it('cleanText / isBlocked / HANDLE_RE / EMAIL_RE', () => {
     expect(cleanText('a\u0000b   www.x.com  c')).toBe('a b 🔗 c');
     expect(isBlocked('I HATE this')).toBe(true);
     expect(HANDLE_RE.test('ok_name')).toBe(true);
     expect(HANDLE_RE.test('bad name')).toBe(false);
+    expect(EMAIL_RE.test('kid@school.org')).toBe(true);
+    expect(EMAIL_RE.test('nope')).toBe(false);
+  });
+  it('limiter and streak', () => {
+    const lim = limiter(2, 60_000);
+    expect([lim('a'), lim('a'), lim('a'), lim('b')]).toEqual([true, true, false, true]);
+    expect(streak([10, 9, 8, 6], 10)).toBe(3);
+    expect(streak([9, 8], 10)).toBe(2);
+    expect(streak([8], 10)).toBe(0);
+  });
+});
+
+const ids = [...Object.keys(catalogue('geo').lessons), ...Object.keys(catalogue('astro').lessons)];
+const homeOf = (h: (typeof HOMES)[number]) => parseHome({ ll: h.ll, climate: h.climate, biome: h.biome, a2: h.country?.a2 })!;
+/** every lesson, and each "where I live" lesson for a sample home */
+const runs = ids.flatMap((id): { l: Lesson; home: Home | null }[] => {
+  const l = lessonById(id)!;
+  return l.build ? HOMES.map(h => ({ l, home: homeOf(h) })) : [{ l, home: null }];
+});
+const hasFn = (x: unknown): boolean => typeof x === 'function' || (!!x && typeof x === 'object' && Object.values(x).some(hasFn));
+
+describe('lesson engine', () => {
+  it('lists every lesson once, with the free ones open', () => {
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids.length).toBeGreaterThan(100);
+    for (const id of FREE_LESSONS) expect(catalogue(id.startsWith('a-') ? 'astro' : 'geo').lessons[id]?.free).toBe(true);
+  });
+  it('sends lessons without code or answers', () => {
+    for (const { l, home } of runs) {
+      const c = content(l, home)!;
+      const w = wireLesson(l, { built: l.build ? c : undefined });
+      expect(hasFn(w), l.id).toBe(false);
+      expect(w.dev).toBeUndefined();
+      expect(w.quiz.length).toBe(c.quiz.length);
+      for (const q of w.quiz) for (const k of ['answer', 'multi', 'at', 'tolKm', 'num', 'place', 'pick', 'order', 'match']) expect(q, `${l.id} ${k}`).not.toHaveProperty(k);
+    }
+    const build = runs.find(r => r.l.build)!.l;
+    expect(wireLesson(build).quiz).toEqual([]);
+  });
+  it('grades each answer key right and a wrong answer wrong', () => {
+    for (const { l, home } of runs) {
+      const { quiz } = content(l, home)!;
+      quiz.forEach((q, k) => {
+        const key = answerKey(l.id, q, k);
+        expect(grade(l.id, q, k, key)?.ok, `${l.id}#${k}`).toBe(true);
+        const kind = kindOf(q);
+        if (kind === 'choice') expect(grade(l.id, q, k, { pick: ((key as { pick: number }).pick + 1) % q.options!.length })?.ok).toBe(false);
+        if (kind === 'order') expect(grade(l.id, q, k, { seq: [...(key as { seq: number[] }).seq].reverse() })?.ok).toBe(false);
+        if (kind === 'at') expect(grade(l.id, q, k, { at: [-q.at![0], q.at![1] > 0 ? q.at![1] - 180 : q.at![1] + 180] })?.ok).toBe(false);
+      });
+    }
+  });
+  it('refuses answers that do not fit the question', () => {
+    const l = lessonById('shape')!, q = l.quiz, k = q.findIndex(x => kindOf(x) === 'choice');
+    expect(grade(l.id, q[k], k, { pick: 99 })).toBeNull();
+    expect(grade(l.id, q[k], k, { seq: [0] })).toBeNull();
+    expect(grade(l.id, q[k], k, 'x')).toBeNull();
+    const o = runs.flatMap(({ l, home }) => content(l, home)!.quiz.map((q, k) => ({ l, q, k }))).find(x => kindOf(x.q) === 'order')!;
+    expect(grade(o.l.id, o.q, o.k, { seq: o.q.order!.map(() => 0) })).toBeNull();
+  });
+  it('checks lab tasks on the server, clamping slider values', () => {
+    let solved = 0;
+    for (const { l, home } of runs) content(l, home)!.steps.forEach(st => {
+      const tasks = st.astro?.tasks ?? [];
+      if (!tasks.length) return;
+      const far = Object.fromEntries((st.astro!.params ?? []).map(q => [q.id, q.max + 1e6]));
+      expect(labCheck(st, far, 0), l.id).toHaveLength(tasks.length);
+      expect(labCheck(st, far, Number.NaN)).toBeNull();
+      if (st.astro!.params?.length) expect(labCheck(st, {}, 0)).toBeNull();
+      const p = labSolve(st, 0, 0);
+      if (p) { expect(labCheck(st, p, 0)![0]).toBe(true); solved++; }
+    });
+    expect(solved).toBeGreaterThan(10);
+  });
+  it('reads the learner\'s home, naming the country itself', () => {
+    expect(parseHome({ ll: [39.9, 116.4], a2: 'CN', climate: 'tmonsoon2' })).toMatchObject({ country: { a2: 'CN', name: ['China', '中国'] } });
+    expect(parseHome({ ll: [91, 0] })).toBeNull();
+    expect(parseHome({ ll: [0, 0], a2: 'cn' })).toBeNull();
+    expect(parseHome({ ll: [0, 0], climate: 'lava' })).toBeNull();
+  });
+});
+
+describe('client bundle', () => {
+  it('never imports lesson content (it lives on the server)', () => {
+    const seen = new Set<string>(), todo = [resolve('src/client/main.ts')];
+    while (todo.length) {
+      const f = todo.pop()!;
+      if (seen.has(f)) continue;
+      seen.add(f);
+      const src = readFileSync(f, 'utf8').replace(/^\s*import type [^;]+;/gm, '').replace(/^\s*export type [^;]+;/gm, '');
+      for (const m of src.matchAll(/(?:from\s*|import\s*\(\s*|import\s+)['"](\.{1,2}\/[^'"]+\.ts)['"]/g)) {
+        const next = resolve(dirname(f), m[1]);
+        if (existsSync(next)) todo.push(next);
+      }
+    }
+    const content = [...seen].filter(f => /lessons\/(data|figs|l-[^/]+|astro\/l-[^/]+)\.ts$/.test(f));
+    expect(content).toEqual([]);
+    expect([...seen].some(f => f.endsWith('lessons/player.ts'))).toBe(true);
   });
 });
 
@@ -174,20 +170,5 @@ describe('sign-in mail', async () => {
     expect(seen).toEqual(expect.arrayContaining(['STARTTLS', 'AUTH', 'MAIL FROM:<pp@b.co>', 'RCPT TO:<kid@b.co>', 'DATA']));
     const body = Buffer.from(seen.slice(seen.indexOf('') + 1).join(''), 'base64').toString();
     expect(body).toContain('http://x/verify?token=1');
-  });
-
-  it('reports a failed send instead of claiming the link went out', async () => {
-    const db = openDb(':memory:');
-    const app = createApp({ db, devLogin: false, baseUrl: 'http://t', secureCookies: false, sendMail: async () => { throw new Error('down'); } });
-    const s: Server = await new Promise(r => { const x = app.listen(0, () => r(x)); });
-    const port = (s.address() as { port: number }).port;
-    const res = await fetch(`http://127.0.0.1:${port}/api/auth/request`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'a@b.co' }) });
-    expect(res.status).toBe(502);
-    expect((db.prepare('SELECT COUNT(*) AS n FROM login_tokens').get() as { n: number }).n).toBe(0);
-    const off = createApp({ db, devLogin: false, baseUrl: 'http://t', secureCookies: false });
-    const s2: Server = await new Promise(r => { const x = off.listen(0, () => r(x)); });
-    const r2 = await fetch(`http://127.0.0.1:${(s2.address() as { port: number }).port}/api/auth/request`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'a@b.co' }) });
-    expect(r2.status).toBe(503);
-    s.close(); s2.close();
   });
 });

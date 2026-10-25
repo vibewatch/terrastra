@@ -26,6 +26,41 @@ jobs:
       - run: npm run typecheck
       - run: npm test
 
+  # The full edition on Postgres: migrations match the schema, then the built server passes the API smoke test.
+  server:
+    needs: test
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: terrastra
+          POSTGRES_PASSWORD: terrastra
+          POSTGRES_DB: terrastra
+        ports: ['5432:5432']
+        options: --health-cmd "pg_isready -U terrastra" --health-interval 3s --health-timeout 3s --health-retries 20
+    env:
+      DATABASE_URL: postgresql://terrastra:terrastra@localhost:5432/terrastra
+      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_SECRET: ci-only-secret
+      DEV_LOGIN: '1'
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npx prisma migrate deploy
+      - name: Migrations match the schema
+        run: npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code
+      - run: npm run build:web
+      - name: API smoke test
+        run: |
+          npx next start web -p 3000 > next.log 2>&1 &
+          for i in $(seq 60); do curl -sf localhost:3000/api/health && break; sleep 1; done
+          node scripts/smoke-api.ts http://localhost:3000 || { cat next.log; exit 1; }
+
   # The published edition, built and served below a sub-path like GitHub Pages, then smoke-tested in Chromium.
   static-smoke:
     needs: test
@@ -41,7 +76,7 @@ jobs:
       - run: npm run test:static
 
   build:
-    needs: [test, static-smoke]
+    needs: [test, static-smoke, server]
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:

@@ -1,10 +1,17 @@
 {
+  // Code Node runs directly (type stripping): scripts, the Prisma config and the small server helpers. The lesson
+  // engine and the app are bundled by Next and checked with web/tsconfig.json.
   "compilerOptions": {
     "target": "ES2023",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "lib": ["ES2023", "DOM"],
-    "types": ["node"],
+    "lib": [
+      "ES2023",
+      "DOM"
+    ],
+    "types": [
+      "node"
+    ],
     "strict": true,
     "noEmit": true,
     "allowImportingTsExtensions": true,
@@ -12,5 +19,11 @@
     "erasableSyntaxOnly": true,
     "skipLibCheck": true
   },
-  "include": ["src/server", "src/shared", "scripts", "tests/unit/server.test.ts"]
+  "include": [
+    "scripts",
+    "prisma",
+    "prisma.config.ts",
+    "src/server/rules.ts",
+    "src/server/mail.ts"
+  ]
 }

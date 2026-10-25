@@ -9,7 +9,7 @@ import { OrbitControls } from '../../sky/controls.ts';
 import { releaseShared } from '../../sky/common.ts';
 import { KITS } from './kits.ts';
 import { disposeTree, v3 } from './draw.ts';
-import type { AstroClock, AstroScene, KitCtx, KitRun, Label, LabelOpts, Pair, V3 } from './types.ts';
+import type { AstroClock, AstroScene, BoardScene, KitCtx, KitRun, Label, LabelOpts, Pair, V3 } from './types.ts';
 
 export interface AstroOpts {
   low: boolean;
@@ -39,7 +39,7 @@ export class AstroStage {
   private labels: LiveLabel[] = [];
   private picks: { obj: THREE.Object3D; tag: string }[] = [];
   private kit: KitRun | null = null;
-  private cur: AstroScene | null = null;
+  private cur: BoardScene | null = null;
   private seq = 0;
   private raf = 0;
   private last = 0;
@@ -91,7 +91,7 @@ export class AstroStage {
   get zoom(): { dist: number; min: number; max: number } { return { dist: this.orbit.dist, min: this.orbit.minDist, max: this.orbit.maxDist }; }
 
   /** Shows one scene (a lesson step or a quiz question). The kit module loads on first use. */
-  async show(s: AstroScene): Promise<void> {
+  async show(s: BoardScene): Promise<void> {
     const seq = ++this.seq;
     this.setActive(true);
     this.clear();
@@ -105,7 +105,7 @@ export class AstroStage {
     const factory = (await KITS[s.kit]()).default as (ctx: KitCtx, o: AstroScene) => KitRun;
     if (seq !== this.seq) return;
     this.resize();
-    this.kit = factory(this.ctx(), s);
+    this.kit = factory(this.ctx(), s as AstroScene);
     if (s.cam) this.ctx().view(s.cam.from, s.cam.dist, s.cam.target, true);
     this.orbit.settle();
     this.kit.update(this.value, 0, 0);
@@ -125,12 +125,10 @@ export class AstroStage {
   }
 
   /** The scene's lab sliders and tasks. */
-  get lab(): { params: NonNullable<AstroScene['params']>; tasks: NonNullable<AstroScene['tasks']> } | null {
+  get lab(): { params: NonNullable<AstroScene['params']>; tasks: { text: Pair }[] } | null {
     const s = this.cur;
     return s?.params?.length || s?.tasks?.length ? { params: s.params ?? [], tasks: s.tasks ?? [] } : null;
   }
-  /** Which lab tasks are done now. */
-  tasksDone(): boolean[] { return (this.cur?.tasks ?? []).map(t => { try { return t.done(this.params, this.value); } catch { return false; } }); }
   /** Moves a lab slider. */
   setParam(id: string, v: number): void {
     if (!(id in this.params)) return;

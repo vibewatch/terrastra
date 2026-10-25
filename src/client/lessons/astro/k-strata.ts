@@ -12,7 +12,7 @@
 import * as THREE from 'three';
 import { Arrow, canvasTex, clamp, dirLight, line, ramp, setLine, starfield } from './draw.ts';
 import type { KitCtx, KitFactory, Label, LabelOpts, Pair } from './types.ts';
-import { foldModel } from '../l-senior1.ts';
+import { foldModel } from '../models.ts';
 
 export interface Opts {
   mode: 'history' | 'fold' | 'fault';

@@ -38,3 +38,15 @@ export async function fromHub(page: Page, tab: 'learn' | 'look' | 'play' | 'me',
   await page.getByTestId('hub-tab-' + tab).click();
   await page.getByTestId(id).click();
 }
+
+/** Signs the page's browser context in by email (the server keeps the magic link at /api/dev/mailbox with DEV_LOGIN=1). */
+export async function signIn(page: Page, email = `learner.${Date.now()}@example.com`): Promise<string> {
+  const r = page.request;
+  const { csrfToken } = await (await r.get('/api/auth/csrf')).json();
+  const sent = await r.post('/api/auth/signin/email', { form: { email, csrfToken, callbackUrl: '/', json: 'true' } });
+  expect(sent.ok()).toBe(true);
+  const { url } = await (await r.get('/api/dev/mailbox?email=' + encodeURIComponent(email))).json();
+  await r.get(url, { maxRedirects: 0 });
+  expect((await (await r.get('/api/me')).json()).user?.email).toBe(email);
+  return email;
+}

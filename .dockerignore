@@ -1,0 +1,14 @@
+.git
+node_modules
+dist
+.data
+web/.next
+web/public
+web/generated
+prisma/sqlite
+test-results
+playwright-report
+research
+docs/assets/screenshots
+.env
+*.db

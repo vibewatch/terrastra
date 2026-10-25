@@ -2,6 +2,7 @@ import { subName } from '../../shared/data/subs.ts';
 import { h, openModal, closeModal, toast, confetti } from './dom.ts';
 import { t, lang, countryName, fmtNum } from '../lib/i18n.ts';
 import { store, updateProgress } from '../store.ts';
+import { api } from '../lib/api.ts';
 import { CATALOGUE, LANDMARKS } from '../../shared/data/catalogue.ts';
 import { CITIES, CITY_ZH, cityName } from '../../shared/data/cities.ts';
 import { CONTINENT_NAMES } from '../../shared/data/iso.ts';
@@ -223,6 +224,8 @@ function openDaily(host: GameHost): void {
     save('dailyState', state);
     if (state.done) {
       updateProgress(p => { p.daily = finishStats(p.daily, state!); });
+      // signed in: the result is kept on the server too (streaks and the learning dashboard)
+      if (store.me) void api.daily(state.day, state.won, state.guesses.length).catch(() => undefined);
       if (state.won) { confetti(); sfx.fanfare(); } else sfx.bad();
       host.globe.flyTo(target.lat, target.lon, 1.2);
     } else res.band === 'warm' ? sfx.pop() : sfx.tap();

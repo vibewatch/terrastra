@@ -6,14 +6,18 @@
   "description": "Terrastra: an original 3D toy globe for curious kids",
   "scripts": {
     "dev": "vite",
-    "dev:server": "node --env-file-if-exists=.env --watch src/server/index.ts",
+    "dev:web": "next dev web -p 3000",
+    "db:setup": "node scripts/db-setup.ts",
+    "db:migrate": "prisma migrate dev",
     "build": "tsc --noEmit -p tsconfig.json && vite build && node scripts/build-pages.ts",
-    "start": "node --env-file-if-exists=.env src/server/index.ts",
-    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.server.json",
+    "build:web": "npm run build && node -e \"const f=require('node:fs');f.rmSync('web/public',{recursive:true,force:true});f.cpSync('dist','web/public',{recursive:true})\" && prisma generate && next build web",
+    "start": "next start web",
+    "postinstall": "prisma generate",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.server.json && tsc --noEmit -p web/tsconfig.json",
     "test": "vitest run",
     "test:e2e": "playwright test",
     "test:static": "VITE_STATIC=1 BASE_PATH=/terrastra/ npm run build && playwright test -c playwright.static.config.ts",
-    "test:all": "npm run typecheck && npm test && npm run build && npm run test:e2e",
+    "test:all": "npm run typecheck && npm test && npm run build:web && npm run test:e2e",
     "research:crawl": "cd research && mkdir -p data screenshots/static && node scripts/crawl-static.mjs",
     "research:explore": "cd research && mkdir -p data screenshots/app && node scripts/explore-app.mjs",
     "gen:wiki": "node scripts/gen-wiki.ts"
@@ -22,21 +26,43 @@
     "node": ">=24"
   },
   "dependencies": {
-    "express": "^5.3.0",
+    "@prisma/adapter-better-sqlite3": "^7.10.1",
+    "@prisma/adapter-pg": "^7.10.1",
+    "@prisma/client": "^7.10.1",
     "hls.js": "^1.7.3",
+    "next": "^16.4.2",
+    "next-auth": "^4.24.15",
+    "nodemailer": "^10.2.1",
+    "pg": "^8.23.1",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
     "three": "^0.186.1",
     "topojson-client": "^3.1.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.64.1",
-    "@types/express": "^5.0.6",
     "@types/node": "^26.6.5",
+    "@types/nodemailer": "^8.0.2",
+    "@types/pg": "^8.23.1",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
     "@types/three": "^0.186.0",
     "@types/topojson-client": "^3.1.5",
     "playwright": "^1.64.1",
+    "prisma": "^7.10.1",
     "typescript": "^7.0.2",
     "vite": "^8.3.4",
     "vitest": "^5.0.5",
     "world-atlas": "^2.0.2"
+  },
+  "allowScripts": {
+    "prisma@7.10.1": true,
+    "@prisma/engines@7.10.1": true,
+    "better-sqlite3@12.11.1": true
+  },
+  "overrides": {
+    "next-auth": {
+      "nodemailer": "$nodemailer"
+    }
   }
 }

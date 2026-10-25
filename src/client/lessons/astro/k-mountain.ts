@@ -9,7 +9,7 @@
 import * as THREE from 'three';
 import { clamp, dirLight, line, rng, starfield } from './draw.ts';
 import type { KitCtx, KitFactory, Label, LabelOpts, Pair } from './types.ts';
-import { BELT_NAME, EVEREST, beltsOf, footTemp, type Belt, type BeltId } from '../l-senior1.ts';
+import { BELT_NAME, EVEREST, beltsOf, footTemp, type Belt, type BeltId } from '../models.ts';
 
 export interface Opts {
   mode: 'lab' | 'everest';

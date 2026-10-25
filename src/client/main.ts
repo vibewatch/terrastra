@@ -278,6 +278,7 @@ async function boot(): Promise<void> {
     },
     sky: id => tourHost.sky(id, 'model'),
     blocked: () => gaming,
+    signIn: back => account(m => m.openAccount(back)),
   };
   const openLessons = () => lessonsMod(m => m.openLessons(lessonHost));
   const openAstro = () => lessonsMod(m => m.openLessons(lessonHost, 'astro'));

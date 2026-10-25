@@ -111,6 +111,8 @@ export type AstroScene =
   | With<'gnomon', GnomonOpts>
   | With<'nebula', NebulaOpts>
   | With<'optics', OpticsOpts>;
+/** A scene as the board gets it from the server: lab tasks without their rules (the server checks those). */
+export type BoardScene = AstroScene extends infer S ? S extends AstroScene ? Omit<S, 'tasks'> & { tasks?: { text: Pair }[] } : never : never;
 export type KitId = AstroScene['kit'];
 
 /** Camera: look at `target` (default origin) from direction `from`, `dist` away. The scene's up axis is +z. */

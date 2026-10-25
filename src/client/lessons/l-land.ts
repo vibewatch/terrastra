@@ -6,7 +6,7 @@ import { C, T, arrows, mk, par, type LL, type Lesson, type Pair } from './kit.ts
 import { CITIES, arrowDef, svg, tx, type Lx } from './figs.ts';
 import { ASIA_EUROPE, BERING, MED_HIMALAYA, PANAMA, PLATES, REGIONS, RING_OF_FIRE, SUEZ } from './geo.ts';
 import { LOESS_PLATEAU } from './geo-cn.ts';
-import { LAPSE, footTemp } from './l-senior1.ts';
+import { LAPSE, footTemp } from './models.ts';
 
 const land = ['Land and sea', '陆地和海洋'] as const;
 const climate = ['Weather and climate', '天气与气候'] as const;

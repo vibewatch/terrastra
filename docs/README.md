@@ -9,6 +9,7 @@
 | Product | [Feature parity](product/feature-parity.md) | Reference vs Terrastra, capability by capability |
 | Architecture | [ADRs](architecture/adr.md) | Architecture decision records (ADR-001 to ADR-032) |
 | Architecture | [Architecture & data model](architecture/architecture-and-data-model.md) | Modules, storage keys, SQLite schema, data flows, security |
+| Architecture | [Accounts and the learning server](architecture/accounts.md) | Next.js + NextAuth + Prisma, guest vs signed-in features, data model, API |
 | Planning | [Implementation plan](planning/implementation-plan.md) | Milestones M0–M12 with exit criteria |
 | Planning | [Backlog](planning/backlog.md) | Done tasks T-01…T-24 and open items B-01…B-17 with priority and size |
 

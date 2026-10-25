@@ -50,6 +50,7 @@ const P: Record<string, string> = {
   aurora: '<path d="M3 16c2-6 4-9 6-9s2.5 6 4.5 6S17 6 21 5"/><path d="M3 20h18M6 16v2M10 13v5M14 13.5v4.5M18 9v9"/>',
   plates: '<circle cx="12" cy="12" r="8.5"/><path d="M5 8.5c3 1 4 3 3.5 6.5M12 3.5c-.5 3 1.5 5 5 5.5M20 14c-3-.5-5.5.5-6.5 6"/>',
   passport: '<rect x="5.5" y="3.5" width="13" height="17" rx="1.5"/><circle cx="12" cy="11" r="3.5"/><path d="M8.5 11h7M12 7.5c-1.2 1-1.2 6 0 7M9 17.5h6"/>',
+  lock: '<rect x="5" y="11" width="14" height="9.5" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
   clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3.5 2"/>',
   book: '<path d="M4 5.5c2.5-1 5-1 8 1 3-2 5.5-2 8-1v13c-2.5-1-5-1-8 1-3-2-5.5-2-8-1z"/><path d="M12 6.5v13"/>',
   external: '<path d="M14 4.5h5.5V10M19.5 4.5 11 13"/><path d="M18 14v4.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10"/>',

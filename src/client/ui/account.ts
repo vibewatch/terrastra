@@ -1,7 +1,8 @@
 import { h, openModal, closeModal, toast } from './dom.ts';
-import { t } from '../lib/i18n.ts';
+import { t, lang } from '../lib/i18n.ts';
 import { icon } from './icons.ts';
 import { api } from '../lib/api.ts';
+import { url } from '../lib/env.ts';
 import { store, setMe, replaceProgress, subscribe } from '../store.ts';
 import { mergeProgress } from '../../shared/lib/progress.ts';
 
@@ -18,7 +19,8 @@ export async function syncNow(quiet = false): Promise<boolean> {
   }
 }
 
-export function openAccount(): void {
+/** The account card; a sign-in link from it brings the learner back to the hash route `back`. */
+export function openAccount(back = 'signed-in'): void {
   const body = h('div', { class: 'account', 'data-testid': 'account' });
   const render = () => {
     const me = store.me;
@@ -29,11 +31,12 @@ export function openAccount(): void {
         h('form', { class: 'row', onsubmit: async (e: Event) => {
           e.preventDefault();
           try {
-            const r = await api.requestLink(email.value.trim());
+            const r = await api.requestLink(email.value.trim(), back);
             out.replaceChildren(...[h('p', {}, t('linkSent')),
               r.devLink ? h('p', { class: 'small' }, t('devLink') + ': ', h('a', { href: r.devLink, 'data-testid': 'dev-link' }, t('signIn'))) : null].filter((x): x is HTMLParagraphElement => !!x));
           } catch (err) { out.replaceChildren(h('p', { class: 'error' }, (err as Error).message || t('offline'))); }
-        } }, email, h('button', { class: 'cta', type: 'submit', 'data-testid': 'send-link' }, t('sendLink'))), out);
+        } }, email, h('button', { class: 'cta', type: 'submit', 'data-testid': 'send-link' }, t('sendLink'))), out,
+        h('p', { class: 'small' }, h('a', { class: 'link', href: url(`signin?lang=${lang()}&callbackUrl=${encodeURIComponent('/#' + back)}`), 'data-testid': 'signin-page' }, t('moreSignIn'))));
       return;
     }
     const handle = h('input', { value: me.handle ?? '', maxlength: 16, pattern: '[A-Za-z0-9_\\u4E00-\\u9FFF]{2,16}', 'aria-label': t('handle'), title: t('handleRule'), 'data-testid': 'handle' });
@@ -45,8 +48,9 @@ export function openAccount(): void {
         try { const r = await api.setHandle(handle.value.trim()); setMe(r.user); toast('✓'); } catch (err) { toast((err as Error).message); }
       } }, h('label', {}, h('span', {}, t('handle')), h('div', { class: 'acct-input' }, handle, h('button', { class: 'pill', type: 'submit' }, t('saveBtn')))),
         h('small', { class: 'muted' }, t('handleRule'))),
+      h('a', { class: 'cta acct-dash', href: url(`account?lang=${lang()}`), 'data-testid': 'my-learning', html: icon('book', 15) }, h('span', {}, t('myLearning'))),
       h('div', { class: 'acct-actions' },
-        h('button', { class: 'cta', 'data-testid': 'sync-now', onclick: () => void syncNow() }, h('span', { html: icon('reset', 15) }), t('syncNow')),
+        h('button', { class: 'pill', 'data-testid': 'sync-now', onclick: () => void syncNow() }, h('span', { html: icon('reset', 15) }), t('syncNow')),
         h('button', { class: 'pill', 'data-testid': 'sign-out', onclick: async () => { try { await api.logout(); } catch { /* ignore */ } setMe(null); toast(t('signedOut')); render(); } }, t('signOut'))),
       h('button', { class: 'link danger acct-delete', 'data-testid': 'delete-account', onclick: async () => {
         if (!confirm(t('deleteConfirm'))) return;

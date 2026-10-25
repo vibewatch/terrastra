@@ -1,8 +1,15 @@
 node_modules/
 dist/
-data/            # local SQLite database (DB_PATH default)
+# local SQLite database (the development default) and its schema copy
+.data/
+prisma/sqlite/
 *.db
 *.db-*
+# the Next app: build output, the generated Prisma client, and the globe app copied in by `npm run build:web`
+web/.next/
+web/public/
+web/generated/
+web/next-env.d.ts
 .env
 test-results/
 playwright-report/

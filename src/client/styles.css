@@ -937,6 +937,8 @@ body.gaming .topbar .tools, body.gaming .info { display: none !important; }
 .acct-actions { display: flex; gap: 8px; align-items: center; padding-top: 14px; border-top: 1px solid var(--line); }
 .acct-actions .cta { display: inline-flex; align-items: center; gap: 7px; }
 .acct-actions .cta span { display: inline-flex; }
+.acct-dash { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 4px 0 12px; text-decoration: none; }
+.acct-dash span { display: inline-flex; }
 .acct-delete { margin-top: 14px; font-size: .82rem; text-decoration: none; opacity: .85; }
 .acct-delete:hover { text-decoration: underline; opacity: 1; }
 .gb-form { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
