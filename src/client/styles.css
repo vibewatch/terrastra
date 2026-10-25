@@ -193,6 +193,16 @@ a:hover { text-decoration: underline; }
   font-size: 11px !important;
   color: rgba(248, 250, 252, 0.92);
 }
+.country-tag {
+  position: absolute; left: 0; top: 0; z-index: 2;
+  pointer-events: none; white-space: nowrap;
+  padding: 4px 10px; border-radius: 8px;
+  background: rgba(2, 6, 23, 0.78); border: 1px solid rgba(253, 224, 71, 0.55);
+  box-shadow: 0 4px 14px rgba(2, 6, 23, 0.45);
+  color: #fef9c3; font: 700 13px/1.25 var(--font-display); letter-spacing: .02em;
+}
+.country-tag[hidden] { display: none; }
+.country-tag small { display: block; font-size: 10px; font-weight: 500; color: #cbd5e1; letter-spacing: .04em; }
 .lb-city { color: #cbd5e1; font-size: 10px !important; font-weight: 500; }
 .lb-city::before { content: "•"; margin-right: 4px; color: var(--accent); }
 .lb-cap::before { content: "★"; color: var(--amber); margin-right: 4px; }
@@ -793,7 +803,7 @@ body.time-travel .bl, body.riding .time-bar, body.gaming .time-bar { visibility:
 .thumb { border: 1px solid var(--line); padding: 0; border-radius: 10px; overflow: hidden; aspect-ratio: 4/3; background: #000; }
 .thumb img, .photo-view img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .photo-view img { border-radius: 12px; height: auto; }
-body.photo-mode .topbar, body.photo-mode .bl, body.photo-mode .br, body.photo-mode .info, body.photo-mode .labels { display: none !important; }
+body.photo-mode .topbar, body.photo-mode .bl, body.photo-mode .br, body.photo-mode .info, body.photo-mode .labels, body.photo-mode .country-tag { display: none !important; }
 .viewfinder { position: fixed; inset: 8% 10%; pointer-events: none; z-index: var(--z-photo); }
 .viewfinder .c { position: absolute; width: 40px; height: 40px; border: 3px solid var(--accent); }
 .viewfinder .tl { left: 0; top: 0; border-right: 0; border-bottom: 0; } .viewfinder .tr { right: 0; top: 0; border-left: 0; border-bottom: 0; }

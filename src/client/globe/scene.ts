@@ -10,6 +10,8 @@ import { buildModel, modelReady, setModelDetail, whenModelReady } from '../model
 import { mat } from '../models/prims.ts';
 import { outdoorEnvironment, orientEnvironment } from '../models/environment.ts';
 import { paintNightLights, type CountryInfo } from './painter.ts';
+import { countryAt, outlinePositions } from './borders.ts';
+import { CONTINENT_NAMES } from '../../shared/data/iso.ts';
 import { CITIES, cityName } from '../../shared/data/cities.ts';
 import { TYPE_META, type LayerKey } from '../../shared/data/typemeta.ts';
 import { subsolar } from '../../shared/lib/sun.ts';
@@ -355,7 +357,19 @@ export class Globe {
     uColorC: { value: THREE.Color };
   };
   private borderLines: THREE.LineSegments | null = null;
-  private borderMat = new THREE.LineBasicMaterial({ color: '#5fa4e6', transparent: true, opacity: 0.32, depthWrite: false });
+  private borderMat = new THREE.LineBasicMaterial({ color: '#f1f5f9', transparent: true, opacity: 0.5, depthWrite: false });
+  /** Border opacity [widest view, close up] for the current surface style. */
+  private borderTone: [number, number] = [0.42, 0.85];
+  /** Shapes for hover/tap lookups and highlight outlines: the 1:50m set once it has loaded, else the painted 1:110m one. */
+  private borderShapes: CountryInfo[] | null = null;
+  private hoverCountry: CountryInfo | null = null;
+  private pickedCountry: { c: CountryInfo; at: THREE.Vector3 } | null = null;
+  private cursor: { x: number; y: number } | null = null;
+  private hiShown: CountryInfo | null = null;
+  private hiLines: THREE.LineSegments | null = null;
+  private hiMat = new THREE.LineBasicMaterial({ color: '#fde047', transparent: true, opacity: 0.95, depthWrite: false });
+  private countryTag: HTMLDivElement;
+  private tagFor = '';
   private sun = new THREE.DirectionalLight(0xfffbeb, 2.55);
   private fillLight = new THREE.DirectionalLight(0x38bdf8, 1.1);
   private ambient = new THREE.HemisphereLight(0xe0f2fe, 0x0f172a, 1.15);
@@ -396,7 +410,13 @@ export class Globe {
   /** A lesson's [min, max] camera height: zooming stays inside it and never leaves the globe. */
   zoomRange: [number, number] | null = null;
   /** While the Solar System view is up, the globe stops rendering. */
-  paused = false;
+  private isPaused = false;
+  get paused(): boolean { return this.isPaused; }
+  set paused(v: boolean) {
+    this.isPaused = v;
+    if (v) { this.hoverCountry = null; this.cursor = null; this.countryTag.hidden = true; }
+    this.dirty = true;
+  }
   private overshoot = { v: 0, t: 0 };
   /** Optional extra visibility predicate (e.g. the time machine); selected/ridden items always stay visible. */
   private itemFilter: ((it: CatalogueItem) => boolean) | null = null;
@@ -424,7 +444,7 @@ export class Globe {
   /** Temporary layer switches on top of the user's settings (lessons hide clouds, labels…); never saved. */
   private layerOverride: Partial<Settings> | null = null;
   private effective: Settings | null = null;
-  setLayerOverride(o: Partial<Settings> | null): void { this.layerOverride = o; this.effective = null; this.dirty = true; }
+  setLayerOverride(o: Partial<Settings> | null): void { this.layerOverride = o; this.effective = null; this.pickedCountry = this.hoverCountry = null; this.dirty = true; }
   private get eff(): Settings { return this.layerOverride ? (this.effective ??= { ...this.settings, ...this.layerOverride }) : this.settings; }
   private radio: StationDots | null = null;
   /** The playing radio station (unit vector): the surface ripples spread from it when nothing is selected. */
@@ -445,6 +465,9 @@ export class Globe {
     this.camera = new THREE.PerspectiveCamera(42, 1, 0.005, 100);
     this.labelsEl = document.createElement('div');
     this.labelsEl.className = 'labels';
+    this.countryTag = document.createElement('div');
+    this.countryTag.className = 'country-tag';
+    this.countryTag.hidden = true;
 
     // AuraFM dual-layer glowing selection beacon
     this.selRing = new THREE.Group();
@@ -475,7 +498,7 @@ export class Globe {
     r.domElement.className = 'globe-canvas';
     r.domElement.setAttribute('aria-label', t('globeLabel'));
     r.domElement.tabIndex = 0;
-    this.container.append(r.domElement, this.labelsEl);
+    this.container.append(r.domElement, this.labelsEl, this.countryTag);
     this.scene.background = new THREE.Color(SPACE_BG);
 
     const landTex = new THREE.CanvasTexture(earthCanvas);
@@ -549,6 +572,19 @@ export class Globe {
     }, () => { /* stay flat: the painted map still works */ });
   }
 
+  /** Country shapes for hover/tap lookups and highlight outlines (finer than the painted map once they load). */
+  setCountryShapes(shapes: CountryInfo[]): void {
+    this.borderShapes = shapes;
+    this.hoverCountry = null;
+    const p = this.pickedCountry;
+    if (p) {
+      const [la, lo] = vecToLatLon(p.at.x, p.at.y, p.at.z);
+      const c = countryAt(shapes, la, lo);
+      this.pickedCountry = c ? { c, at: p.at } : null;
+    }
+    this.dirty = true;
+  }
+
   setBorderPositions(pos: Float32Array): void {
     if (this.borderLines) {
       this.scene.remove(this.borderLines);
@@ -557,7 +593,7 @@ export class Globe {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     this.borderLines = new THREE.LineSegments(geo, this.borderMat);
-    this.borderLines.visible = this.settings.borders;
+    this.borderLines.visible = this.eff.borders;
     this.scene.add(this.borderLines);
     this.dirty = true;
   }
@@ -841,12 +877,10 @@ export class Globe {
     this.sun.intensity = this.settings.shadows ? 2.6 : 0.9;
     this.ambient.intensity = this.settings.shadows ? 0.18 : 1.3;
     this.labelsEl.style.display = this.settings.names ? '' : 'none';
-    if (this.borderLines) {
-      this.borderLines.visible = this.settings.borders;
-      const isMinimal = this.settings.surfaceMode === 'minimal';
-      this.borderMat.color.set(isMinimal ? '#38bdf8' : '#5fa4e6');
-      this.borderMat.opacity = isMinimal ? 0.52 : 0.32;
-    }
+    const mode = this.settings.surfaceMode;
+    this.borderMat.color.set(mode === 'minimal' ? '#7dd3fc' : '#f1f5f9');
+    this.borderTone = mode === 'minimal' ? [0.6, 0.95] : mode === 'political' ? [0.5, 0.9] : [0.42, 0.85];
+    if (!this.settings.borders) { this.hoverCountry = null; this.pickedCountry = null; }
     const preset = AURA_PRESETS[this.settings.auraPreset ?? 'waves'] ?? AURA_PRESETS.waves;
     this.targetColorA.set(preset.colors[0]);
     this.targetColorB.set(preset.colors[1]);
@@ -897,6 +931,7 @@ export class Globe {
           if (si !== this.radio.hover) { this.radio.hover = si; this.dirty = true; }
           if (si >= 0) {
             if (this.hoveredKey) { this.hoveredKey = null; this.ev.onHover?.(null, null); }
+            this.hoverCountryAt(null);
             el.style.cursor = 'pointer';
             this.ev.onStationHover?.(si, this.stationScreen(si));
             return;
@@ -906,6 +941,7 @@ export class Globe {
         if (!this.gameMode && !this.ride) {
           const rect = el.getBoundingClientRect();
           const hit = this.pickAt(e.clientX - rect.left, e.clientY - rect.top);
+          this.hoverCountryAt(hit ? null : e.clientX - rect.left, e.clientY - rect.top);
           const nextKey = hit?.key ?? null;
           if (nextKey !== this.hoveredKey) {
             this.hoveredKey = nextKey;
@@ -939,6 +975,7 @@ export class Globe {
         this.hoveredKey = null;
         this.ev.onHover?.(null, null);
       }
+      if (this.hoverCountry) this.hoverCountryAt(null);
       if (this.ride) { this.ride.yaw -= dx * 0.008; this.dirty = true; return; }
       const k = this.degPerPx();
       this.lon -= dx * k / Math.max(0.2, Math.cos((this.lat * Math.PI) / 180));
@@ -949,6 +986,7 @@ export class Globe {
     });
     el.addEventListener('pointerleave', () => {
       if (this.radio && this.radio.hover >= 0) { this.radio.hover = -1; this.ev.onStationHover?.(-1, null); }
+      this.hoverCountryAt(null);
       if (this.hoveredKey) {
         this.hoveredKey = null;
         el.style.cursor = '';
@@ -1012,6 +1050,7 @@ export class Globe {
     const rect = this.renderer.domElement.getBoundingClientRect();
     const x = cx - rect.left, y = cy - rect.top;
     if (this.gameMode || this.captureTaps) {
+      this.pickedCountry = null;
       const ll = this.screenToLatLon(x, y);
       if (ll) this.ev.onGlobeTap?.(ll[0], ll[1]);
       return;
@@ -1021,7 +1060,82 @@ export class Globe {
       if (si >= 0) { this.ev.onStation?.(si); return; }
     }
     const hit = this.pickAt(x, y);
+    const ll = !hit && this.countryUi() ? this.screenToLatLon(x, y) : null;
+    const c = ll ? countryAt(this.shapes(), ll[0], ll[1]) : null;
+    this.pickedCountry = c && ll ? { c, at: new THREE.Vector3(...latLonToVec(ll[0], ll[1], 1.0025)) } : null;
+    this.dirty = true;
     this.ev.onPick?.(hit);
+  }
+
+  private shapes(): readonly CountryInfo[] { return this.borderShapes ?? this.countries; }
+  /** Country hover/tap highlighting: browsing with borders on (lessons, games and rides own the globe). */
+  private countryUi(): boolean {
+    return this.eff.borders && !this.gameMode && !this.captureTaps && !this.ride && !this.layerOverride && !this.isPaused;
+  }
+  private shownCountry(): CountryInfo | null {
+    return this.countryUi() ? this.hoverCountry ?? this.pickedCountry?.c ?? null : null;
+  }
+
+  /** Hovers the country under canvas point (x, y); `x = null` clears the hover. */
+  private hoverCountryAt(x: number | null, y = 0): void {
+    let c: CountryInfo | null = null;
+    if (x !== null && this.countryUi()) {
+      const ll = this.screenToLatLon(x, y);
+      if (ll) c = countryAt(this.shapes(), ll[0], ll[1]);
+    }
+    this.cursor = x === null ? null : { x, y };
+    if (c !== this.hoverCountry) { this.hoverCountry = c; this.dirty = true; }
+    this.updateTag();
+  }
+
+  private countryName(c: CountryInfo): string {
+    if (!c.a2 || c.a2 === 'XK') return c.name;
+    try { return new Intl.DisplayNames([this.lang], { type: 'region' }).of(c.a2) ?? c.name; } catch { return c.name; }
+  }
+
+  /** The name tag of the highlighted country: at the cursor while hovering, else where it was tapped. */
+  private updateTag(): void {
+    const c = this.shownCountry(), tag = this.countryTag;
+    let p: { x: number; y: number } | null = null;
+    if (c && c === this.hoverCountry && this.cursor) p = this.cursor;
+    else if (c && this.pickedCountry?.c === c) p = this.project(this.pickedCountry.at);
+    if (!c || !p) { if (!tag.hidden) tag.hidden = true; return; }
+    const key = this.lang + c.id;
+    if (this.tagFor !== key) {
+      this.tagFor = key;
+      const cont = CONTINENT_NAMES[c.continent];
+      tag.replaceChildren(document.createTextNode(this.countryName(c)));
+      if (cont && c.a2 !== 'AQ') {
+        const sub = document.createElement('small');
+        sub.textContent = cont[this.lang] ?? cont.en;
+        tag.append(sub);
+      }
+    }
+    tag.hidden = false;
+    tag.style.transform = `translate(${Math.round(p.x)}px, ${Math.round(p.y)}px) translate(-50%, calc(-100% - 14px))`;
+  }
+
+  /** Border visibility, zoom-dependent strength and the highlighted country's outline. */
+  private styleBorders(): void {
+    const on = this.eff.borders;
+    if (this.borderLines) this.borderLines.visible = on;
+    // faint on the whole-planet view, crisp from about country scale inward
+    const k = Math.max(0, Math.min(1, (Math.log(MAX_H) - Math.log(this.h)) / (Math.log(MAX_H) - Math.log(0.35))));
+    const [far, near] = this.borderTone;
+    this.borderMat.opacity = far + (near - far) * k * k * (3 - 2 * k);
+    const c = this.shownCountry();
+    if (c !== this.hiShown) {
+      this.hiShown = c;
+      if (this.hiLines) { this.scene.remove(this.hiLines); this.hiLines.geometry.dispose(); this.hiLines = null; }
+      if (c) {
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.BufferAttribute(outlinePositions(c.feature), 3));
+        this.hiLines = new THREE.LineSegments(geo, this.hiMat);
+        this.hiLines.renderOrder = 5;
+        this.scene.add(this.hiLines);
+      }
+    }
+    this.updateTag();
   }
 
   /** Shows (or removes) the radio station layer. */
@@ -1502,6 +1616,7 @@ export class Globe {
     if (!animate && !this.dirty) return;
     this.updateItems(dt);
     this.updateSun();
+    this.styleBorders();
     if (this.layers) {
       this.layers.setVisible(this.eff, this.gameMode);
       this.layers.update(this.clock, dt, this.camera.position.length() - 1, this.routeState, this.orbitAlt, this.placedObj);

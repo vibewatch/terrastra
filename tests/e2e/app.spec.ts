@@ -54,6 +54,25 @@ test('tutorial shows on first visit and can be completed', async ({ page }) => {
   await expect(page.getByTestId('tutorial')).toHaveCount(0);
 });
 
+test('hovering or tapping a country outlines it and names it', async ({ page }) => {
+  await openApp(page);
+  await flyTo(page, 46.6, 2.4, 1.2);
+  const box = (await page.locator('canvas.globe-canvas').boundingBox())!;
+  const tag = page.locator('.country-tag');
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await expect(tag).toContainText('France');
+  await expect.poll(() => page.evaluate(() => (window as any).__pp.globe.hiShown?.a2)).toBe('FR');
+  await page.mouse.down();
+  await page.mouse.up();
+  // the tapped country stays outlined after the pointer leaves
+  await page.locator('canvas.globe-canvas').dispatchEvent('pointerleave');
+  await expect.poll(() => page.evaluate(() => (window as any).__pp.globe.hoverCountry)).toBeNull();
+  await expect(tag).toContainText('France');
+  await expect.poll(() => page.evaluate(() => (window as any).__pp.globe.hiShown?.a2)).toBe('FR');
+  // the finer 1:50m shapes (small states included) arrive once the globe is idle
+  await expect.poll(() => page.evaluate(() => (window as any).__pp.globe.borderShapes?.length ?? 0), { timeout: 30_000 }).toBeGreaterThan(200);
+});
+
 test('menu: toggles layers & names, language persists', async ({ page }) => {
   await openApp(page);
   await page.getByTestId('btn-menu').click();

@@ -9,7 +9,8 @@ import { Globe } from './globe/scene.ts';
 import type { SolarUI } from './solar/ui.ts';
 import { detectQuality, lowFxFrom } from './globe/quality.ts';
 import { DEFAULT_H, MAX_H } from './globe/scene.ts';
-import { loadCountries, paintEarth, buildBorderPositions } from './globe/painter.ts';
+import { loadCountries, paintEarth } from './globe/painter.ts';
+import { borderPositions } from './globe/borders.ts';
 import { CATALOGUE, BY_KEY } from '../shared/data/catalogue.ts';
 import { Shell } from './ui/shell.ts';
 import { h, toast, confetti, closeModal } from './ui/dom.ts';
@@ -67,7 +68,9 @@ async function boot(): Promise<void> {
   await Promise.race([document.fonts?.ready, new Promise(r => setTimeout(r, 150))]);
   const countries = loadCountries(topo);
   const texWidth = quality.mapW;
-  const paint = () => paintEarth(topo, countries, { political: store.settings.surfaceMode === 'political', borders: store.settings.borders, width: texWidth });
+  let fineTopo: Topology | undefined;
+  const paint = () => paintEarth(topo, countries, { political: store.settings.surfaceMode === 'political', borders: store.settings.borders, width: texWidth, borderTopo: fineTopo });
+  const repaint = () => { earthCv = paint(); globe.setEarthTexture(earthCv); solar?.view.setEarthCanvas(earthCv); };
 
   const globeEl = h('div', { id: 'globe' });
   app.append(globeEl);
@@ -81,11 +84,27 @@ async function boot(): Promise<void> {
   globe.lang = lang();
   globe.applySettings(store.settings);
   let earthCv = paint();
-  if (!globe.init(earthCv, countries, CATALOGUE, buildBorderPositions(topo))) {
+  if (!globe.init(earthCv, countries, CATALOGUE, borderPositions(topo))) {
     loader?.remove();
     app.replaceChildren(h('div', { class: 'fatal', role: 'alert' }, h('p', { class: 'big' }, '🌍'), h('p', {}, t('webglFail'))));
     return;
   }
+  // finer borders (and the small states missing from 1:110m) after the opening fly-in, in idle-time steps so the
+  // globe never stutters; the painted fills stay 1:110m
+  const idle = () => new Promise<void>(ok => 'requestIdleCallback' in window ? requestIdleCallback(() => ok(), { timeout: 3000 }) : setTimeout(ok, 200));
+  setTimeout(() => void (async () => {
+    await idle();
+    const r = await fetch(url('data/countries-50m.json'));
+    if (!r.ok) return;
+    const t50 = (await r.json()) as Topology;
+    await idle();
+    globe.setBorderPositions(borderPositions(t50));
+    await idle();
+    globe.setCountryShapes(loadCountries(t50));
+    await idle();
+    fineTopo = t50;
+    if (store.settings.borders) repaint();
+  })().catch(() => { /* keep the 1:110m borders */ }), 4000);
 
   let gaming = false;
   // a geography lesson owns the globe's layers while it runs: anything that leaves the globe ends it
@@ -356,7 +375,7 @@ async function boot(): Promise<void> {
     if (!gaming) shell.applySettings(s); else globe.applySettings({ ...s, names: globe.settings.names });
     if ((s.surfaceMode === 'political') !== (painted.mode === 'political') || s.borders !== painted.borders) {
       painted = { mode: s.surfaceMode, borders: s.borders };
-      setTimeout(() => { earthCv = paint(); globe.setEarthTexture(earthCv); solar?.view.setEarthCanvas(earthCv); }, 0);
+      setTimeout(repaint, 0);
     }
   });
   onLang(l => { document.documentElement.lang = l; });

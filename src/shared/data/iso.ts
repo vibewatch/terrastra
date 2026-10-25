@@ -1,4 +1,4 @@
-// ISO 3166-1 numeric -> [alpha-2, continent] for the Natural Earth 1:110m country set (world-atlas).
+// ISO 3166-1 numeric -> [alpha-2, continent] for the Natural Earth 1:110m and 1:50m country sets (world-atlas).
 // Entries without an ISO numeric code in the source (N. Cyprus, Somaliland, Kosovo) are keyed by English name.
 export type Continent = 'africa' | 'europe' | 'asia' | 'north-america' | 'south-america' | 'oceania' | 'antarctica';
 
@@ -30,6 +30,16 @@ export const ISO: Record<string, [string, Continent]> = {
   '232': ['ER', T], '392': ['JP', A], '600': ['PY', S], '887': ['YE', A], '682': ['SA', A], '010': ['AQ', Q], '196': ['CY', E],
   '504': ['MA', T], '818': ['EG', T], '434': ['LY', T], '231': ['ET', T], '262': ['DJ', T], '800': ['UG', T], '646': ['RW', T],
   '070': ['BA', E], '807': ['MK', E], '688': ['RS', E], '499': ['ME', E], '780': ['TT', N], '728': ['SS', T],
+  // only in the 1:50m set (small states and territories)
+  '336': ['VA', E], '583': ['FM', O], '584': ['MH', O], '580': ['MP', O], '850': ['VI', N], '316': ['GU', O], '016': ['AS', O],
+  '239': ['GS', S], '086': ['IO', A], '654': ['SH', T], '612': ['PN', O], '660': ['AI', N], '136': ['KY', N], '060': ['BM', N],
+  '092': ['VG', N], '796': ['TC', N], '500': ['MS', N], '832': ['JE', E], '831': ['GG', E], '833': ['IM', E], '776': ['TO', O],
+  '702': ['SG', A], '690': ['SC', T], '678': ['ST', T], '674': ['SM', E], '882': ['WS', O], '670': ['VC', N], '662': ['LC', N],
+  '659': ['KN', N], '585': ['PW', O], '570': ['NU', O], '184': ['CK', O], '533': ['AW', N], '531': ['CW', N], '520': ['NR', O],
+  '492': ['MC', E], '480': ['MU', T], '470': ['MT', E], '462': ['MV', A], '438': ['LI', E], '296': ['KI', O], '308': ['GD', N],
+  '666': ['PM', N], '876': ['WF', O], '663': ['MF', N], '652': ['BL', N], '258': ['PF', O], '248': ['AX', E], '212': ['DM', N],
+  '234': ['FO', E], '174': ['KM', T], '446': ['MO', A], '344': ['HK', A], '132': ['CV', T], '052': ['BB', N], '048': ['BH', A],
+  '334': ['HM', Q], '574': ['NF', O], '028': ['AG', N], '020': ['AD', E], '534': ['SX', N],
   'N. Cyprus': ['CY', E], 'Somaliland': ['SO', T], 'Kosovo': ['XK', E],
 };
 

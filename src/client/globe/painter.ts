@@ -3,7 +3,6 @@ import type { Topology, GeometryCollection } from 'topojson-specification';
 import type { Feature, MultiPolygon, Polygon, Position } from 'geojson';
 import { ISO, type Continent } from '../../shared/data/iso.ts';
 import { CITIES } from '../../shared/data/cities.ts';
-import { latLonToVec } from '../../shared/lib/geo.ts';
 
 export interface CountryInfo { id: string; a2: string; continent: Continent; name: string; lat: number; lon: number; area: number; feature: Feature<Polygon | MultiPolygon> }
 
@@ -51,7 +50,8 @@ function labelPoint(f: Feature<Polygon | MultiPolygon>): { lat: number; lon: num
   return { lon, lat: cy / (3 * a), area: total };
 }
 
-export interface PaintOpts { political: boolean; borders: boolean; width: number }
+/** `borderTopo`: a finer topology to stroke the borders from (the fills always come from `topo`). */
+export interface PaintOpts { political: boolean; borders: boolean; width: number; borderTopo?: Topology }
 
 // Deterministic multi-octave value-noise for AuraFM satellite biome & elevation synthesis.
 function hash(x: number, y: number): number {
@@ -185,6 +185,8 @@ export function tracePath(targetCtx: CanvasRenderingContext2D, f: Feature<Polygo
   }
 }
 
+let paintedBase: { countries: CountryInfo[]; political: boolean; cv: HTMLCanvasElement } | null = null;
+
 export function paintEarth(topo: Topology, countries: CountryInfo[], opts: PaintOpts): HTMLCanvasElement {
   const W = opts.width, H = W / 2;
   const cv = document.createElement('canvas');
@@ -198,83 +200,99 @@ export function paintEarth(topo: Topology, countries: CountryInfo[], opts: Paint
   ctx.clearRect(0, 0, W, H);
 
   const path = (f: Feature<Polygon | MultiPolygon>, targetCtx: CanvasRenderingContext2D = ctx, isAntarctica = false) => tracePath(targetCtx, f, W, isAntarctica);
-
-  // Political fill with greedy colouring so neighbours differ.
-  const obj = topo.objects.countries as GeometryCollection;
-  const nb = neighbors(obj.geometries as never);
-  const colourIdx: number[] = [];
-  countries.forEach((_, i) => {
-    const used = new Set(nb[i].map(j => colourIdx[j]).filter(x => x !== undefined));
-    let k = (i * 3) % PALETTE.length;
-    for (let t = 0; t < PALETTE.length && used.has(k); t++) k = (k + 1) % PALETTE.length;
-    colourIdx[i] = k;
-  });
-
-  if (!opts.political) {
-    // Build anti-aliased land mask, then fill land pixels with procedural satellite biome colours.
-    const mask = document.createElement('canvas'); mask.width = W; mask.height = H;
-    const mctx = mask.getContext('2d')!;
-    mctx.fillStyle = '#fff';
-    mctx.strokeStyle = 'rgba(255,255,255,0.65)';
-    mctx.lineWidth = Math.max(0.8, W / 2048);
-    for (const c of countries) {
-      path(c.feature, mctx, c.a2 === 'AQ');
-      mctx.fill('evenodd');
-    }
-    const md = mctx.getImageData(0, 0, W, H).data;
-    const img = ctx.createImageData(W, H);
-    const d = img.data;
-    // The biome field is smooth (finest octave ≈ 0.7°), so it is evaluated on a lattice every S pixels, lazily and
-    // only next to land, and interpolated bilinearly in between: ~S² fewer evaluations, visually identical.
-    const S = W > 1024 ? 2 : 1, GW = W / S + 1, GH = H / S + 1;
-    const grid = new Float32Array(GW * GH * 3), done = new Uint8Array(GW * GH);
-    const node = (gx: number, gy: number): number => {
-      const k = gy * GW + gx;
-      if (!done[k]) {
-        done[k] = 1;
-        const c = terrainColour(90 - ((gy * S) / H) * 180, ((gx * S) / W) * 360 - 180);
-        grid[k * 3] = c[0]; grid[k * 3 + 1] = c[1]; grid[k * 3 + 2] = c[2];
-      }
-      return k * 3;
-    };
-    for (let y = 0; y < H; y++) {
-      const gy = Math.floor(y / S), fy = (y - gy * S) / S;
-      for (let x = 0; x < W; x++) {
-        const o = (y * W + x) * 4;
-        const alpha = md[o + 3];
-        if (alpha < 8) continue;
-        const gx = Math.floor(x / S), fx = (x - gx * S) / S;
-        const a = node(gx, gy), b = node(gx + 1, gy), c = node(gx, gy + 1), e = node(gx + 1, gy + 1);
-        for (let ch = 0; ch < 3; ch++) {
-          const top = grid[a + ch] + (grid[b + ch] - grid[a + ch]) * fx, bot = grid[c + ch] + (grid[e + ch] - grid[c + ch]) * fx;
-          d[o + ch] = top + (bot - top) * fy;
-        }
-        d[o + 3] = alpha;
-      }
-    }
-    ctx.putImageData(img, 0, 0);
-  } else {
-    countries.forEach((c, i) => {
-      path(c.feature, ctx, c.a2 === 'AQ');
-      ctx.fillStyle = c.a2 === 'AQ' ? '#cbd5e1' : PALETTE[colourIdx[i]];
-      ctx.fill('evenodd');
+  const base = paintedBase;
+  if (base && base.countries === countries && base.political === opts.political && base.cv.width === W) ctx.drawImage(base.cv, 0, 0);
+  else {
+    // Political fill with greedy colouring so neighbours differ.
+    const obj = topo.objects.countries as GeometryCollection;
+    const nb = neighbors(obj.geometries as never);
+    const colourIdx: number[] = [];
+    countries.forEach((_, i) => {
+      const used = new Set(nb[i].map(j => colourIdx[j]).filter(x => x !== undefined));
+      let k = (i * 3) % PALETTE.length;
+      for (let t = 0; t < PALETTE.length && used.has(k); t++) k = (k + 1) % PALETTE.length;
+      colourIdx[i] = k;
     });
+
+    if (!opts.political) {
+      // Build anti-aliased land mask, then fill land pixels with procedural satellite biome colours.
+      const mask = document.createElement('canvas'); mask.width = W; mask.height = H;
+      const mctx = mask.getContext('2d')!;
+      mctx.fillStyle = '#fff';
+      mctx.strokeStyle = 'rgba(255,255,255,0.65)';
+      mctx.lineWidth = Math.max(0.8, W / 2048);
+      for (const c of countries) {
+        path(c.feature, mctx, c.a2 === 'AQ');
+        mctx.fill('evenodd');
+      }
+      const md = mctx.getImageData(0, 0, W, H).data;
+      const img = ctx.createImageData(W, H);
+      const d = img.data;
+      // The biome field is smooth (finest octave ≈ 0.7°), so it is evaluated on a lattice every S pixels, lazily and
+      // only next to land, and interpolated bilinearly in between: ~S² fewer evaluations, visually identical.
+      const S = W > 1024 ? 2 : 1, GW = W / S + 1, GH = H / S + 1;
+      const grid = new Float32Array(GW * GH * 3), done = new Uint8Array(GW * GH);
+      const node = (gx: number, gy: number): number => {
+        const k = gy * GW + gx;
+        if (!done[k]) {
+          done[k] = 1;
+          const c = terrainColour(90 - ((gy * S) / H) * 180, ((gx * S) / W) * 360 - 180);
+          grid[k * 3] = c[0]; grid[k * 3 + 1] = c[1]; grid[k * 3 + 2] = c[2];
+        }
+        return k * 3;
+      };
+      for (let y = 0; y < H; y++) {
+        const gy = Math.floor(y / S), fy = (y - gy * S) / S;
+        for (let x = 0; x < W; x++) {
+          const o = (y * W + x) * 4;
+          const alpha = md[o + 3];
+          if (alpha < 8) continue;
+          const gx = Math.floor(x / S), fx = (x - gx * S) / S;
+          const a = node(gx, gy), b = node(gx + 1, gy), c = node(gx, gy + 1), e = node(gx + 1, gy + 1);
+          for (let ch = 0; ch < 3; ch++) {
+            const top = grid[a + ch] + (grid[b + ch] - grid[a + ch]) * fx, bot = grid[c + ch] + (grid[e + ch] - grid[c + ch]) * fx;
+            d[o + ch] = top + (bot - top) * fy;
+          }
+          d[o + 3] = alpha;
+        }
+      }
+      ctx.putImageData(img, 0, 0);
+    } else {
+      countries.forEach((c, i) => {
+        path(c.feature, ctx, c.a2 === 'AQ');
+        ctx.fillStyle = c.a2 === 'AQ' ? '#cbd5e1' : PALETTE[colourIdx[i]];
+        ctx.fill('evenodd');
+      });
+    }
+    // kept so that a border-only change (switching borders, finer border data) does not repaint the land
+    const copy = document.createElement('canvas');
+    copy.width = W; copy.height = H;
+    copy.getContext('2d')!.drawImage(cv, 0, 0);
+    paintedBase = { countries, political: opts.political, cv: copy };
   }
 
   if (opts.borders) {
-    const m = mesh(topo, obj as never, (a, b) => a !== b);
-    ctx.strokeStyle = !opts.political ? 'rgba(125, 211, 252, 0.35)' : 'rgba(15, 23, 42, 0.65)';
-    ctx.lineWidth = Math.max(1, W / 1600);
-    for (const line of m.coordinates) {
+    const bt = opts.borderTopo ?? topo;
+    const m = mesh(bt, bt.objects.countries as GeometryCollection as never, (a, b) => a !== b);
+    const w = Math.max(1, W / 1600);
+    const trace = () => {
       ctx.beginPath();
-      let prev: number | null = null;
-      line.forEach(([lon, lat]) => {
-        const x = X(lon), y = Y(lat);
-        if (prev === null || Math.abs(prev - x) > W / 2) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-        prev = x;
-      });
-      ctx.stroke();
-    }
+      for (const line of m.coordinates) {
+        let prev: number | null = null;
+        for (const [lon, lat] of line) {
+          const x = X(lon), y = Y(lat);
+          if (prev === null || Math.abs(prev - x) > W / 2) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+          prev = x;
+        }
+      }
+    };
+    trace();
+    ctx.lineJoin = ctx.lineCap = 'round';
+    // a dark casing under a light line keeps borders legible over both bright deserts and dark forests
+    if (!opts.political) { ctx.strokeStyle = 'rgba(2, 6, 23, 0.35)'; ctx.lineWidth = w * 2.6; ctx.stroke(); }
+    ctx.strokeStyle = !opts.political ? 'rgba(241, 245, 249, 0.55)' : 'rgba(15, 23, 42, 0.7)';
+    ctx.lineWidth = w;
+    ctx.stroke();
   }
   return cv;
 }
@@ -369,28 +387,5 @@ export function paintNightLights(countries: CountryInfo[], width: number): HTMLC
   cachedNightCanvas = cv;
   cachedNightWidth = width;
   return cv;
-}
-
-/**
- * Extracts 3D line segments `[x1,y1,z1, x2,y2,z2, ...]` for AuraFM's glowing 3D country borders.
- */
-let cachedBorders3D: Float32Array | null = null;
-export function buildBorderPositions(topo: Topology, radius = 1.0015): Float32Array {
-  if (cachedBorders3D) return cachedBorders3D;
-  const obj = topo.objects.countries as GeometryCollection;
-  const m = mesh(topo, obj as never);
-  const pts: number[] = [];
-  for (const line of m.coordinates) {
-    for (let i = 0; i < line.length - 1; i++) {
-      const [lon1, lat1] = line[i];
-      const [lon2, lat2] = line[i + 1];
-      if (Math.abs(lon1 - lon2) > 90) continue; // skip antimeridian wrap
-      const [x1, y1, z1] = latLonToVec(lat1, lon1, radius);
-      const [x2, y2, z2] = latLonToVec(lat2, lon2, radius);
-      pts.push(x1, y1, z1, x2, y2, z2);
-    }
-  }
-  cachedBorders3D = new Float32Array(pts);
-  return cachedBorders3D;
 }
 

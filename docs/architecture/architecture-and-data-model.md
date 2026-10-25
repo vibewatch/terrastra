@@ -82,7 +82,9 @@ interface CatalogueItem {
   area?: number;            // km allowance for very large sites in Place it!
 }
 ```
-Cities: `[name, cc, lat, lon, pop, capital?]` tuples. Geography: Natural Earth 110m via `world-atlas`.
+Cities: `[name, cc, lat, lon, pop, capital?]` tuples. Geography: Natural Earth 110m via `world-atlas` (map fills,
+lessons, labels); the 50m set is fetched once the globe is up for finer land borders (texture + 3D lines, coastlines
+excluded) and for country hover/tap lookups, which include small states such as Singapore or Vatican City.
 
 ### 3.2 Client state (localStorage, namespace `pp.`)
 | Key | Shape |
@@ -130,8 +132,9 @@ Rules: the handle must match `^[A-Za-z0-9_가-힣ぁ-ヿ一-鿿]{2,16}$`, be uni
 
 1. **Start-up:** HTML (loader) → JS bundle → `fetch /data/countries-110m.json` → paint map texture → build
    item models → `__pp.ready` → resolve hash route → tutorial (first visit, no hash) → `GET /api/me`
-   (non-blocking). If signed in, run a sync.
-2. **Tap item:** pointerup without drag → raycast items, else globe → `shell.showItem(item)` → hash `#key` →
+   (non-blocking). If signed in, run a sync. On idle: `fetch /data/countries-50m.json` → finer borders.
+2. **Tap item:** pointerup without drag → raycast items, else globe (with borders on: outline + name the country
+   under the tap; hovering does the same) → `shell.showItem(item)` → hash `#key` →
    `GET /api/reactions?key=`. Collect (animal, zoom ≥ ×10) or log (discovery) → `updateProgress` → `newlyEarned`
    stickers → toasts → `pp.progress` saved → debounced (1.5 s) `PUT /api/progress` when signed in.
 3. **Place it! round:** setup → `setGameMode(true, names)` → target card in the HUD → `onGlobeTap` drops a pin →
