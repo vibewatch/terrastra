@@ -441,6 +441,8 @@ export class Globe {
   private shift = { x: 0, y: 0, tx: 0, ty: 0 };
   setViewShift(x: number, y: number): void { this.shift.tx = x; this.shift.ty = y; this.dirty = true; }
   countryShapes(): readonly CountryInfo[] { return this.countries; }
+  /** The finest country shapes loaded so far (1:50m, with the small island states, once they arrive). */
+  fineShapes(): readonly CountryInfo[] { return this.shapes(); }
   /** Temporary layer switches on top of the user's settings (lessons hide clouds, labels…); never saved. */
   private layerOverride: Partial<Settings> | null = null;
   private effective: Settings | null = null;

@@ -9,6 +9,7 @@ import { classroom } from '../lib/classroom.ts';
 import { icon, type IconName } from './icons.ts';
 import { sfx } from '../lib/sfx.ts';
 import { dayIndex } from '../../shared/games/daily.ts';
+import { ssbsOn } from '../lib/ssbs.ts';
 
 export type HubTab = 'learn' | 'look' | 'play' | 'me';
 export const HUB_TABS: HubTab[] = ['learn', 'look', 'play', 'me'];
@@ -16,7 +17,7 @@ const TAB_ICON: Record<HubTab, IconName> = { learn: 'book', look: 'telescope', p
 const TAB_LABEL: Record<HubTab, string> = { learn: 'hubLearn', look: 'hubLook', play: 'hubPlay', me: 'hubMe' };
 
 export interface HubActions {
-  lessons(): void; astro(): void; tours(): void;
+  lessons(): void; astro(): void; ssbs(): void; tours(): void;
   sky(): void; tonight(): void; time(): void; compare(): void; bookmarks(): void; radio(): void;
   game(kind: 'daily' | 'placeit' | 'quiz'): void;
   passport(): void; collection(): void; album(): void; account(): void; guestbook(): void;
@@ -31,12 +32,14 @@ export const hubTab = (): HubTab => { const v = load<string>('hubTab', 'learn');
 function entries(tab: HubTab, a: HubActions): Entry[] {
   const done = (k: string) => load<string[]>(k, []).length;
   const tick = (n: number) => (n ? '✓ ' + t('hubDone', { n }) : '');
-  // geography and astronomy share one progress list; astronomy ids start with "a-"
-  const lessonIds = load<string[]>('lessonsDone', []), astroDone = lessonIds.filter(x => x.startsWith('a-')).length, geoDone = lessonIds.length - astroDone;
+  // every class shares one progress list; astronomy ids start with "a-", the SSBS class's with "ssbs-"
+  const lessonIds = load<string[]>('lessonsDone', []), astroDone = lessonIds.filter(x => x.startsWith('a-')).length;
+  const ssbsDone = lessonIds.filter(x => x.startsWith('ssbs-')).length, geoDone = lessonIds.length - astroDone - ssbsDone;
   switch (tab) {
     case 'learn': return [
       { id: 'menu-lessons', ic: 'book', title: t('lessons'), sub: t('hubLessonsSub'), stat: tick(geoDone), go: a.lessons },
       { id: 'menu-astro', ic: 'planet', title: t('astroLessons'), sub: t('hubAstroSub'), stat: tick(astroDone), go: a.astro },
+      ...(ssbsOn() ? [{ id: 'menu-ssbs', ic: 'trophy' as IconName, title: t('ssbsLessons'), sub: t('hubSsbsSub'), stat: tick(ssbsDone), go: a.ssbs }] : []),
       { id: 'menu-tours', ic: 'compass', title: t('tours'), sub: t('hubToursSub'), stat: tick(done('toursDone')), go: a.tours },
       { id: 'menu-link-encyclopedia', ic: 'external', title: t('encyclopedia'), sub: t('hubEncSub'), go: () => {}, href: url('encyclopedia/') },
     ];

@@ -306,3 +306,74 @@ test('lesson activities: every question type, a hands-on lab, a lesson about whe
   await card.getByTestId('lesson-exit').click();
   expect(errors).toEqual([]);
 });
+
+test('SSBS class: hidden unless switched on, map questions on a blank map, a 30-point practice test', async ({ page }) => {
+  test.setTimeout(400_000);
+  const errors: string[] = [];
+  page.on('pageerror', e => errors.push(e.message));
+  // off by default: no entry, and links into it do nothing
+  await openApp(page, '/?lowfx=1&notut#lesson/ssbs-exam');
+  await page.waitForTimeout(1500);
+  await expect(page.getByTestId('lesson')).toHaveCount(0);
+  await page.getByTestId('btn-hub').click();
+  await page.getByTestId('hub-tab-learn').click();
+  await expect(page.getByTestId('menu-astro')).toBeVisible();
+  await expect(page.getByTestId('menu-ssbs')).toHaveCount(0);
+
+  // ?ssbs=1 switches it on (and remembers it)
+  await openApp(page, '/?lowfx=1&notut&ssbs=1');
+  await fromHub(page, 'learn', 'menu-ssbs');
+  await expect(page.getByTestId('lesson-list')).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator('.lesson-grade')).toHaveCount(3);
+  await page.getByTestId('lesson-ssbs-west').click();
+  const card = page.getByTestId('lesson');
+  await expect(card).toBeVisible();
+  await expect.poll(async () => (await lesson(page))?.painted, { timeout: 30_000 }).toBe(true);
+  // a "find the country" question: a tap anywhere inside it is right, not just near its middle
+  for (let i = 0; i < 6 && !(await question(page)); i++) await card.getByTestId('lesson-next').click();
+  expect((await question(page))?.kind).toBe('at');
+  await expect.poll(async () => (await globe(page)).capture).toBe(true);
+  await tapGlobe(page, [12.5, 4.5]); // north-west Nigeria, ~600 km from the middle
+  await expect(card.getByTestId('lesson-why')).toHaveClass(/ok/);
+  await card.getByTestId('lesson-next').click();
+  // a wrong tap names the country tapped
+  await expect.poll(async () => (await globe(page)).capture).toBe(true);
+  await tapGlobe(page, [13.5, 2.1]); // Niger, asked for Mali
+  await expect(card.getByTestId('lesson-why')).toHaveClass(/no/);
+  await expect(card.getByTestId('lesson-why')).toContainText('Niger');
+  await card.getByTestId('lesson-exit').click();
+
+  // the practice test: 30 points in three parts; a missed country is listed to review
+  await page.evaluate(() => { location.hash = 'lesson/ssbs-exam'; });
+  await expect(card).toBeVisible({ timeout: 30_000 });
+  await card.getByTestId('lesson-next').click();
+  let missed = false, n = 0;
+  while (await question(page)) {
+    const q = (await question(page))!;
+    if (q.kind === 'at' && !missed) {
+      await expect.poll(async () => (await globe(page)).capture).toBe(true);
+      await tapGlobe(page, [-20, -10]);
+      await expect(card.getByTestId('lesson-why')).toHaveClass(/no/);
+      missed = true;
+    } else await answer(page);
+    await card.getByTestId('lesson-next').click();
+    n++;
+  }
+  expect(n).toBe(22);
+  await expect(card.getByTestId('lesson-score')).toContainText('29 / 30 points');
+  await expect(card.getByTestId('exam-secs').locator('li')).toHaveText([/Matching 10 \/ 10/, /Multiple choice 10 \/ 10/, /Map 9 \/ 10/]);
+  await expect(card.getByTestId('exam-review')).not.toBeEmpty();
+  // "again" draws a fresh test
+  const first = await page.evaluate(() => document.querySelector('[data-testid="exam-review"]')?.textContent);
+  await card.getByTestId('lesson-again').click();
+  await expect(card.getByTestId('lesson-step')).toContainText('1 / 1');
+  expect(first).toBeTruthy();
+  await card.getByTestId('lesson-exit').click();
+
+  // ?ssbs=0 switches it off again
+  await openApp(page, '/?lowfx=1&notut&ssbs=0');
+  await page.getByTestId('btn-hub').click();
+  await page.getByTestId('hub-tab-learn').click();
+  await expect(page.getByTestId('menu-ssbs')).toHaveCount(0);
+  expect(errors).toEqual([]);
+});

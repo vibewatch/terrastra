@@ -34,6 +34,7 @@ The game works fully without an account; progress is stored in `localStorage` an
 | `?q=high\|medium\|low` | force a render quality tier (default: detected; phones and tablets get `medium`, see ADR-015) |
 | `?lowfx=1` | reduced motion + the `low` tier (DPR 1, no antialiasing, 512 px map texture); also on when `prefers-reduced-motion` is set (`lowfx=0` overrides) |
 | `?notut` | skip the first-visit tutorial |
+| `?ssbs=1` / `?ssbs=0` | turn the private SSBS review class (West & Central Africa) on or off on this device; off by default (ADR-036) |
 | `#<key>` | deep link to an item, e.g. `/#eiffel`, `/#an_lion` |
 | `#map` | open the flat world map |
 | `#lesson/<id>` | open a geography lesson, e.g. `#lesson/revolution` |

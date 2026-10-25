@@ -1,6 +1,7 @@
 import { classroom, onClassroom, apply as applyClassroom } from './lib/classroom.ts';
 import { parseView, type Bookmark } from './lib/viewlink.ts';
 import { retireOffline } from './lib/offline.ts';
+import { ssbsOn } from './lib/ssbs.ts';
 import './styles.css';
 import './hud.css';
 import './intro.css';
@@ -341,6 +342,7 @@ async function boot(): Promise<void> {
   };
   const openLessons = () => lessonsMod(m => m.openLessons(lessonHost));
   const openAstro = () => lessonsMod(m => m.openLessons(lessonHost, 'astro'));
+  const openSsbs = () => lessonsMod(m => m.openLessons(lessonHost, 'ssbs'));
   const startLesson = (id: string) => lessonsMod(m => m.startLesson(id, lessonHost));
 
   // ---- saved views (F02) ----
@@ -412,7 +414,7 @@ async function boot(): Promise<void> {
     openCollection: showCollection,
     openGame, openPassport: showPassport, openAlbum: () => photoMod(m => void m.openAlbum()),
     openTutorial: () => openTutorial(openTours),
-    openTours, openLessons, openAstro, openBookmarks,
+    openTours, openLessons, openAstro, openSsbs, openBookmarks,
     openCompare: (id?: string) => cmpMod(m => m.openCompare(id)),
     openTonight: () => tonightMod(m => m.openTonight(navTo)),
     openAccount: () => account(m => m.openAccount()), openGuestbook: () => account(m => void m.openGuestbook()),
@@ -487,6 +489,7 @@ async function boot(): Promise<void> {
     if (head === 'sky') { void openSky(rest || undefined); return; }
     if (head === 'map') { history.replaceState(null, '', location.pathname + location.search); void openMap(); return; }
     if (head === 'lesson') { if (rest) startLesson(rest); else openLessons(); history.replaceState(null, '', location.pathname + location.search); return; }
+    if (head === 'ssbs') { if (ssbsOn()) openSsbs(); history.replaceState(null, '', location.pathname + location.search); return; }
     if (head === 'astro') { if (rest) startLesson(rest); else openAstro(); history.replaceState(null, '', location.pathname + location.search); return; }
     if (head === 'tour') { if (rest) startTour(rest); else openTours(); history.replaceState(null, '', location.pathname + location.search); return; }
     const scale = SCALE_ROUTES[head];

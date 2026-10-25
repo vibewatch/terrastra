@@ -12,6 +12,14 @@ export interface Quiz {
   options?: Pair[]; answer?: number;
   /** "find it on the globe" question: tap within `tolKm` of `at` */
   at?: LL; tolKm?: number;
+  /** with `at`: "find this country" — a tap anywhere inside the country (ISO a2) is right too */
+  a2?: string;
+  /** what the globe shows with the question, instead of the default view (e.g. "name the highlighted country") */
+  show?: StageScene;
+  /** practice tests: the exam section the question belongs to */
+  sec?: Pair;
+  /** what to review when this is missed (a term, a country…) */
+  tag?: Pair;
   /** a chart or diagram to read (a climate graph to identify, a pyramid to interpret…) */
   fig?: Fig;
   /** astronomy: the 3D scene shown with the question (instead of the globe) */
@@ -71,6 +79,10 @@ export interface Lesson {
   steps: Step[]; quiz: Quiz[];
   /** a lesson about the learner's own place: steps and quiz are made once the learner says where they live */
   build?: (home: Home) => { steps: Step[]; quiz: Quiz[] };
+  /** steps and quiz drawn afresh each time the lesson starts (practice tests, drills) */
+  gen?: () => { steps: Step[]; quiz: Quiz[] };
+  /** a practice test: each matching pair is a point, and the score card adds up the sections */
+  exam?: boolean;
 }
 /** The learner's home, and what the map says about it. */
 export interface Home {

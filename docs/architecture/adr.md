@@ -823,3 +823,19 @@ Above the Solar System the scenes were also static apart from rigid disc spin.
 - \+ The map always matches the globe (same land colours, borders, items and info card) and costs no extra painting.
 - \+ Sharp at ×14 with no tiles.
 - − Projections must be written twice (TS and GLSL); `tests/unit/proj.test.ts` checks the TS side round-trips.
+
+## ADR-036: A private SSBS review class behind a device flag
+
+**Status.** Accepted.
+
+**Context.** One class needs a focused review of a Grade 6 unit (West and Central Africa: terms, land, empires, the slave trade, colonial rule, independence and today, and the 25 countries and capitals). It should ship in the normal build without changing what other users see.
+
+**Decision.**
+- `lib/ssbs.ts` reads `?ssbs=1` / `?ssbs=0` once at load and remembers it on the device (`pp.ssbs`). Default off.
+- SSBS is a third lesson Subject (`'ssbs'`, ids `ssbs-*`) with its own catalog: Study (6), Map (3) and a Practice test. `lessonById`, the hub entry and the `#ssbs` route all check the flag, so with it off the lessons cannot be opened even by link.
+- Lessons may set `gen(rand)` to draw fresh questions on every start and on "again". The practice test is 30 points: 10 matching pairs, 10 multiple choice, 10 map (5 "tap the country", 5 "which country is gold"), scored per section with a "Review these" list.
+- Map taps with `a2` count as right when the tap lands anywhere in that country (50 m shapes), not just near its centre; a wrong tap names the country tapped.
+
+**Consequences.**
+- \+ No separate build or deployment; one URL turns it on for a class.
+- − The content is visible in the shipped JS to anyone who looks; the flag hides it, it does not protect it.

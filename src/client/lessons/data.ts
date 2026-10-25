@@ -16,6 +16,8 @@ import { SENIOR_A } from './l-senior1.ts';
 import { SENIOR_B } from './l-senior2.ts';
 import { HOME } from './l-home.ts';
 import { ASTRO_LESSONS, ASTRO_VIEWS, astroCourse, type AstroView } from './astro/data.ts';
+import { SSBS_LESSONS, SSBS_VIEWS, ssbsCourse } from './ssbs/index.ts';
+import { ssbsOn } from '../lib/ssbs.ts';
 import type { Grade, Lesson, Pair, Strand, Track } from './kit.ts';
 
 export type { Grade, Lesson, Quiz, Step, Strand, Track } from './kit.ts';
@@ -57,17 +59,19 @@ export const VIEWS: Record<View, { name: Pair; note: Pair }> = {
   au: { name: ['Australia · years 7–8', '澳大利亚 · 7–8 年级'], note: ['Australian Curriculum: water in the world, place and liveability, landforms and landscapes, changing nations.', '澳大利亚国家课程：世界的水、地方与宜居性、地貌与景观、变化中的国家。'] },
 };
 
-/** A lesson of either subject. */
-export const lessonById = (id: string): Lesson | undefined => LESSONS.find(l => l.id === id) ?? ASTRO_LESSONS.find(l => l.id === id);
+/** A lesson of any subject (the private SSBS class only when it is switched on). */
+export const lessonById = (id: string): Lesson | undefined => LESSONS.find(l => l.id === id) ?? ASTRO_LESSONS.find(l => l.id === id)
+  ?? (ssbsOn() ? SSBS_LESSONS.find(l => l.id === id) : undefined);
 
-export type Subject = 'geo' | 'astro';
-/** Astronomy lesson ids start with `a-`. */
-export const subjectOf = (id: string): Subject => (id.startsWith('a-') ? 'astro' : 'geo');
+export type Subject = 'geo' | 'astro' | 'ssbs';
+/** Astronomy lesson ids start with `a-`, the SSBS class's with `ssbs-`. */
+export const subjectOf = (id: string): Subject => (id.startsWith('a-') ? 'astro' : id.startsWith('ssbs-') ? 'ssbs' : 'geo');
 /** A subject's course picker: its curricula, their lessons in groups, where the choice is saved and the default. */
 export interface Catalog { views: Record<string, { name: Pair; note: Pair }>; course(v: string): { name: Pair; lessons: Lesson[] }[]; key: string; def(zh: boolean): string }
 export const CATALOGS: Record<Subject, Catalog> = {
   geo: { views: VIEWS, course: v => course(v as View), key: 'lessonTrack', def: zh => (zh ? 'cn' : 'all') },
   astro: { views: ASTRO_VIEWS, course: v => astroCourse(v as AstroView), key: 'astroTrack', def: zh => (zh ? 'cnj' : 'all') },
+  ssbs: { views: SSBS_VIEWS, course: () => ssbsCourse(), key: 'ssbsTrack', def: () => 'ssbs' },
 };
 
 /** A curriculum's lessons, in groups: textbook volumes for China, themes for the others. */

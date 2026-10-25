@@ -9,6 +9,8 @@ import { icon } from '../ui/icons.ts';
 import { t, lang, onLang } from '../lib/i18n.ts';
 import { load, save } from '../lib/storage.ts';
 import { classroomLink } from '../lib/classroom.ts';
+import { ssbsLink } from '../lib/ssbs.ts';
+import { countryAt } from '../globe/borders.ts';
 import { haversineKm } from '../../shared/lib/geo.ts';
 import { skyEvents } from '../../shared/lib/astro/events.ts';
 import type { Globe } from '../globe/scene.ts';
@@ -19,6 +21,8 @@ import { renderFig, type Fig } from './figs.ts';
 import { optionOrder, shuffled } from './shuffle.ts';
 import type { AstroScene, Home, LL, Pair } from './kit.ts';
 
+/** Where the learner tapped, how far from the answer, and the country tapped ("find the country" questions). */
+type Tap = { ll: LL; km: number; a2?: string | null };
 const L = (p: Pair) => (lang() === 'zh' ? p[1] : p[0]);
 const DAY = 864e5;
 
@@ -66,19 +70,20 @@ function run(lesson: Lesson, host: LessonHost): void {
   w.__astro = () => astro;
   w.__quiz = () => quiz[i - steps.length] ?? null;
   const sub = subjectOf(lesson.id);
-  // a lesson about the learner's own place is made once they say where they live (`pickHome`)
+  // a lesson about the learner's own place is made once they say where they live (`pickHome`); practice tests are drawn afresh
   let steps = lesson.steps, quiz = lesson.quiz;
+  if (lesson.gen) ({ steps, quiz } = lesson.gen());
   /** 0 … steps-1 are steps; steps … steps+quiz-1 are questions; steps+quiz is the score card. */
   let i = 0;
   let answers: (boolean | null)[] = quiz.map(() => null);
   /** The last answer to the current question: the option picked, or the tap and its distance. */
   let picked: number | null = null;
-  let tap: { ll: LL; km: number } | null = null;
+  let tap: Tap | null = null;
   /** Work in progress on the current question (the other question types). */
   const fresh = () => ({ seq: [] as number[], sel: null as number | null, pairs: new Map<number, number>(), multi: new Set<number>(), num: '', placed: [] as (LL | null)[], cur: 0 });
   let work = fresh();
   /** What was done on each answered question, so going Back shows it as it was. */
-  const kept: ({ picked: number | null; tap: { ll: LL; km: number } | null; work: ReturnType<typeof fresh> } | undefined)[] = [];
+  const kept: ({ picked: number | null; tap: Tap | null; work: ReturnType<typeof fresh> } | undefined)[] = [];
   let stopped = false;
 
   const card = h('section', { class: 'tour-card lesson-card', 'data-occludes': true, 'data-testid': 'lesson', 'aria-labelledby': 'lesson-title' });
@@ -196,7 +201,8 @@ function run(lesson: Lesson, host: LessonHost): void {
       const pairs = q.match, n = pairs.length, right = shuffled(n, q.q[0], k + 1000);
       const tag = (j: number) => h('span', { class: 'lesson-badge', style: `--c:${MATCH_C[j % MATCH_C.length]}` }, String(j + 1));
       const leftOf = (r: number) => [...work.pairs].find(([, v]) => v === r)?.[0];
-      body = h('div', { class: 'lesson-match' },
+      // definitions (long right-hand items) get most of the width
+      body = h('div', { class: 'lesson-match' + (pairs.some(p => L(p[1]).length > 40) ? ' long' : '') },
         h('div', { class: 'lesson-col' }, ...pairs.map((p, j) => h('button', {
           class: 'pill lesson-chip' + (work.sel === j ? ' on' : '') + (ans !== null ? (work.pairs.get(j) === j ? ' right' : ' wrong') : ''),
           'data-testid': 'lesson-match-l', 'data-pos': String(j), disabled: ans !== null,
@@ -246,7 +252,7 @@ function run(lesson: Lesson, host: LessonHost): void {
       body = h('p', { class: 'lesson-tap', html: icon('pin', 14) }, h('span', {}, ans === null ? t(q.pick ? 'lessonPick' : 'lessonTap') : ''));
     }
     const why = ans === null ? '' : h('div', { class: 'lesson-why ' + (ans ? 'ok' : 'no'), 'aria-live': 'polite', 'data-testid': 'lesson-why' },
-      h('p', {}, h('strong', {}, t(ans ? 'lessonRight' : 'lessonWrong') + ' '), tap ? t('lessonKm', { km: Math.round(tap.km).toLocaleString() }) + ' ' : '', L(q.why)), reveal);
+      h('p', {}, h('strong', {}, t(ans ? 'lessonRight' : 'lessonWrong') + ' '), tap && q.a2 ? (ans ? '' : tap.a2 && tap.a2 !== q.a2 ? t('lessonTapped', { c: L(regionName(tap.a2)) }) + ' ' : '') : tap ? t('lessonKm', { km: Math.round(tap.km).toLocaleString() }) + ' ' : '', L(q.why)), reveal);
     card.replaceChildren(
       head(t('lessonQ', { i: k + 1, n: quiz.length })),
       h('h2', { id: 'lesson-title' }, L(q.q)),
@@ -256,17 +262,52 @@ function run(lesson: Lesson, host: LessonHost): void {
       nav(() => go(i - 1), () => go(i + 1), k === quiz.length - 1 ? t('tourFinish') : t('next'), ans === null));
   };
 
+  /** A practice test's score: a point per matching pair, the parts added up, and what to review. */
+  const examScore = () => {
+    const secs = new Map<string, { name: Pair; s: number; n: number }>();
+    const miss: string[] = [];
+    let s = 0, n = 0;
+    quiz.forEach((q, k) => {
+      let got: number, of: number;
+      if (q.match) {
+        const pairs = kept[k]?.work.pairs;
+        of = q.match.length;
+        got = q.match.filter((p, j) => { const ok = pairs?.get(j) === j; if (!ok) miss.push(L(p[0])); return ok; }).length;
+      } else {
+        of = 1; got = answers[k] ? 1 : 0;
+        if (!got && q.tag) miss.push(L(q.tag));
+      }
+      s += got; n += of;
+      const key = q.sec ? q.sec[0] : '';
+      const sec = secs.get(key) ?? { name: q.sec ?? ['Other', '其他'], s: 0, n: 0 };
+      sec.s += got; sec.n += of;
+      secs.set(key, sec);
+    });
+    const review = [...new Set(miss)];
+    return [
+      h('h2', { id: 'lesson-title', 'data-testid': 'lesson-score' }, t('examScore', { s, n })),
+      h('ul', { class: 'lesson-keys exam-secs', 'data-testid': 'exam-secs' }, ...[...secs.values()].map(x => h('li', {}, h('strong', {}, L(x.name)), ` ${x.s} / ${x.n}`))),
+      h('p', { class: 'lesson-keys-h' }, t(review.length ? 'examReview' : 'examPerfect')),
+      review.length ? h('p', { class: 'muted small exam-review', 'data-testid': 'exam-review' }, review.join(lang() === 'zh' ? '、' : ', ')) : '',
+    ];
+  };
+
   const renderScore = () => {
     const s = answers.filter(Boolean).length;
     const v = view(sub), nx = nextLesson(lesson.id, v) ?? (v === 'all' ? undefined : nextLesson(lesson.id, 'all'));
+    const again = () => {
+      if (lesson.gen) { ({ steps, quiz } = lesson.gen()); answers = quiz.map(() => null); kept.length = 0; }
+      else answers.fill(null);
+      go(0);
+    };
     card.replaceChildren(
       head(t('lessonQuiz'), 1),
-      h('h2', { id: 'lesson-title', 'data-testid': 'lesson-score' }, t('lessonScore', { s, n: quiz.length })),
+      ...(lesson.exam ? examScore() : [h('h2', { id: 'lesson-title', 'data-testid': 'lesson-score' }, t('lessonScore', { s, n: quiz.length }))]),
       h('p', { class: 'lesson-keys-h' }, t('lessonKeys')),
       h('ul', { class: 'lesson-keys', 'data-testid': 'lesson-keys' }, ...lesson.keys.map(k => h('li', {}, L(k)))),
       h('div', { class: 'row' },
         h('button', { class: 'pill', 'data-testid': 'lesson-more', onclick: () => { stop(); openLessons(host, sub); } }, t('lessonMore')),
-        h('button', { class: 'pill', 'data-testid': 'lesson-again', onclick: () => { answers.fill(null); go(0); } }, t('lessonAgain')),
+        h('button', { class: 'pill', 'data-testid': 'lesson-again', onclick: again }, t('lessonAgain')),
         lesson.build ? h('button', { class: 'pill', 'data-testid': 'lesson-home-again', onclick: () => askHome() }, t('lessonHomeOther')) : '',
         nx ? h('button', { class: 'cta', 'data-testid': 'lesson-nextlesson', title: L(nx.title), onclick: () => { stop(); startLesson(nx.id, host); } }, t('lessonNextOne'))
           : h('button', { class: 'cta', 'data-testid': 'lesson-done', onclick: () => stop() }, t('tourFinish'))));
@@ -336,6 +377,7 @@ function run(lesson: Lesson, host: LessonHost): void {
   const quizScene = (q: Quiz) => {
     if (q.astro) { showAstro(q.astro); return; }
     astro?.hide();
+    if (q.show) { stage.show(q.show); return; }
     if (q.place) {
       // frame every answer, without showing them
       const f = fitView(q.place.map(p => p.at), innerWidth * 0.55, innerHeight * 0.8, innerHeight, g.camera.fov, 0.6);
@@ -378,10 +420,24 @@ function run(lesson: Lesson, host: LessonHost): void {
     g.ev.onGlobeTap = g.captureTaps ? (lat, lon) => {
       if (answers[k] !== null || !q.at) return;
       const km = haversineKm(lat, lon, q.at[0], q.at[1]);
-      tap = { ll: [lat, lon], km };
-      answers[k] = km <= (q.tolKm ?? 500);
       g.captureTaps = false;
       g.ev.onGlobeTap = undefined;
+      if (q.a2) {
+        // "find this country": anywhere inside it counts; the reveal paints it and names the country tapped
+        const hit = countryAt(g.fineShapes(), lat, lon)?.a2 ?? null;
+        tap = { ll: [lat, lon], km, a2: hit };
+        answers[k] = hit === q.a2 || km <= (q.tolKm ?? 60);
+        const nm = hit && hit !== q.a2 ? regionName(hit) : null;
+        const base = q.show ?? { cam: [q.at[0], q.at[1], 2.6] as [number, number, number], wide: true };
+        stage.show({ ...base,
+          paint: [...(base.paint ?? []), { fill: { k: 'land', a2: [q.a2], c: '#ffd24a' }, a: 0.8 }],
+          marks: [{ ll: [lat, lon], text: nm ?? ['Your tap', '你点的位置'], dot: true, c: answers[k] ? '#51cf66' : '#ff6b6b' },
+            { ll: q.at, text: q.tag ?? ['Answer', '正确位置'], dot: true, big: true, c: '#ffd24a', t: 0.5 }] });
+        renderQuiz();
+        return;
+      }
+      tap = { ll: [lat, lon], km };
+      answers[k] = km <= (q.tolKm ?? 500);
       stage.show({
         cam: [q.at[0], q.at[1], 2.6],
         lines: km > 30 ? [{ pts: [[lat, lon], q.at], c: '#f1f3f5', dur: 1 }] : [],
@@ -456,6 +512,11 @@ function freeArea(card: HTMLElement): { left: number; top: number; width: number
 /** Colours that tell pairs and labels apart. */
 const MATCH_C = ['#ffd24a', '#4dabf7', '#51cf66', '#f783ac', '#ff922b', '#b197fc', '#3bc9db', '#c0eb75'];
 const tagN = (j: number) => h('span', { class: 'lesson-badge', style: `--c:${MATCH_C[j % MATCH_C.length]}` }, String(j + 1));
+/** A country's name in both languages, from its ISO code. */
+function regionName(a2: string): Pair {
+  const nm = (l: string) => { try { return new Intl.DisplayNames([l], { type: 'region' }).of(a2) ?? a2; } catch { return a2; } };
+  return [nm('en'), nm('zh')];
+}
 const fmtN = (v: number) => v.toLocaleString(lang() === 'zh' ? 'zh-CN' : 'en-US', { maximumFractionDigits: 2 });
 
 function nextSolstice(): string | undefined {
@@ -478,14 +539,14 @@ export function openLessons(host: LessonHost, sub: Subject = 'geo'): void {
           h('span', { class: 'grow' }, h('strong', {}, L(x.title)), h('span', { class: 'muted small' }, `${L(x.unit)} · ${L(x.blurb)}`)),
           h('span', { class: 'meta' }, (seen.has(x.id) ? '✓ ' : '') + t('minutesN', { n: x.minutes }))),
         h('button', { class: 'icon-btn tour-link', 'aria-label': t('classLink'), title: t('classLink'), html: icon('share', 14),
-          onclick: () => void copyLink(classroomLink(x.id, 'lesson')) })))));
+          onclick: () => void copyLink(sub === 'ssbs' ? ssbsLink(x.id) : classroomLink(x.id, 'lesson')) })))));
     list.replaceChildren(...groups);
   };
   const sel = new Select({ label: t('lessonTrack'), testid: 'lesson-track', icon: 'book', value: view(sub),
     options: Object.keys(cat.views).map(v => ({ value: v, label: L(cat.views[v].name) })),
     onChange: v => { save(cat.key, v); fill(v); } });
   fill(view(sub));
-  openModal('lessons', t(sub === 'astro' ? 'astroLessons' : 'lessons'), h('div', { class: 'lesson-pickwrap' }, h('p', { class: 'muted' }, t(sub === 'astro' ? 'astroIntro' : 'lessonsIntro')),
+  openModal('lessons', t(sub === 'astro' ? 'astroLessons' : sub === 'ssbs' ? 'ssbsLessons' : 'lessons'), h('div', { class: 'lesson-pickwrap' }, h('p', { class: 'muted' }, t(sub === 'astro' ? 'astroIntro' : sub === 'ssbs' ? 'ssbsIntro' : 'lessonsIntro')),
     h('div', { class: 'lesson-track' }, sel.el, note), list));
 }
 

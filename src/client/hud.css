@@ -538,11 +538,13 @@ body:has(.sky) .tour .tour-card.tour-card { left: 22px; right: auto; top: 112px;
 body:has(.sky) .lesson-marks, body.solar .lesson-marks { display: none; }
 .lesson-mark { position: absolute; left: 0; top: 0; --c: var(--text); color: var(--c); white-space: nowrap; font-size: .8rem; font-weight: 600; line-height: 1.2;
   padding: 2px 7px; background: rgba(8, 12, 20, .62); border-left: 2px solid var(--c); text-shadow: 0 1px 2px #000; will-change: transform; }
-.lesson-mark:empty { display: none; }
+.lesson-mark:empty:not(.dot) { display: none; }
 .lesson-mark.big { font-size: .95rem; letter-spacing: .02em; }
 .lesson-mark.dot::before { content: ""; position: absolute; left: 2px; top: 50%; width: 8px; height: 8px; margin-top: -4px; border-radius: 50%; background: var(--c);
   box-shadow: 0 0 0 0 var(--c); animation: lesson-ping 1.8s infinite; }
 .lesson-mark.dot { padding-left: 16px; border-left: 0; background: linear-gradient(90deg, transparent 12px, rgba(8, 12, 20, .62) 12px); }
+/* a dot on its own (no label) */
+.lesson-mark.dot:empty { width: 12px; height: 12px; padding: 0; background: none; }
 @keyframes lesson-ping { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--c) 70%, transparent); } 100% { box-shadow: 0 0 0 12px transparent; } }
 .lesson-sun { position: absolute; left: 0; top: 0; visibility: hidden; width: 12px; height: 12px; border-radius: 50%;
   background: radial-gradient(circle, #fffbe6 0 35%, #ffd24a 70%); box-shadow: 0 0 14px 6px rgba(255, 200, 60, .6); }
@@ -581,6 +583,8 @@ body:has(.sky) .lesson-marks, body.solar .lesson-marks { display: none; }
 .lesson-chip[disabled] { opacity: 1; cursor: default; }
 .lesson-chip small { color: var(--hud-dim); font-family: var(--font-hud); }
 .lesson-match { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; }
+.lesson-match.long { grid-template-columns: minmax(0, 0.55fr) minmax(0, 1.45fr); }
+.lesson-match.long .lesson-col:last-of-type .lesson-chip { font-size: 0.86em; line-height: 1.35; }
 .lesson-col { display: grid; gap: 6px; align-content: start; }
 .lesson-col .lesson-chip { width: 100%; justify-content: flex-start; }
 .lesson-badge { flex: none; display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--c); color: #0b1020; font: 700 .72rem/1 var(--font-hud); }
