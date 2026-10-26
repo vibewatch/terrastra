@@ -3,10 +3,10 @@ import { shuffle } from '../lib/rng.ts';
 import type { CatalogueItem } from '../data/types.ts';
 
 export type Difficulty = 'practice' | 'easy' | 'medium' | 'hard';
-export interface DiffCfg { tiers: number; fullKm: number; zeroKm: number; hints: number; names: boolean }
+interface DiffCfg { tiers: number; fullKm: number; zeroKm: number; hints: number; names: boolean }
 
 export const ROUNDS = 10;
-export const MAX_ROUND_SCORE = 1000;
+const MAX_ROUND_SCORE = 1000;
 export const DIFFS: Record<Difficulty, DiffCfg> = {
   practice: { tiers: 1, fullKm: 1000, zeroKm: 5000, hints: 10, names: true },
   easy: { tiers: 1, fullKm: 500, zeroKm: 3000, hints: 3, names: false },

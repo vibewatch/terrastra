@@ -166,12 +166,12 @@ function ribbonMaterial(shared: { uTime: { value: number }; uWidth: { value: num
 }
 
 /** 0 = hidden, 1 = normal, 2 = highlighted (selected / ridden). */
-export type RouteState = (it: CatalogueItem) => 0 | 1 | 2;
+type RouteState = (it: CatalogueItem) => 0 | 1 | 2;
 
 interface RoutePath { item: CatalogueItem; mesh: THREE.Mesh; mat: THREE.ShaderMaterial; orbit: boolean; always: boolean }
 
 /** Glowing great-circle paths for migrations, voyages and orbits (and any route item while it is selected). */
-export class RoutePaths {
+class RoutePaths {
   readonly root = new THREE.Group();
   private paths: RoutePath[] = [];
   private shared = { uTime: { value: 0 }, uWidth: { value: 0.004 } };
@@ -215,7 +215,7 @@ export class RoutePaths {
 }
 
 /** Plate boundaries as one merged glow mesh, colour-coded by boundary type with a slow travelling pulse. */
-export class Tectonics {
+class Tectonics {
   readonly root: THREE.Mesh;
   private shared = { uTime: { value: 0 }, uWidth: { value: 0.004 } };
   private mat: THREE.ShaderMaterial;
@@ -400,11 +400,11 @@ export class Clouds {
     return true;
   }
 
-  /** dt in ms. Opacity reaches 0 by camAlt ≈ 0.6 so models are never hidden. */
-  update(dt: number, camAlt: number, animate: boolean): void {
+  /** dt: world time in ms (0 while motion is paused), real: wall time in ms for the fade-in. Opacity reaches 0 by camAlt ≈ 0.6 so models are never hidden. */
+  update(dt: number, real: number, camAlt: number, animate: boolean): void {
     if (!this.on) return;
     if (this.bake) { this.bakeStep(); this.root.visible = false; return; }
-    this.ready = Math.min(1, this.ready + dt / 900);
+    this.ready = Math.min(1, this.ready + real / 900);
     const k = smooth(0.6, 1.35, camAlt) * this.ready;
     this.mat.uniforms.uOpacity.value = 0.72 * k;
     this.root.visible = k > 0.005;
@@ -470,7 +470,7 @@ const AURORA_FRAG = `
 const AURORA_POLES: [number, number][] = [[80.7, -72.7], [-80.7, 107.3]];
 
 /** Curtain ribbons + soft ground band around both auroral ovals in one additive mesh. */
-export class Aurora {
+class Aurora {
   readonly root: THREE.Mesh;
   private mat: THREE.ShaderMaterial;
 
@@ -572,10 +572,10 @@ const HALO_FRAG = `
   }
 `;
 
-export type PlacedLookup = (key: string) => THREE.Object3D | undefined;
+type PlacedLookup = (key: string) => THREE.Object3D | undefined;
 
 /** Pulsing warm halos under festivals that are happening around today's date. */
-export class FestivalGlow {
+class FestivalGlow {
   readonly root = new THREE.Group();
   private keys = new Set<string>();
   private halos = new Map<string, THREE.Mesh>();
@@ -627,7 +627,7 @@ export class FestivalGlow {
 }
 
 /** Soft glow + blinking strobe on orbiting items so they read as satellites from far away. */
-export class OrbitBeacons {
+class OrbitBeacons {
   readonly root = new THREE.Group();
   private list: { key: string; glow: THREE.Sprite; strobe: THREE.Sprite; phase: number }[] = [];
   private up = new THREE.Vector3();
@@ -736,7 +736,7 @@ const GRID_FRAG = `
 `;
 
 /** Latitude/longitude grid drawn analytically on a thin shell: crisp at any zoom, highlights equator, tropics, polar circles and prime meridian. */
-export class Graticule {
+class Graticule {
   readonly root: THREE.Mesh;
   private mat: THREE.ShaderMaterial;
 
@@ -795,17 +795,17 @@ export class GlobeLayers {
     this.tectonics.setVisible(s.tectonics && !gameMode);
   }
 
-  /** clockMs = scene clock, dt in ms, camAlt = camera altitude above the surface in globe radii. */
-  update(clockMs: number, dt: number, camAlt: number, state: RouteState, orbitAlt: (it: CatalogueItem) => number, lookup: PlacedLookup): void {
+  /** clockMs = scene clock, dt = world ms, real = wall ms, camAlt = camera altitude above the surface in globe radii. */
+  update(clockMs: number, dt: number, real: number, camAlt: number, state: RouteState, orbitAlt: (it: CatalogueItem) => number, lookup: PlacedLookup): void {
     // Reduced-motion / low-power: freeze the animated shaders (they still draw, just stay still).
     const t = this.lowfx ? 0 : clockMs * 0.001;
     if (clockMs - this.lastRefresh > 600_000) { this.lastRefresh = clockMs; this.festivals.refresh(); }
     this.routes.update(t, camAlt, state, orbitAlt);
     this.tectonics.update(t, camAlt);
     this.graticule.update(camAlt);
-    this.clouds.update(dt, camAlt, !this.lowfx);
+    this.clouds.update(dt, real, camAlt, !this.lowfx);
     this.aurora.update(t, camAlt);
     this.festivals.update(t, lookup);
-    this.beacons.update(clockMs * 0.001, lookup);
+    this.beacons.update(t, lookup);
   }
 }

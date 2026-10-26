@@ -24,17 +24,3 @@ export function isHappening(item: Seasonal, date: Date = new Date()): boolean {
   const len = Math.max(1, s.days ?? 1);
   return starts(s, date).some(st => today >= st - LEAD_DAYS && today < st + len + LEAD_DAYS);
 }
-
-/** Days until the festival next starts: 0 while it is running, null if the item has no season. */
-export function daysUntil(item: Seasonal, date: Date = new Date()): number | null {
-  const s = item.season;
-  if (!s) return null;
-  const today = localDay(date);
-  const len = Math.max(1, s.days ?? 1);
-  let best = Infinity;
-  for (const st of starts(s, date)) {
-    if (today >= st && today < st + len) return 0;
-    if (st > today) best = Math.min(best, st - today);
-  }
-  return best;
-}

@@ -1,4 +1,4 @@
-// Versioned, namespaced localStorage with an in-memory fallback (private mode / tests).
+// Namespaced localStorage with an in-memory fallback (private mode / tests).
 const NS = 'pp.';
 const mem = new Map<string, string>();
 
@@ -25,17 +25,4 @@ export function save<T>(key: string, value: T): void {
   let ok = false;
   try { const s = ls(); if (s) { s.setItem(NS + key, raw); ok = true; } } catch { /* quota or disabled */ }
   if (!ok && !lost) { lost = true; onLost?.(); }
-  for (const fn of listeners) fn(key);
-}
-
-export function remove(key: string): void {
-  mem.delete(NS + key);
-  try { ls()?.removeItem(NS + key); } catch { /* ignore */ }
-  for (const fn of listeners) fn(key);
-}
-
-const listeners = new Set<(key: string) => void>();
-export function onChange(fn: (key: string) => void): () => void {
-  listeners.add(fn);
-  return () => listeners.delete(fn);
 }

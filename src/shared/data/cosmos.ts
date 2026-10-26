@@ -18,7 +18,7 @@ export type DeepKind =
 
 export type Morph = 'spiral' | 'barred' | 'elliptical' | 'lenticular' | 'irregular' | 'dwarf';
 
-export interface ScaleInfo {
+interface ScaleInfo {
   id: ScaleId;
   name: I18n;
   emoji: string;

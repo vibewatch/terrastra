@@ -84,7 +84,7 @@ interface CatalogueItem {
   area?: number;            // km allowance for very large sites in Place it!
 }
 ```
-Cities: `[name, cc, lat, lon, pop, capital?]` tuples. Geography: Natural Earth 110m via `world-atlas` (map fills,
+Cities: `[name, cc, lat, lon, pop, capital?]` tuples. Geography: Natural Earth 110m from `world-atlas`, vendored in `public/data/` (map fills,
 lessons, labels); the 50m set is fetched once the globe is up for finer land borders (texture + 3D lines, coastlines
 excluded) and for country hover/tap lookups, which include small states such as Singapore or Vatican City.
 
@@ -92,11 +92,12 @@ excluded) and for country hover/tap lookups, which include small states such as 
 | Key | Shape |
 |---|---|
 | `pp.settings` | `{ surfaceMode, auraPreset, names, borders, graticule, shadows, clouds, aurora, tectonics, <one boolean per item type>, sfx, bgm }` |
-| `pp.lang` | `'en' \| 'ko' \| 'ja' \| 'zh'` |
+| `pp.lang` | `'en' \| 'zh'` |
 | `pp.progress` | `Progress` (below) |
 | `pp.dailyState` | `{ day, guesses: {key, km, band, arrow}[], done, won }` (today only) |
 | `pp.tutorial` | `'done' \| 'skip'` |
 | `pp.stickerSort` | `'default' \| 'earned'` |
+| `pp.radio.fav` / `.vol` / `.last` / `.ok` / `.hidden` | Radio favourites, volume, last station, stream consent, hidden player |
 | IndexedDB `pp-photos` / `photos` | `{ id (auto), at, url (JPEG data URL), place }` |
 
 ```ts

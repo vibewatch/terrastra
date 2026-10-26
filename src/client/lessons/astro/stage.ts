@@ -11,7 +11,7 @@ import { KITS } from './kits.ts';
 import { disposeTree, v3 } from './draw.ts';
 import type { AstroClock, AstroScene, KitCtx, KitRun, Label, LabelOpts, Pair, V3 } from './types.ts';
 
-export interface AstroOpts {
+interface AstroOpts {
   low: boolean;
   lang: () => 'en' | 'zh';
   /** the free screen area beside the lesson card (null: the whole screen) */
@@ -284,7 +284,11 @@ export class AstroStage {
     }
     this.orbit.update(dt);
     try { this.kit?.update(this.value, dt, this.elapsed); }
-    catch (e) { console.error('astro kit', e); this.kit = null; }
+    catch (e) {
+      console.error('astro kit', e);
+      try { this.kit?.dispose?.(); } catch { /* already failing */ }
+      this.kit = null;
+    }
     this.placeLabels();
     this.renderer.render(this.scene, this.camera);
   };

@@ -64,7 +64,7 @@ describe('people rig', async () => {
     const poses = ['stand', 'relax', 'walk', 'run', 'sit', 'sitGround', 'kneel', 'crouch', 'wave', 'point', 'cheer', 'carry', 'pray', 'photo', 'reach', 'row'] as const;
     for (const detail of ['min', 'lo', 'hi'] as const) for (const pose of poses) {
       const g = new THREE.Group();
-      human(g, 0, 0, 0, { h: 1, pose, detail, phase: 0.3 });
+      human(g, 0, 0, 0, { h: 1, pose, detail, phase: 0.3, top: '#2563eb' });
       let n = 0;
       g.traverse(o => {
         const pos = (o as THREE.Mesh).geometry?.attributes?.position;

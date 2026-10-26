@@ -65,11 +65,11 @@ export class LookControls {
    * tracking a body that drifts across a narrow telescope field has no easing lag; big jumps still ease.
    */
   aim(az: number, alt: number, fov?: number, snap = false, follow = false): void {
-    let d = ((az - this.tAz) % 360 + 540) % 360 - 180;
+    const d = ((az - this.tAz) % 360 + 540) % 360 - 180;
     if (follow && Math.abs(d) < 5 && Math.abs(alt - this.tAlt) < 5) { this.az += d; this.alt += alt - this.tAlt; }
     this.tAz += d; this.tAlt = alt;
     if (fov) this.tFov = fov;
-    if (snap) { d = 0; this.az = this.tAz; this.alt = this.tAlt; if (fov) this.fov = fov; }
+    if (snap) { this.az = this.tAz; this.alt = this.tAlt; if (fov) this.fov = fov; }
   }
   zoom(f: number): void { this.tFov = Math.max(this.minFov, Math.min(this.maxFov, this.tFov * f)); }
   get targetFov(): number { return this.tFov; }

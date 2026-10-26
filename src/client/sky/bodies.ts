@@ -80,7 +80,7 @@ void main() {
   });
 }
 
-export interface MoonUniforms {
+interface MoonUniforms {
   uMap: { value: THREE.Texture | null }; uReady: { value: number };
   uBasis: { value: THREE.Matrix3 }; uSunRel: { value: THREE.Vector3 }; uEarthRel: { value: THREE.Vector3 };
   uEarthshine: { value: number }; uGain: { value: number }; uOcc: { value: number };
@@ -143,7 +143,7 @@ export function moonBasis(toEarth: THREE.Vector3, north: THREE.Vector3, out = ne
   return out.set(x.x, y.x, z.x, x.y, y.y, z.y, x.z, y.z, z.z);
 }
 
-export interface EarthUniforms {
+interface EarthUniforms {
   uDay: { value: THREE.Texture | null }; uSunRel: { value: THREE.Vector3 }; uMoonRel: { value: THREE.Vector3 }; uShadow: { value: number };
 }
 

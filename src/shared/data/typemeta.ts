@@ -4,7 +4,7 @@ import type { I18n, ItemType } from './types.ts';
 export type LayerKey = 'landmarks' | 'animals' | 'discoveries' | 'vehicles' | 'dinos' | 'foods' | 'festivals'
   | 'space' | 'plants' | 'sports' | 'volcanoes' | 'migrations' | 'voyages' | 'people';
 
-export interface TypeMeta {
+interface TypeMeta {
   layer: LayerKey;
   /** encyclopedia directory ('' = no pages) */
   section: string;

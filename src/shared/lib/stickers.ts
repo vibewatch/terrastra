@@ -2,7 +2,7 @@ import { countOn, type Progress } from './progress.ts';
 import type { I18n } from '../data/types.ts';
 import { PASSPORTS, bookDone } from '../data/passports.ts';
 
-export interface StickerDef { id: string; emoji: string; name: I18n; test: (p: Progress, totals: { animals: number; discoveries: number }) => boolean }
+interface StickerDef { id: string; emoji: string; name: I18n; test: (p: Progress, totals: { animals: number; discoveries: number }) => boolean }
 
 const n = (o: Record<string, number>) => Object.keys(o).length;
 

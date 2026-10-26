@@ -21,7 +21,7 @@ describe('geography lessons data', () => {
     for (const l of LESSONS) {
       expect(l.strand in STRANDS, l.id).toBe(true);
       expect(!!l.grade || l.tracks.length > 0, `${l.id} curriculum`).toBe(true);
-      expect(l.tracks.every(t => t in VIEWS && t !== 'all' && t !== 'cn' && t !== 'cns'), l.id).toBe(true);
+      expect((l.tracks as string[]).every(t => t in VIEWS && t !== 'all' && t !== 'cn' && t !== 'cns'), l.id).toBe(true);
       expect(l.keys.length, `${l.id} keys`).toBeGreaterThanOrEqual(2);
       expect(l.keys.every(okPair), `${l.id} keys`).toBe(true);
     }

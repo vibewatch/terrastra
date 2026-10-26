@@ -7,10 +7,10 @@
 import type { I18n } from '../../shared/data/types.ts';
 import { load, save } from './storage.ts';
 
-export const VIEW_VERSION = 1;
+const VIEW_VERSION = 1;
 const MAX = 40;
 
-export interface Cam { lat: number; lon: number; h: number }
+interface Cam { lat: number; lon: number; h: number }
 export interface View { route: string; cam?: Cam }
 export interface Bookmark extends View { label: I18n; at: number }
 

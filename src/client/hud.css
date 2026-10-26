@@ -202,11 +202,6 @@
 .switch-card:has(input:checked) .sw-emoji { color: var(--hud-hi); filter: drop-shadow(0 0 4px rgba(125, 211, 252, 0.7)); }
 .sw-emoji .ico { width: 20px; height: 20px; }
 .sw-label { font-size: .92rem; }
-.sw-track { border-radius: 0; background: rgba(125, 211, 252, 0.1); box-shadow: inset 0 0 0 1px var(--hud-line); }
-.sw-track::after { border-radius: 0; background: var(--hud-dim); }
-.switch-card input:checked ~ .sw-track, .switch-card input:checked + .sw-track { background: rgba(125, 211, 252, 0.22); box-shadow: inset 0 0 0 1px var(--hud); }
-.switch-card input:checked ~ .sw-track::after, .switch-card input:checked + .sw-track::after { background: #f0f9ff; box-shadow: inset 0 -2px 0 var(--sig); }
-.menu-row { border-top-color: var(--hud-line); font-size: .92rem; }
 
 /* ---- info card ---- */
 .info-hero { background: radial-gradient(120% 90% at 50% 70%, rgba(56, 189, 248, 0.12), transparent 70%), #050b14; border-bottom-color: var(--hud-line); overflow: hidden; }

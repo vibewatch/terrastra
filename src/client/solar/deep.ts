@@ -34,7 +34,7 @@ const MODEL_VIEW = 3.33;
 const GAL_KINDS: DeepKind[] = ['galaxy', 'dwarf', 'cluster', 'group', 'quasar', 'blackhole'];
 const ease = (x: number) => (x < 0.5 ? 4 * x * x * x : 1 - (-2 * x + 2) ** 3 / 2);
 
-export interface LevelDef {
+interface LevelDef {
   /** Light-years per scene unit. */
   unit: number;
   /** Zooming in on the home spot below this distance (ly) goes down a scale; out past `upLy` goes up one. */
@@ -52,12 +52,12 @@ export const LEVELS: Record<DeepScale, LevelDef> = {
   universe: { unit: 1e8, downLy: 1.1e9, upLy: 4.3e10, defLy: 3.3e10, el: 0.32 },
 };
 /** Distance (ly) from the Sun to the Galactic Centre (Sgr A*). */
-export const GC_LY = 26_670;
+const GC_LY = 26_670;
 const CMB_R = 465;
 const Y_AXIS = new THREE.Vector3(0, 1, 0);
 
 /** Galactic (ly from the Sun) → three.js scene units for a level. */
-export function scenePos(l: number, b: number, distLy: number, lv: DeepScale, out = new THREE.Vector3()): THREE.Vector3 {
+function scenePos(l: number, b: number, distLy: number, lv: DeepScale, out = new THREE.Vector3()): THREE.Vector3 {
   const g = galVec(l, b, distLy), u = LEVELS[lv].unit;
   out.set(g[0], g[2], -g[1]).divideScalar(u);
   // The Milky Way and Local Group scenes are centred on the Galactic Centre.
@@ -71,7 +71,7 @@ const KIND_COLOR: Record<DeepKind, string> = {
   galaxy: '#c4b5fd', dwarf: '#a5b4fc', group: '#a7f3d0', cluster: '#fcd34d', supercluster: '#fda4af', wall: '#f9a8d4', void: '#94a3b8',
   quasar: '#67e8f9', cmb: '#fca5a5', deepfield: '#e9d5ff',
 };
-export const kindColor = (k: DeepKind) => KIND_COLOR[k] ?? '#e5e7eb';
+const kindColor = (k: DeepKind) => KIND_COLOR[k] ?? '#e5e7eb';
 
 /** Known disc orientations: position angle and inclination (deg), matched against the object's key. */
 const ORIENT: [RegExp, number, number][] = [
@@ -186,7 +186,7 @@ interface LevelRT {
   sky?: THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>;
 }
 
-export interface DeepEvents {
+interface DeepEvents {
   onSelect?: (o: DeepObject | null) => void;
   /** Zoomed in on the home spot (go down one scale) / out past the level (go up one). */
   onDown?: () => void;
@@ -213,12 +213,10 @@ export class DeepStage {
   private mwTex: THREE.CanvasTexture | null = null;
   private screen = { w: 1, h: 1, pr: 1 };
   private placed: { o: DeepObject | 'home'; x: number; y: number }[] = [];
-  /** The signature 3D model of the selected nebula (galaxy level), fading in as the camera arrives. */
   /** The 3D close-up model of the picked object (a nebula in the Milky Way; a galaxy, cluster or quasar further out). */
   private model: { key: string; L: LevelRT; m: NebulaModel; a: number; R: number } | null = null;
   /** The stand-in visuals of an object (painted disc, star swarm, blob) that give way to its model. */
   private stand = new Map<string, THREE.Material[]>();
-  /** Each nebula's soft marker glow (dimmed while its model shows). */
   private tweenAz: { from: number; to: number; t: number } | null = null;
 
   /** While the Messier list is open its objects are labelled first. */

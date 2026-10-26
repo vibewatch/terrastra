@@ -6,7 +6,7 @@ import { PBR_ATTR, vertexPbrOf } from './pbr.ts';
  * Supports the subset the model builders use: Group/Object3D/Mesh trees with plain BufferGeometry and untextured
  * MeshStandard/MeshBasic materials. Anything else throws, and callers fall back to building on the main thread.
  */
-export interface PackedAttr { name: string; array: Float32Array | Uint16Array | Uint32Array | Uint8Array | Int16Array | Int8Array; itemSize: number; normalized: boolean }
+interface PackedAttr { name: string; array: Float32Array | Uint16Array | Uint32Array | Uint8Array | Int16Array | Int8Array; itemSize: number; normalized: boolean }
 export interface PackedGeo { id: string; attrs?: PackedAttr[]; index?: Uint16Array | Uint32Array; groups?: { start: number; count: number; materialIndex?: number }[]; dr?: [number, number]; ud?: Record<string, unknown> }
 export interface PackedMat { type: 'MeshStandardMaterial' | 'MeshBasicMaterial'; p: Record<string, unknown> }
 export interface PackedNode {
@@ -65,6 +65,8 @@ function quantized(name: string, a: THREE.BufferAttribute): Int16Array | Uint16A
 export function packModel(root: THREE.Object3D, sent?: Set<string>): { model: PackedModel; transfer: ArrayBuffer[] } {
   const geos: PackedGeo[] = [], mats: PackedMat[] = [], transfer: ArrayBuffer[] = [];
   const gi = new Map<THREE.BufferGeometry, number>(), mi = new Map<THREE.Material, number>();
+  // only marked as sent once the whole model packed: a throw part-way ships nothing
+  const fresh: string[] = [];
   const geoIdx = (g: THREE.BufferGeometry) => {
     let i = gi.get(g);
     if (i !== undefined) return i;
@@ -87,7 +89,7 @@ export function packModel(root: THREE.Object3D, sent?: Set<string>): { model: Pa
     if (Object.keys(g.userData).length) pg.ud = { ...g.userData };
     if (g.drawRange.start || Number.isFinite(g.drawRange.count)) pg.dr = [g.drawRange.start, g.drawRange.count];
     geos.push(pg);
-    sent?.add(g.uuid);
+    fresh.push(g.uuid);
     return i;
   };
   const matIdx = (m: THREE.Material) => {
@@ -118,7 +120,9 @@ export function packModel(root: THREE.Object3D, sent?: Set<string>): { model: Pa
     if (o.children.length) node.c = o.children.map(walk);
     return node;
   };
-  return { model: { root: walk(root), geos, mats }, transfer };
+  const model = { root: walk(root), geos, mats };
+  for (const id of fresh) sent?.add(id);
+  return { model, transfer };
 }
 
 const IDENT = new THREE.Matrix4();

@@ -12,7 +12,8 @@ import * as THREE from 'three';
 import { textW, underUI } from '../ui/occluders.ts';
 import { BODIES, BODY, type BodyId, type SolarBody, type SolarFeature } from '../../shared/data/solar.ts';
 import { SOLAR_FEATURES } from '../../shared/data/solar-features.ts';
-import { daysJ2000, displayMoonDist, displayOrbit, displayRadius, keplerPosition, poleOf, relativePosition, subSolarLon, type Vec3 } from '../../shared/lib/orbits.ts';
+import { daysJ2000, displayMoonDist, displayOrbit, displayRadius, keplerPosition, poleOf, relativePosition, type Vec3 } from '../../shared/lib/orbits.ts';
+import { subsolar } from '../../shared/lib/sun.ts';
 import { latLonToVec, vecToLatLon } from '../../shared/lib/geo.ts';
 import { tr } from '../../shared/data/types.ts';
 import { lang } from '../lib/i18n.ts';
@@ -62,7 +63,7 @@ const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2
 
 export type SolarSelection = { kind: 'body'; id: BodyId } | { kind: 'feature'; f: SolarFeature } | { kind: 'site'; s: SolarSite } | { kind: 'cst'; c: Constellation };
 
-export interface SolarEvents {
+interface SolarEvents {
   /** A body or feature was picked (tap, label or chip). */
   onSelect?: (sel: SolarSelection) => void;
   /** Focus body or zoom changed (for the breadcrumb); `near` = within a few radii of the focus body. */
@@ -221,7 +222,6 @@ export class SolarView {
   private worker: Worker | null = null;
   private queue: PaintRequest[] = [];
   private inflight: PaintRequest | null = null;
-  private seq = 0;
   private hiOrder: BodyId[] = [];
   private earthCanvas: HTMLCanvasElement | null = null;
   private featLabels = new Map<string, HTMLButtonElement>();
@@ -231,6 +231,7 @@ export class SolarView {
   private cometLabel = document.createElement('span');
   /** Stick figures of the constellations on the sky sphere (toggle with `.visible`). */
   cst!: ConstellationLayer;
+  private orbitsOn = true;
   /** Distance meter: a dashed line between two worlds and a label at its middle (text set by the UI). */
   private meter: { a: BodyId; b: BodyId; line: THREE.Line<THREE.BufferGeometry, THREE.LineDashedMaterial> } | null = null;
   readonly meterLabel = document.createElement('span');
@@ -429,13 +430,13 @@ export class SolarView {
   private request(id: BodyId, w: number, front = false): void {
     if (id === 'earth' && this.earthCanvas) {
       const h = w / 2;
-      this.onPainted({ seq: 0, id, w, h, ms: 0, color: new Uint8ClampedArray(w * h * 4), height: null, rings: null });
+      this.onPainted({ id, w, h, ms: 0, color: new Uint8ClampedArray(w * h * 4), height: null, rings: null });
       return;
     }
     if (this.inflight?.id === id && this.inflight.w === w) return;
     const i = this.queue.findIndex(r => r.id === id && r.w === w);
     if (i >= 0) { if (!front) return; this.queue.splice(i, 1); }
-    const req: PaintRequest = { seq: ++this.seq, id, w, rings: Boolean(BODY[id].rings) && !this.rts.get(id)!.lo };
+    const req: PaintRequest = { id, w, rings: Boolean(BODY[id].rings) && !this.rts.get(id)!.lo };
     if (front) this.queue.unshift(req); else this.queue.push(req);
     this.pump();
   }
@@ -561,7 +562,7 @@ export class SolarView {
         target = Math.atan2(tmp.x, tmp.z);
       } else if (b.id === 'earth' && Math.abs(this.speed) <= EARTH_EXACT) {
         tmp.copy(rt.pos).negate().normalize().applyQuaternion(q);
-        target = Math.atan2(tmp.x, tmp.z) - subSolarLon(this.simMs) * D2R;
+        target = Math.atan2(tmp.x, tmp.z) - subsolar(this.simMs)[1] * D2R;
       }
       if (target !== null) rt.spinA = dtReal <= 0 || b.locked ? target : rt.spinA + wrapPi(target - rt.spinA) * Math.min(1, dtReal / 0.25);
       else if (b.rotationH) {
@@ -696,7 +697,7 @@ export class SolarView {
     const iF = SCALES.indexOf(from), iT = SCALES.indexOf(to);
     how ??= Math.abs(iF - iT) === 1 ? (iT < iF ? 'up' : 'down') : 'jump';
     if (to === 'solar') {
-      if (from === 'galaxy' || from === 'stars' || how === 'down') this.setAngles(this.anglesVec(this.deep.az - (from === 'galaxy' ? this.deep.galSpin : 0), this.deep.el, galToEcl, eclToGal, true));
+      if (from === 'galaxy' || from === 'stars' || how === 'down') this.setAngles(this.anglesVec(this.deep.az - (from === 'galaxy' ? this.deep.galSpin : 0), this.deep.el, galToEcl, true));
       this.selFeature = null;
       this.focusId = 'sun';
       const rt = this.rts.get('sun')!;
@@ -705,7 +706,7 @@ export class SolarView {
       this.over.v = 0;
     } else {
       if (from === 'solar') {
-        const off = this.anglesVec(this.az, this.el, eclToGal, galToEcl, false);
+        const off = this.anglesVec(this.az, this.el, eclToGal, false);
         this.deep.az = Math.atan2(off.x, off.z) + (to === 'galaxy' ? this.deep.galSpin : 0);
         this.deep.el = Math.asin(Math.max(-1, Math.min(1, off.y)));
       } else if (from === 'stars' || to === 'stars') {
@@ -721,7 +722,7 @@ export class SolarView {
   }
 
   /** The camera direction (az, el) re-expressed in the other frame (ecliptic ↔ galactic). */
-  private anglesVec(az: number, el: number, conv: (v: Vec3) => Vec3, _inv: (v: Vec3) => Vec3, toSolar: boolean): THREE.Vector3 {
+  private anglesVec(az: number, el: number, conv: (v: Vec3) => Vec3, toSolar: boolean): THREE.Vector3 {
     const o = new THREE.Vector3(Math.cos(el) * Math.sin(az), Math.sin(el), Math.cos(el) * Math.cos(az));
     const v = conv([o.x, -o.z, o.y]);
     const out = new THREE.Vector3(v[0], v[2], -v[1]);
@@ -783,11 +784,11 @@ export class SolarView {
 
   /** Where on Earth the camera looks down from (for handing back to the globe). */
   earthLatLon(): [number, number] {
+    if (this.focusId !== 'earth') return [20, 0];
     const rt = this.rts.get('earth')!;
     rt.spin.updateWorldMatrix(true, false);
     const inv = new THREE.Matrix4().copy(rt.spin.matrixWorld).invert();
     const dir = this.camera.position.clone().sub(rt.pos).normalize().transformDirection(inv);
-    if (this.focusId !== 'earth') return [20, 0];
     return vecToLatLon(dir.x, dir.y, dir.z);
   }
 
@@ -881,10 +882,12 @@ export class SolarView {
   /** Straight back to the Solar System with no transition (re-entering from the globe). */
   resetScale(): void {
     if (this.scale === 'solar' && !this.xf) return;
+    const was = this.scale;
     this.scale = 'solar';
     this.xf = null;
     this.deep.select(null, false);
     this.deep.labels(null);
+    if (was !== 'solar') this.ev.onScale?.('solar');
   }
 
   /** Back to the resting view of the current scale. */
@@ -1087,6 +1090,13 @@ export class SolarView {
     return out;
   }
 
+  /** Display option: the orbit lines of planets, moons and the comet. */
+  get orbits(): boolean { return this.orbitsOn; }
+  set orbits(on: boolean) { this.orbitsOn = on; this.fx.comet.orbit.visible = on; }
+  /** Display option: names on worlds, features, sites and deep objects (the meter's reading always shows). */
+  get names(): boolean { return !this.root.classList.contains('no-names'); }
+  set names(on: boolean) { this.root.classList.toggle('no-names', !on); }
+
   /** Dense spheres and the big texture only for the body you are looking at. */
   private updateLOD(): void {
     const fb = BODY[this.focusId], fr = this.rts.get(this.focusId)!;
@@ -1102,7 +1112,7 @@ export class SolarView {
         const f = rt.b.kind === 'moon' && mine ? 1 : keepOthers;
         m.opacity = (mine ? 0.5 : 0.2) * f;
         // Moon orbits only near their planet; they'd just be clutter in the overview.
-        rt.orbit.visible = f > 0.01 && (rt.b.kind !== 'moon' || this.camera.position.distanceTo(this.rts.get(rt.b.parent!)!.pos) < 30);
+        rt.orbit.visible = this.orbitsOn && f > 0.01 && (rt.b.kind !== 'moon' || this.camera.position.distanceTo(this.rts.get(rt.b.parent!)!.pos) < 30);
       }
     }
   }

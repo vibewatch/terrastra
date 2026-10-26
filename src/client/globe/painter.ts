@@ -51,7 +51,7 @@ function labelPoint(f: Feature<Polygon | MultiPolygon>): { lat: number; lon: num
 }
 
 /** `borderTopo`: a finer topology to stroke the borders from (the fills always come from `topo`). */
-export interface PaintOpts { political: boolean; borders: boolean; width: number; borderTopo?: Topology }
+interface PaintOpts { political: boolean; borders: boolean; width: number; borderTopo?: Topology }
 
 // Deterministic multi-octave value-noise for AuraFM satellite biome & elevation synthesis.
 function hash(x: number, y: number): number {

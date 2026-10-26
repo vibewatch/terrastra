@@ -1,5 +1,7 @@
 # Functional & Technical Specification: Terrastra
 
+> Historical MVP baseline. Since then the app has moved to English and Simplified Chinese only (`Lang = 'en' | 'zh'`), dropped offline mode and grown a Solar System, deep-space levels, a sky theatre and lessons. The current state and priorities live in [the 2026-10 roadmap](../planning/improvement-roadmap-2026-10.md).
+
 Companion to the [PRD](prd.md). The constants listed here are the source of truth and are mirrored in code (file references in brackets).
 
 ## 1. Screen layout

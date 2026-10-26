@@ -74,10 +74,19 @@ export function mergeProgress(a: Progress, b: Progress): Progress {
 
 const STAMPS = ['dex', 'logs', 'likes', 'visited', 'stickers', 'found', 'seen'] as const;
 /** Stamp maps are capped well above the catalogue's size, so a client can't grow a stored record without bound. */
-export const MAX_STAMPS = 5000;
+const MAX_STAMPS = 5000;
 const isStamp = (m: unknown, required: boolean): boolean => m === undefined ? !required
   : !!m && typeof m === 'object' && !Array.isArray(m) && Object.keys(m).length <= MAX_STAMPS
     && Object.entries(m).every(([k, v]) => k.length <= 64 && typeof v === 'number' && Number.isFinite(v));
+
+const num = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+/** The merge maps over `dist` and takes maxima of the counters, so every field must be a real number. */
+const isDaily = (d: unknown): boolean => {
+  if (!d || typeof d !== 'object') return false;
+  const s = d as DailyStats;
+  return num(s.played) && num(s.won) && num(s.streak) && num(s.maxStreak) && (s.lastWonDay === null || num(s.lastWonDay))
+    && Array.isArray(s.dist) && s.dist.length === EMPTY_STATS.dist.length && s.dist.every(num);
+};
 
 export function isProgress(x: unknown): x is Progress {
   if (!x || typeof x !== 'object') return false;
@@ -86,6 +95,6 @@ export function isProgress(x: unknown): x is Progress {
     && (p.placeit === undefined || (!!p.placeit && typeof p.placeit === 'object' && Object.keys(p.placeit).length <= 100
       && Object.values(p.placeit).every(r => !!r && Number.isFinite(r.best) && Number.isFinite(r.plays))))
     && (p.quiz === undefined || (!!p.quiz && Number.isFinite(p.quiz.answered) && Number.isFinite(p.quiz.correct) && isStamp(p.quiz.bySet, false)))
-    && (p.daily === undefined || (!!p.daily && typeof p.daily === 'object' && Array.isArray(p.daily.dist)))
+    && (p.daily === undefined || isDaily(p.daily))
     && (p.updatedAt === undefined || Number.isFinite(p.updatedAt));
 }

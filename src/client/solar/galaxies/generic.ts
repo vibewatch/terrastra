@@ -57,7 +57,7 @@ export function tint(b: NB, m: ReturnType<typeof mark>, k: C3) {
 }
 
 /** Hernquist radius (its projected light is close to de Vaucouleurs' r^¼ law), scale `a`. */
-export const hernq = (u: number, a: number) => { const s = Math.sqrt(u); return a * s / (1 - s + 1e-6); };
+const hernq = (u: number, a: number) => { const s = Math.sqrt(u); return a * s / (1 - s + 1e-6); };
 /** Plummer radius, scale `a`. */
 export const plummer = (u: number, a: number) => a / Math.sqrt(Math.pow(u + 1e-6, -2 / 3) - 1);
 
@@ -220,7 +220,7 @@ export function spiral(b: NB, o: SpiralOpts): Xf {
 }
 
 // ---------------------------------------------------------------- ellipticals
-export interface EllOpts {
+interface EllOpts {
   c?: V3; R: number; pa?: number;
   /** Sky axis ratio b/a, and line-of-sight axis ratio. */
   q?: number; q3?: number;
@@ -254,7 +254,7 @@ export function elliptical(b: NB, o: EllOpts): Xf {
 }
 
 /** Globular clusters: compact gold/white points in a round, extended swarm. */
-export function globulars(b: NB, X: Xf, n: number, spread: number, q = 1) {
+function globulars(b: NB, X: Xf, n: number, spread: number, q = 1) {
   const r = b.r;
   for (let i = 0, N = n > 0 ? b.n(n) : 0; i < N; i++) {
     const rr = plummer(r(), spread);
@@ -265,7 +265,7 @@ export function globulars(b: NB, X: Xf, n: number, spread: number, q = 1) {
 }
 
 // ---------------------------------------------------------------- dwarf spheroidals (resolved swarms)
-export interface DsphOpts {
+interface DsphOpts {
   c?: V3; R: number; pa?: number; q?: number; q3?: number;
   /** Plummer scale (units of R), resolved star count, unresolved glow flux. */
   a?: number; stars?: number; F?: number;
@@ -303,7 +303,7 @@ export function dsph(b: NB, o: DsphOpts): Xf {
 }
 
 // ---------------------------------------------------------------- irregulars
-export interface IrrOpts {
+interface IrrOpts {
   c?: V3; R: number; pa?: number; inc?: number; q?: number; q3?: number;
   /** Clumps of young stars, HII knots, resolved stars, young-light flux, old-envelope flux, 0..1 extra pink. */
   clumps?: number; hii?: number; stars?: number; F?: number; oldF?: number; pink?: number;
@@ -403,7 +403,7 @@ export function mini(b: NB, c: V3, R: number, type: MiniType, pa: number, inc: n
 
 // ---------------------------------------------------------------- galaxy clusters
 export interface Sub { c: V3; w: number; core: number }
-export interface ClusterOpts {
+interface ClusterOpts {
   /** Member galaxies, galaxy-size scale (radius of the biggest normal members, model units), axis stretch. */
   n: number; size?: number; stretch?: V3;
   /** Sub-clumps (default: one at the origin). */
@@ -449,7 +449,7 @@ export function gas(b: NB, subs: Sub[], F: number, col: C3, k = 1) {
 }
 
 // ---------------------------------------------------------------- quasars
-export interface QuasarOpts {
+interface QuasarOpts {
   c?: V3; I?: number; px?: number;
   /** Host galaxy radius (0 = none) and its flux. */
   host?: number; hostF?: number;
@@ -466,7 +466,7 @@ export function quasar(b: NB, o: QuasarOpts) {
   if (o.jet) jet(b, c, o.jet);
 }
 
-export interface JetOpts { pa: number; r0: number; r1: number; z?: number; knots?: number; F?: number; col?: C3; width?: number; n?: number }
+interface JetOpts { pa: number; r0: number; r1: number; z?: number; knots?: number; F?: number; col?: C3; width?: number; n?: number }
 /** A relativistic jet: a thin, slightly widening line of glow with bright knots, from `r0` to `r1` along sky PA `pa`. */
 export function jet(b: NB, c: V3, j: JetOpts) {
   const r = b.r, g = b.g, d = norm(sky(j.pa, 1, j.z ?? 0)), col = j.col ?? hex('#bcd0ff'), w = j.width ?? 0.012, n = j.n ?? 6000, F = j.F ?? 0.004;

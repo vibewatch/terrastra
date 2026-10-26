@@ -17,12 +17,12 @@ export const AU_KM = 149_597_870.7;
 /** Polar / equatorial radius of the Earth (1 − f). */
 export const EARTH_B = 0.99664719;
 
-export const norm360 = (x: number) => ((x % 360) + 360) % 360;
+const norm360 = (x: number) => ((x % 360) + 360) % 360;
 export const norm180 = (x: number) => norm360(x + 180) - 180;
 
 // ---------------------------------------------------------------------------------------------- time scales
 
-export const jd = (ms: number) => ms / 864e5 + 2440587.5;
+const jd = (ms: number) => ms / 864e5 + 2440587.5;
 
 /** Espenak–Meeus ΔT polynomial at decimal year `y` (with a smooth extrapolation from observed values after 2005). */
 function deltaTYear(y: number): number {
@@ -82,8 +82,6 @@ function frame(ms: number): Frame {
   return (lastFrame = { ms, T, dPsi, dEps, eps, gast: norm360(gmst + dPsi * Math.cos(eps * D2R)) });
 }
 
-/** Nutation in longitude and obliquity (degrees; IAU 1980 leading terms, ~0.5″). */
-export function nutation(ms: number): { dPsi: number; dEps: number } { const f = frame(ms); return { dPsi: f.dPsi, dEps: f.dEps }; }
 /** True obliquity of the ecliptic (degrees). */
 export const obliquity = (ms: number) => frame(ms).eps;
 /** Greenwich mean sidereal time (degrees). */
@@ -92,7 +90,7 @@ export const gmst = (ms: number) => { const f = frame(ms); return norm360(f.gast
 export const gast = (ms: number) => frame(ms).gast;
 
 /** Ecliptic (of date) → equatorial, degrees. */
-export function eclToEq(lon: number, lat: number, eps: number): { ra: number; dec: number } {
+function eclToEq(lon: number, lat: number, eps: number): { ra: number; dec: number } {
   const l = lon * D2R, b = lat * D2R, e = eps * D2R, sl = Math.sin(l), cb = Math.cos(b), sb = Math.sin(b);
   return { ra: norm360(Math.atan2(sl * cb * Math.cos(e) - sb * Math.sin(e), Math.cos(l) * cb) * R2D), dec: Math.asin(sb * Math.cos(e) + cb * Math.sin(e) * sl) * R2D };
 }
@@ -141,7 +139,7 @@ function earthLBR(T: number): [number, number, number] {
   return lastLBR.v;
 }
 
-export interface Geo { lon: number; lat: number; distKm: number; ra: number; dec: number }
+interface Geo { lon: number; lat: number; distKm: number; ra: number; dec: number }
 let lastSun: Geo & { ms: number } = { ms: NaN, lon: 0, lat: 0, distKm: 0, ra: 0, dec: 0 };
 
 /** Apparent geocentric Sun (ecliptic & equatorial of date). */
@@ -214,7 +212,7 @@ export function lunarArgs(T: number) {
 }
 
 /** Geometric ecliptic-of-date Moon (no nutation): λ, β (deg), Δ (km), at TT centuries `T`. */
-export function moonMeeus(T: number): [number, number, number] {
+function moonMeeus(T: number): [number, number, number] {
   const { Lp, D, M, Mp, F } = lunarArgs(T);
   const E = 1 - T * (0.002516 + 0.0000074 * T), E2 = E * E;
   const d = D * D2R, m = M * D2R, mp = Mp * D2R, f = F * D2R, lp = Lp * D2R;
@@ -263,7 +261,7 @@ export const sunEcef = (ms: number): Vec3 => toEcef(eqVec(sunGeo(ms)), gast(ms))
 export const moonEcef = (ms: number): Vec3 => toEcef(eqVec(moonGeo(ms)), gast(ms));
 
 /** Observer's geocentric position (km) in the Earth-fixed frame, on the WGS84-ish ellipsoid at sea level. */
-export function observerEcef(obs: GeoPoint): Vec3 {
+function observerEcef(obs: GeoPoint): Vec3 {
   const phi = obs.lat * D2R, u = Math.atan(EARTH_B * Math.tan(phi)), l = obs.lon * D2R;
   const rc = Math.cos(u) * EARTH_KM, rs = EARTH_B * Math.sin(u) * EARTH_KM;
   return [rc * Math.cos(l), rc * Math.sin(l), rs];
@@ -304,7 +302,7 @@ export function topocentric(ms: number, obs: GeoPoint): TopoSunMoon {
 // ---------------------------------------------------------------------------------------------- Moon phase
 
 /** Elongation of the Moon from the Sun in ecliptic longitude, 0..360 (0 new, 180 full). */
-export const moonElong = (ms: number) => norm360(moonGeo(ms).lon - sunGeo(ms).lon);
+const moonElong = (ms: number) => norm360(moonGeo(ms).lon - sunGeo(ms).lon);
 
 /** Next instant at or after `ms` when the Moon–Sun longitude difference equals `phase` (0 new, 90 first quarter, 180 full, 270 last quarter). */
 export function nextPhase(ms: number, phase: number): number {
@@ -317,7 +315,7 @@ export function nextPhase(ms: number, phase: number): number {
   return t;
 }
 /** Previous instant at or before `ms` with the given phase. */
-export const prevPhase = (ms: number, phase: number) => { const t = nextPhase(ms - 30 * 864e5, phase), n = nextPhase(t + 25 * 864e5, phase); return n <= ms + 1 ? n : t; };
+const prevPhase = (ms: number, phase: number) => { const t = nextPhase(ms - 30 * 864e5, phase), n = nextPhase(t + 25 * 864e5, phase); return n <= ms + 1 ? n : t; };
 
 /** Phase angle (Sun–Moon–Earth, deg), illuminated fraction, waxing flag and age since new moon. */
 export function moonPhase(ms: number): { phaseAngle: number; illumination: number; waxing: boolean; ageDays: number } {

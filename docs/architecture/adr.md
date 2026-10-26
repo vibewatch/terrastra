@@ -42,7 +42,7 @@ New content = new data, not new code.
 ## ADR-003 — Country geometry from Natural Earth (via `world-atlas` TopoJSON)
 **Status:** Accepted
 
-**Decision.** Use the public-domain Natural Earth 1:110m countries (`world-atlas/countries-110m.json`) decoded
+**Decision.** Use the public-domain Natural Earth 1:110m countries (from `world-atlas`, vendored as `public/data/countries-110m.json` and `countries-50m.json`) decoded
 with `topojson-client`. Countries are rendered into an equirectangular canvas texture (political colours,
 borders, graticule) wrapped on a sphere; the same polygons drive point-in-country lookups for games.
 
@@ -714,7 +714,7 @@ Above the Solar System the scenes were also static apart from rigid disc spin.
 - **Generative music** (`lib/music.ts`). Pure WebAudio, with no audio files to download.
   - Each level (earth, sky, solar, galaxy, group, laniakea, universe) has its own mood: key, scale, chord loop, pace, pad/bass/lead timbre, bells, and reverb/echo sends.
   - A small look-ahead scheduler plays the mood on its own bus. Changing level crossfades the buses.
-  - The setting is on by default (`bgm`; a one-time `bgm2` migration turns it on for saved settings from before). Per-mood trims keep every level near −21 dBFS RMS. The context suspends while the tab is hidden and unlocks on the first gesture.
+  - The setting is on by default (`bgm`). Per-mood trims keep every level near −21 dBFS RMS. The context suspends while the tab is hidden and unlocks on the first gesture.
   - `main.ts` calls `tune()` on every level change: zoom scale, Solar enter/leave, Sky open/close.
 - **Earth radio** (`lib/radio.ts`, `ui/radio.ts`, `globe/stations.ts`).
   - **Data.** `scripts/gen-radio.ts` turns a Radio-Browser dump (public domain) into `public/data/radio/stations.json`.

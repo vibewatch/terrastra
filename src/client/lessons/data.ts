@@ -25,7 +25,7 @@ export type { Grade, Lesson, Quiz, Step, Strand, Track } from './kit.ts';
 const ALL: Lesson[] = [...EARTH_A, ...EARTH_B, ...MAPS, ...LAND, ...PHYSICAL, ...CLIMATE_L, ...HUMAN, ...REGIONS_L, ...WORLD, ...CHINA, ...CHINA_B, ...CHINA_C, ...CHINA_D, ...HOME, ...SENIOR_A, ...SENIOR_B];
 const STRAND_ORDER: Strand[] = ['maps', 'physical', 'climate', 'human', 'world', 'china'];
 /** Senior high school lessons (the Chinese senior course); they come after the middle-school ones in a theme. */
-export const isSenior = (l: Lesson) => l.grade === 'h1' || l.grade === 'h2';
+const isSenior = (l: Lesson) => l.grade === 'h1' || l.grade === 'h2';
 /** Grouped by theme (stable within a theme), middle school before senior, so "next lesson" follows the course. */
 export const LESSONS: Lesson[] = STRAND_ORDER.flatMap(s => ALL.filter(l => l.strand === s && !isSenior(l)).concat(ALL.filter(l => l.strand === s && isSenior(l))));
 
@@ -67,7 +67,7 @@ export type Subject = 'geo' | 'astro' | 'ssbs';
 /** Astronomy lesson ids start with `a-`, the SSBS class's with `ssbs-`. */
 export const subjectOf = (id: string): Subject => (id.startsWith('a-') ? 'astro' : id.startsWith('ssbs-') ? 'ssbs' : 'geo');
 /** A subject's course picker: its curricula, their lessons in groups, where the choice is saved and the default. */
-export interface Catalog { views: Record<string, { name: Pair; note: Pair }>; course(v: string): { name: Pair; lessons: Lesson[] }[]; key: string; def(zh: boolean): string }
+interface Catalog { views: Record<string, { name: Pair; note: Pair }>; course(v: string): { name: Pair; lessons: Lesson[] }[]; key: string; def(zh: boolean): string }
 export const CATALOGS: Record<Subject, Catalog> = {
   geo: { views: VIEWS, course: v => course(v as View), key: 'lessonTrack', def: zh => (zh ? 'cn' : 'all') },
   astro: { views: ASTRO_VIEWS, course: v => astroCourse(v as AstroView), key: 'astroTrack', def: zh => (zh ? 'cnj' : 'all') },

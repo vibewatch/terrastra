@@ -8,14 +8,14 @@ import { NB, paintData, toModel, type NebulaModel, type NebulaTier } from './neb
 import { HII } from './nebulae/hii.ts';
 import { SHELLS } from './nebulae/shells.ts';
 
-export type { NebulaModel, NebulaTier };
+export type { NebulaModel };
 
 const MODELS: Record<string, (b: NB) => void> = { ...HII, ...SHELLS };
 
 export const hasNebulaModel = (key: string): boolean => key in MODELS;
 
 /** Raw primitives of a model (shared by the 3D build and the painter). */
-export function nebulaData(key: string, tier: NebulaTier): NB | null {
+function nebulaData(key: string, tier: NebulaTier): NB | null {
   const f = MODELS[key];
   if (!f) return null;
   const b = new NB(hashStr(key), tier);

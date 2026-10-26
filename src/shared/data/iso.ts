@@ -43,9 +43,6 @@ export const ISO: Record<string, [string, Continent]> = {
   'N. Cyprus': ['CY', E], 'Somaliland': ['SO', T], 'Kosovo': ['XK', E],
 };
 
-// Places that are territories or disputed: never asked as a "country" in quizzes.
-export const NOT_SOVEREIGN = new Set(['EH', 'FK', 'GL', 'TF', 'PR', 'NC', 'PS', 'TW', 'AQ', 'XK']);
-
 export const CONTINENT_NAMES: Record<Continent | 'ocean', Record<'en' | 'zh', string>> = {
   africa: { en: 'Africa', zh: '非洲' },
   europe: { en: 'Europe', zh: '欧洲' },

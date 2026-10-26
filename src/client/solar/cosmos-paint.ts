@@ -276,7 +276,7 @@ export function paintNebula(S: number, seed: number, hues: [string, string], rin
   return cv;
 }
 
-export const hexRgb = (h: string): [number, number, number] => { const v = parseInt(h.slice(1), 16); return [(v >> 16) & 255, (v >> 8) & 255, v & 255]; };
+const hexRgb = (h: string): [number, number, number] => { const v = parseInt(h.slice(1), 16); return [(v >> 16) & 255, (v >> 8) & 255, v & 255]; };
 
 /** A soft round glow (white, for tinted sprites). */
 let glowCv: HTMLCanvasElement | null = null;

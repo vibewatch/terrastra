@@ -8,7 +8,7 @@ import type { I18n } from './types.ts';
 import { radecToGal } from '../lib/sky.ts';
 
 /** gc globular · oc open cluster · pn planetary nebula · dn bright nebula · rn reflection nebula · gx galaxy · ds double star · as asterism · sc star cloud */
-export type MessierType = 'gc' | 'oc' | 'pn' | 'dn' | 'rn' | 'sn' | 'gx' | 'ds' | 'as' | 'sc';
+type MessierType = 'gc' | 'oc' | 'pn' | 'dn' | 'rn' | 'sn' | 'gx' | 'ds' | 'as' | 'sc';
 
 /** The four filter groups of the Messier list. */
 export type MessierGroup = 'galaxy' | 'nebula' | 'open' | 'globular';

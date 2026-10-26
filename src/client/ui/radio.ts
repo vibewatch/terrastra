@@ -54,11 +54,11 @@ function genres(tags: string[]): string[] {
 interface Station { name: string; cc: string; lat: number; lon: number; url: string; hls: boolean; approx: boolean; codec: string; kbps: number; tags: string[] }
 type Row = [string, string, number, number, string, number, string, number, number[]];
 
-const FAV_KEY = 'pp.radio.fav';
-const VOL_KEY = 'pp.radio.vol';
-const LAST_KEY = 'pp.radio.last';
-const OK_KEY = 'pp.radio.ok';
-const HIDE_KEY = 'pp.radio.hidden';
+const FAV_KEY = 'radio.fav';
+const VOL_KEY = 'radio.vol';
+const LAST_KEY = 'radio.last';
+const OK_KEY = 'radio.ok';
+const HIDE_KEY = 'radio.hidden';
 const D2R = Math.PI / 180;
 
 
@@ -329,12 +329,15 @@ let inst: Promise<Radio> | null = null;
 
 /** Loads the station list once and builds the radio. */
 export function getRadio(globe: Globe, root: HTMLElement): Promise<Radio> {
-  return inst ??= fetch(url('data/radio/stations.json')).then(r => r.json()).then((d: { tags: string[]; s: Row[]; at?: string }) => {
+  return inst ??= fetch(url('data/radio/stations.json')).then(r => {
+    if (!r.ok) throw new Error(`stations: HTTP ${r.status}`);
+    return r.json() as Promise<{ tags: string[]; s: Row[]; at?: string }>;
+  }).then(d => {
     const st: Station[] = d.s.map(([name, cc, lat, lon, u, f, codec, kbps, tg]) => ({
       name, cc, lat, lon, url: u, hls: !!(f & 1), approx: !!(f & 2), codec, kbps, tags: tg.map(i => d.tags[i]),
     }));
     const r = new Radio(globe, st, d.at ?? '');
     r.mount(root);
     return r;
-  }, e => { inst = null; throw e; });
+  }).catch((e: unknown) => { inst = null; throw e; });
 }

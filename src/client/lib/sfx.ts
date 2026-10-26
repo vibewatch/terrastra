@@ -5,10 +5,13 @@ let enabled = true;
 /** The one shared AudioContext (sound effects, music and radio static). */
 export function audioCtx(): AudioContext | null { return ac(); }
 
+/** Browsers refuse to start audio before the first gesture (and warn on every try). */
+export function audioAllowed(): boolean { return navigator.userActivation?.hasBeenActive ?? true; }
+
 function ac(): AudioContext | null {
-  if (typeof AudioContext === 'undefined') return null;
+  if (typeof AudioContext === 'undefined' || !audioAllowed()) return null;
   ctx ??= new AudioContext();
-  if (ctx.state === 'suspended') void ctx.resume();
+  if (ctx.state === 'suspended' && !document.hidden) void ctx.resume();
   return ctx;
 }
 
@@ -55,7 +58,7 @@ function noise(dur: number, freq: number, q = 1, vol = 0.08, when = 0, type: Biq
   src.connect(f).connect(g).connect(a.destination); src.start(t);
 }
 
-export type CallKind = 'roar' | 'trumpet' | 'whale' | 'chirp' | 'honk' | 'growl' | 'bleat' | 'squeak' | 'click' | 'flutter' | 'bubble' | 'bellow' | 'screech';
+type CallKind = 'roar' | 'trumpet' | 'whale' | 'chirp' | 'honk' | 'growl' | 'bleat' | 'squeak' | 'click' | 'flutter' | 'bubble' | 'bellow' | 'screech';
 
 const CALLS: Record<CallKind, () => void> = {
   roar: () => { voice({ pts: [[0, 90], [0.25, 140], [1.1, 70]], dur: 1.2, vol: 0.14, lp: 700, vib: [28, 14] }); noise(1.1, 300, 0.8, 0.07); },

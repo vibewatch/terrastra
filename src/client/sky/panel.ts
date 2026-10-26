@@ -12,7 +12,7 @@ const FILTERS: Filter[] = ['top', 'eclipse', 'meteor', 'moon', 'planet', 'season
 const DAY = 86400_000;
 
 const cache = new Map<number, SkyEvent[]>();
-export function eventsOf(year: number): SkyEvent[] {
+function eventsOf(year: number): SkyEvent[] {
   let e = cache.get(year);
   if (!e) { e = skyEvents(Date.UTC(year, 0, 1), Date.UTC(year + 1, 0, 1)); cache.set(year, e); }
   return e;
@@ -43,13 +43,12 @@ const match = (e: SkyEvent, f: Filter) => f === 'top' ? isTop(e) : KINDS[f].incl
 export function nextHighlight(now = Date.now()): SkyEvent | undefined {
   const y = new Date(now).getUTCFullYear();
   const all = [...eventsOf(y), ...eventsOf(y + 1)].filter(e => e.t > now - DAY);
-  return all.find(e => e.kind === 'solar-eclipse' || e.kind === 'lunar-eclipse') && all.find(e => e.kind === 'solar-eclipse' || e.kind === 'lunar-eclipse')!.t - now < 200 * DAY
-    ? all.find(e => e.kind === 'solar-eclipse' || e.kind === 'lunar-eclipse')
-    : all.find(isTop) ?? all[0];
+  const eclipse = all.find(e => e.kind === 'solar-eclipse' || e.kind === 'lunar-eclipse');
+  return eclipse && eclipse.t - now < 200 * DAY ? eclipse : all.find(isTop) ?? all[0];
 }
 
 /** One line: what `site` gets of this event. */
-export function seenFrom(e: SkyEvent, site: Site | null): string {
+function seenFrom(e: SkyEvent, site: Site | null): string {
   if (e.kind === 'solar-eclipse') {
     const x = e.solar!;
     if (!site) return s('bestFrom', { r: regionOf(x.greatest.lat, x.greatest.lon) });
@@ -73,10 +72,14 @@ export function seenFrom(e: SkyEvent, site: Site | null): string {
   return '';
 }
 
+/** Local midnight of the day containing `ms`. */
+const dayStart = (ms: number) => new Date(ms).setHours(0, 0, 0, 0);
+
+/** "in 3 days" / "3 days ago" counted in calendar days, so tomorrow evening is always "in 1 day". */
 export function countdown(t: number, now = Date.now()): string {
-  const d = (t - now) / DAY;
-  if (Math.abs(d) < 1) return d > 0 && d * 24 >= 1 ? s('inHours', { n: Math.round(d * 24) }) : s('today');
-  return d > 0 ? s('inDays', { n: Math.ceil(d) }) : s('daysAgo', { n: Math.floor(-d) });
+  const days = Math.round((dayStart(t) - dayStart(now)) / DAY);
+  if (days === 0) return t - now >= 3600_000 ? s('inHours', { n: Math.round((t - now) / 3600_000) }) : s('today');
+  return days > 0 ? s('inDays', { n: days }) : s('daysAgo', { n: -days });
 }
 
 const KIND_ICON: Partial<Record<SkyEventKind, string>> = {

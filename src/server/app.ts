@@ -6,7 +6,7 @@ import type { DB } from './db.ts';
 import { mergeProgress, isProgress, emptyProgress, type Progress } from '../shared/lib/progress.ts';
 import { BY_KEY } from '../shared/data/catalogue.ts';
 
-export interface AppOptions {
+interface AppOptions {
   db: DB;
   /** Expose the magic link in the API response (local dev / e2e only). */
   devLogin: boolean;

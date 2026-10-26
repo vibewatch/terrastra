@@ -10,7 +10,7 @@ import { CATALOGUE, BY_KEY, BY_SLUG, LANDMARKS } from '../../src/shared/data/cat
 import { EN_KEYS, ZH_KEYS, hasKey, t } from '../../src/client/lib/i18n.ts';
 import { SKY_TEXT } from '../../src/client/sky/text.ts';
 import { haversineKm as hk } from '../../src/shared/lib/geo.ts';
-import { buildModel } from '../../src/client/models/kit.ts';
+import { buildFresh } from '../../src/client/models/kit.ts';
 import { heroBuilder, loadHeroesFor, PACK_IDS } from '../../src/client/models/heroes/index.ts';
 import { AURA_PRESETS } from '../../src/client/globe/scene.ts';
 import { parseExtract, articleUrl } from '../../src/client/lib/wikipedia.ts';
@@ -181,6 +181,11 @@ describe('progress merge (sync)', () => {
     expect(isProgress({ ...emptyProgress(), dex: null })).toBe(false);
     expect(isProgress({ ...emptyProgress(), seen: { eiffel: 'x' } })).toBe(false);
     expect(isProgress({ ...emptyProgress(), likes: Object.fromEntries(Array.from({ length: 5001 }, (_, i) => ['k' + i, 1])) })).toBe(false);
+    const daily = emptyProgress().daily;
+    expect(isProgress({ ...emptyProgress(), daily: { ...daily, dist: Array(1e5).fill(0) } })).toBe(false);
+    expect(isProgress({ ...emptyProgress(), daily: { ...daily, dist: [0, 0, 0, 0, 0, 'x'] } })).toBe(false);
+    expect(isProgress({ ...emptyProgress(), daily: { ...daily, played: 'many' } })).toBe(false);
+    expect(isProgress({ ...emptyProgress(), daily: { ...daily, lastWonDay: 20000 } })).toBe(true);
   });
 });
 
@@ -244,22 +249,20 @@ describe('catalogue & i18n integrity', () => {
     expect(Object.keys(AURA_PRESETS)).toHaveLength(5);
     await loadHeroesFor(CATALOGUE.map(i => i.model.hero));
     for (const item of CATALOGUE) {
-      const g = buildModel(item.model);
+      const g = buildFresh(item.model);
       expect(g.children.length, item.key).toBeGreaterThan(0);
     }
   }, 120_000);
 });
 
 describe('festival season', async () => {
-  const { isHappening, daysUntil, LEAD_DAYS } = await import('../../src/shared/lib/season.ts');
+  const { isHappening, LEAD_DAYS } = await import('../../src/shared/lib/season.ts');
   const nye = { season: { month: 12, day: 31, days: 3 } };
   const d = (y: number, m: number, day: number) => new Date(y, m - 1, day, 12);
   it('wraps around the new year (Dec 31 → Jan 2)', () => {
     expect(isHappening(nye, d(2026, 12, 31))).toBe(true);
     expect(isHappening(nye, d(2027, 1, 2))).toBe(true);
-    expect(daysUntil(nye, d(2027, 1, 2))).toBe(0);
-    expect(daysUntil(nye, d(2027, 1, 3))).toBe(362);
-    expect(daysUntil(nye, d(2026, 12, 25))).toBe(6);
+    expect(isHappening(nye, d(2027, 1, 3 + LEAD_DAYS))).toBe(false);
   });
   it('multi-day festivals glow for their whole run plus the lead window', () => {
     const f = { season: { month: 7, day: 10, days: 5 } };
@@ -272,8 +275,6 @@ describe('festival season', async () => {
   it('is not happening far from its date or without a season', () => {
     expect(isHappening({ season: { month: 4, day: 1 } }, d(2026, 10, 19))).toBe(false);
     expect(isHappening({}, d(2026, 10, 19))).toBe(false);
-    expect(daysUntil({}, d(2026, 10, 19))).toBeNull();
-    expect(daysUntil({ season: { month: 10, day: 20 } }, d(2026, 10, 19))).toBe(1);
   });
 });
 
@@ -310,7 +311,7 @@ describe('model pipeline (worker transfer + level of detail)', async () => {
 
   it('pack → unpack preserves the tree, geometry, draw ranges and LOD data', async () => {
     await loadHeroesFor([eiffel.hero]);
-    const src = buildModel(eiffel);
+    const src = buildFresh(eiffel);
     const { model, transfer } = packModel(src);
     expect(transfer.length).toBeGreaterThan(0);
     const back = unpackModel(structuredClone(model));

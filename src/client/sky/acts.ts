@@ -237,7 +237,7 @@ function solarAct(ev: SkyEvent, pick: Site | null): Act {
   };
 }
 
-export const fmtDur = (sec: number) => {
+const fmtDur = (sec: number) => {
   const m = Math.floor(sec / 60), r = Math.round(sec % 60);
   return lang() === 'zh' ? (m ? `${m}分${r}秒` : `${r}秒`) : (m ? `${m}m ${r}s` : `${r}s`);
 };

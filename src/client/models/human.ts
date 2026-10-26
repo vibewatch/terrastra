@@ -10,7 +10,7 @@ export type HumanPose =
   | 'stand' | 'relax' | 'walk' | 'run' | 'sit' | 'sitGround' | 'kneel' | 'crouch'
   | 'wave' | 'point' | 'cheer' | 'carry' | 'pray' | 'photo' | 'reach' | 'row';
 
-export interface HumanOpts {
+interface HumanOpts {
   /** total height (crown) in parent units */
   h: number;
   ry?: number;
@@ -49,7 +49,7 @@ export interface HumanOpts {
   detail?: 'min' | 'lo' | 'hi';
 }
 
-export interface HumanRig { group: THREE.Group; handL: V3; handR: V3; head: V3 }
+interface HumanRig { group: THREE.Group; handL: V3; handR: V3; head: V3 }
 
 interface PoseDef { hipY: number; lean: number; feet: [V3, V3]; hands: [V3, V3]; knee?: [V3, V3]; elbow?: [V3, V3] }
 

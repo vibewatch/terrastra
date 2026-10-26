@@ -11,18 +11,18 @@ import { SHOWERS } from '../../data/showers.ts';
 
 const D2R = Math.PI / 180;
 const STEP = 10 * 60_000;
-export const NAKED_EYE: PlanetId[] = ['mercury', 'venus', 'mars', 'jupiter', 'saturn'];
+const NAKED_EYE: PlanetId[] = ['mercury', 'venus', 'mars', 'jupiter', 'saturn'];
 
 /** Altitude and azimuth (from north through east) of a point given by RA/Dec, ignoring refraction. */
-export function altAz(ra: number, dec: number, ms: number, obs: GeoPoint): { alt: number; az: number } {
+function altAz(ra: number, dec: number, ms: number, obs: GeoPoint): { alt: number; az: number } {
   const H = (gast(ms) + obs.lon - ra) * D2R, d = dec * D2R, p = obs.lat * D2R;
   const alt = Math.asin(Math.sin(p) * Math.sin(d) + Math.cos(p) * Math.cos(d) * Math.cos(H));
   const az = Math.atan2(-Math.cos(d) * Math.sin(H), Math.sin(d) * Math.cos(p) - Math.cos(d) * Math.sin(p) * Math.cos(H));
   return { alt: alt / D2R, az: ((az / D2R) + 360) % 360 };
 }
 
-export interface PlanetTonight { id: PlanetId; best: number; alt: number; az: number; when: 'evening' | 'morning' | 'all' | 'night' }
-export interface ShowerTonight { key: string; peak: number; daysToPeak: number; zhr: number; radiantAlt: number; best: number; rate: number }
+interface PlanetTonight { id: PlanetId; best: number; alt: number; az: number; when: 'evening' | 'morning' | 'all' | 'night' }
+interface ShowerTonight { key: string; peak: number; daysToPeak: number; zhr: number; radiantAlt: number; best: number; rate: number }
 export interface EventAhead {
   ev: SkyEvent;
   /** Can this place see it at the peak moment? 'up' = yes; 'day' = the Sun is up; 'below' = under the horizon; 'none' = not from here at all. */

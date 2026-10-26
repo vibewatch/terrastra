@@ -268,7 +268,9 @@ test('photos from every scene: Solar System and sky theatre save captioned postc
   expect(places[0]).toBe('Mars');
   expect(places[1]).toMatch(/\d{4}/);
   // a postcard is taller than the frame: the caption band is drawn under it
-  const [w, h] = await page.getByTestId('album-grid').locator('img').first().evaluate((i: HTMLImageElement) => [i.naturalWidth, i.naturalHeight]);
+  const first = page.getByTestId('album-grid').locator('img').first();
+  await expect.poll(() => first.evaluate((i: HTMLImageElement) => i.naturalWidth)).toBeGreaterThan(0);
+  const [w, h] = await first.evaluate((i: HTMLImageElement) => [i.naturalWidth, i.naturalHeight]);
   expect(h / w).toBeGreaterThan(800 / 1280);
 });
 

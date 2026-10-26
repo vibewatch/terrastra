@@ -9,7 +9,7 @@ import { t, onLang, lang } from '../lib/i18n.ts';
 import { sfx } from '../lib/sfx.ts';
 
 export type RailLevel = 'universe' | 'laniakea' | 'group' | 'galaxy' | 'stars' | 'solar' | 'earth';
-export const RAIL: RailLevel[] = ['universe', 'laniakea', 'group', 'galaxy', 'stars', 'solar', 'earth'];
+const RAIL: RailLevel[] = ['universe', 'laniakea', 'group', 'galaxy', 'stars', 'solar', 'earth'];
 /** Rough size of each level, shown as a HUD readout next to its name. */
 const SPAN: Record<RailLevel, { en: string; zh: string }> = {
   universe: { en: '93 bn ly', zh: '930亿光年' }, laniakea: { en: '520 M ly', zh: '5.2亿光年' }, group: { en: '10 M ly', zh: '1000万光年' },

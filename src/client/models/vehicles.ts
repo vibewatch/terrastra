@@ -7,7 +7,7 @@ import {
 // raked funnels, swept-wing airliners with nacelles, streamlined train sets with bogies and pantographs, and a
 // gored hot-air balloon. Front is +z, ~1 unit long, base at y=0.
 
-export interface HullSpec { L: number; B: number; D: number; z0?: number; y0?: number; fine?: number; paint?: Paint; deck?: string; wl?: number }
+interface HullSpec { L: number; B: number; D: number; z0?: number; y0?: number; fine?: number; paint?: Paint; deck?: string; wl?: number }
 
 /** Displacement hull: superellipse sections, bow flare & forefoot, sheer line, transom stern, separate flat deck. */
 export function hull(p: THREE.Object3D, c: string, s: HullSpec): { deckY: (z: number) => number; halfB: (z: number) => number } {

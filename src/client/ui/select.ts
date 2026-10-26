@@ -9,8 +9,8 @@ import { h } from './dom.ts';
 import { icon, type IconName } from './icons.ts';
 import { sfx } from '../lib/sfx.ts';
 
-export interface SelectOption { value: string; label: string }
-export interface SelectOpts {
+interface SelectOption { value: string; label: string }
+interface SelectOpts {
   options: SelectOption[];
   value: string;
   /** Accessible name of the picker. */

@@ -49,7 +49,7 @@ export const QUALITY: Record<Tier, Quality> = {
     earthSeg: [64, 48], stars: 400, lodPx: 110, maxShown: 36, maxMoving: 12, drainMs: 6, idleFps: 30, shadowMap: 0 },
 };
 
-export interface DeviceHints {
+interface DeviceHints {
   query?: string | null;
   lowfx?: boolean;
   coarse?: boolean;

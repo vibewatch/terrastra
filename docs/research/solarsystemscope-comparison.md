@@ -24,7 +24,7 @@
 | Nearby stars with names | 🆕 **added** | A new "Nearby Stars" level between the Solar System and the Milky Way |
 | Milky Way band in the sky | 🆕 **added** | Procedural glow, no image assets |
 | Night sky from your location | ⏳ roadmap | `tonight.ts` already computes alt/az for a city |
-| Orbit / ecliptic grid options | ⏳ roadmap | Orbits are always drawn |
+| Orbit / label display options | 🆕 **added** | Time-bar toggles for orbit lines and names, remembered between visits (see below). An ecliptic grid is still on the roadmap |
 | Size comparison | ✅ partly | The Compare bench sets two worlds side by side at true scale; a full line-up is on the roadmap |
 
 ## What we added
@@ -70,6 +70,15 @@ A dashed line joins the two objects in the scene. The level's objects keep turni
 
 These are covered by `tests/unit/cosmos.test.ts` and the e2e test "deep space: nearby stars, Messier list and light-year meter".
 
+### Display options
+
+Two toggles sit next to the constellation button on the time bar:
+
+- **Orbit lines** (`solar-orbits`) hides the orbits of the planets, the moons and Comet Encke.
+- **Names** (`solar-names`) hides the names of worlds. Features, landing sites and deep-space objects keep their dots so they can still be tapped, and whatever is selected keeps its name. It works on every level; the distance meter's reading always shows.
+
+Both choices are saved (`pp.solarOrbits`, `pp.solarNames`) like the constellation toggle.
+
 ## How SSS is built (public facts only)
 
 Checked in October 2026 from what the site serves openly: the page source, the Unity loader and the build manifest. We did not decompile anything.
@@ -95,5 +104,5 @@ Decompiling the wasm to copy their logic is off the table. The code is proprieta
 
 1. **Real-scale toggle.** Switch `displayOrbit` / `displayRadius` to linear scales with a smooth tween. The camera limits and label culling would need a rethink, because at true scale every planet is smaller than a pixel from the overview.
 2. **Night sky from here.** A horizon view from the user's city using `tonight.ts` `altAz`, with planets, the Moon and constellations above a ground line.
-3. **Display options.** Toggles for orbit lines, the ecliptic grid and labels, next to the constellation toggle.
+3. **Ecliptic grid.** A faint grid in the ecliptic plane as a third display option, next to the orbit-line and name toggles.
 4. **Size line-up.** All the planets in a row at true relative size, building on the Compare bench and the painted textures.

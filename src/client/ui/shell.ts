@@ -29,12 +29,12 @@ import { narrate, narrationSupported, splitSentences, stopNarration, type Narrat
 import { classroom, setClassroom, setStill, motion, onClassroom } from '../lib/classroom.ts';
 import { renderHub, hubTab, type HubTab } from './hub.ts';
 
-export const DEX_ZOOM = 10;
+const DEX_ZOOM = 10;
 const LANG_LABEL: Record<Lang, string> = { en: 'English', zh: '中文' };
 const typeName = (ty: CatalogueItem['type']) => tr(TYPE_META[ty].one, lang());
 const AURA_ORDER: AuraPreset[] = ['waves', 'aurora', 'ember', 'dusk', 'sculpture'];
 
-export interface ShellHooks {
+interface ShellHooks {
   openPhoto: () => void; openCollection: () => void; openGame: (kind: 'daily' | 'placeit' | 'quiz') => void; openPassport: () => void; openAlbum: () => void; openTutorial: () => void; openTours: () => void; openLessons: () => void; openAstro: () => void; openSsbs: () => void; openBookmarks: () => void; openCompare: (id?: string) => void; openTonight: () => void;
   openAccount: () => void; openGuestbook: () => void;
   openSolar: () => void;
@@ -67,9 +67,9 @@ export class Shell {
   private info = h('aside', { id: 'info', class: 'info hidden', 'data-occludes': true, 'data-testid': 'info' }, this.infoMain);
   private reader: import('./reader.ts').Reader | null = null;
   private readerOpen = false;
-  private menu = h('div', { id: 'menu', class: 'menu hidden', 'data-occludes': true, role: 'dialog', 'aria-label': t('settings') });
+  private menu = h('div', { id: 'menu', class: 'menu hidden', 'data-occludes': true, role: 'dialog', 'aria-label': t('settings'), 'data-i18n-aria': 'settings' });
   /** The Explore hub: lessons, tours, sky, games and your collection, on four shelves. */
-  private hub = h('div', { id: 'hub', class: 'menu hub hidden', 'data-occludes': true, role: 'dialog', 'aria-label': t('hub'), 'data-testid': 'hub' });
+  private hub = h('div', { id: 'hub', class: 'menu hub hidden', 'data-occludes': true, role: 'dialog', 'aria-label': t('hub'), 'data-i18n-aria': 'hub', 'data-testid': 'hub' });
   private tab: HubTab = hubTab();
   private hints = h('div', { class: 'hints hidden', id: 'hints' });
   private rideBar = h('div', { class: 'ride-bar hidden', 'data-testid': 'ride-bar' });
@@ -86,7 +86,7 @@ export class Shell {
 
   mount(): void {
     const tool = (id: string, ico: IconName, key: string, fn: () => void, cls = '') =>
-      h('button', { class: 'tool' + (cls ? ' ' + cls : ''), id, 'data-testid': id, title: t(key), html: icon(ico, 19), onclick: () => { sfx.tap(); fn(); } },
+      h('button', { class: 'tool' + (cls ? ' ' + cls : ''), id, 'data-testid': id, title: t(key), 'data-i18n-title': key, html: icon(ico, 19), onclick: () => { sfx.tap(); fn(); } },
         h('span', { class: 'sr-only', 'data-i18n': key }, t(key)));
     const top = h('header', { class: 'topbar' },
       h('div', { class: 'top-left' },
@@ -96,7 +96,7 @@ export class Shell {
           h('span', { class: 'class-badge', 'data-testid': 'class-badge', 'data-i18n': 'classroom' }, t('classroom'))),
         this.levelSlot),
       // Scene tools (only where they make sense) come first, then the tools every level shares, then the menu.
-      h('nav', { class: 'tools', 'data-occludes': true, 'aria-label': t('tools') },
+      h('nav', { class: 'tools', 'data-occludes': true, 'aria-label': t('tools'), 'data-i18n-aria': 'tools' },
         tool('btn-search', 'search', 'searchKbd', () => this.openSearch()),
         tool('btn-photo', 'camera', 'photo', this.hooks.openPhoto),
         this.mapBtn = tool('btn-map', 'map', 'flatMap', () => this.hooks.toggleMap?.(), 'earth-only'),
@@ -104,15 +104,15 @@ export class Shell {
         tool('btn-hub', 'collection', 'hub', () => this.toggleHub(), 'tool-hub'),
         tool('btn-menu', 'sliders', 'settings', () => this.toggleMenu())));
     const bottomLeft = h('div', { class: 'bl', 'data-occludes': true }, this.hints,
-      h('button', { class: 'round-btn help', id: 'btn-help', 'aria-label': t('help'), 'aria-expanded': 'false', html: icon('help', 19), onclick: () => this.toggleHints() }));
+      h('button', { class: 'round-btn help', id: 'btn-help', 'aria-label': t('help'), 'data-i18n-aria': 'help', 'aria-expanded': 'false', html: icon('help', 19), onclick: () => this.toggleHints() }));
     const zoom = (inward: boolean) => { if (!this.hooks.zoom?.(inward)) this.globe.zoomBy(inward ? 1.6 : 1 / 1.6); };
     const bottomRight = h('div', { class: 'br', 'data-occludes': true },
-      h('button', { class: 'round-btn', 'aria-label': t('fullscreen'), title: t('fullscreen'), html: icon('expand', 17), onclick: () => this.fullscreen() }),
-      h('button', { class: 'round-btn space-only', 'data-testid': 'btn-overview', 'aria-label': t('overviewScale'), title: t('overviewScale'), html: icon('sun', 17), onclick: () => { sfx.tap(); this.hooks.overview?.(); } }),
+      h('button', { class: 'round-btn', 'aria-label': t('fullscreen'), title: t('fullscreen'), 'data-i18n-aria': 'fullscreen', 'data-i18n-title': 'fullscreen', html: icon('expand', 17), onclick: () => this.fullscreen() }),
+      h('button', { class: 'round-btn space-only', 'data-testid': 'btn-overview', 'aria-label': t('overviewScale'), title: t('overviewScale'), 'data-i18n-aria': 'overviewScale', 'data-i18n-title': 'overviewScale', html: icon('sun', 17), onclick: () => { sfx.tap(); this.hooks.overview?.(); } }),
       h('div', { class: 'zoom-ctl' },
-        h('button', { id: 'btn-zoom-in', 'aria-label': t('zoomIn'), html: icon('plus', 17), onclick: () => zoom(true) }),
+        h('button', { id: 'btn-zoom-in', 'aria-label': t('zoomIn'), 'data-i18n-aria': 'zoomIn', html: icon('plus', 17), onclick: () => zoom(true) }),
         this.zoomEl,
-        h('button', { id: 'btn-zoom-out', 'aria-label': t('zoomOut'), html: icon('minus', 17), onclick: () => zoom(false) })));
+        h('button', { id: 'btn-zoom-out', 'aria-label': t('zoomOut'), 'data-i18n-aria': 'zoomOut', html: icon('minus', 17), onclick: () => zoom(false) })));
     foldable(this.info);
     this.root.append(top, bottomLeft, bottomRight, this.coordEl, this.info, this.hub, this.menu, this.rideBar, this.time.el, this.tipEl, this.immersiveExit);
     this.renderHints();
@@ -234,11 +234,14 @@ export class Shell {
   private relabel(): void {
     this.immersiveExit.querySelector('span')!.textContent = t('showUi');
     document.querySelectorAll<HTMLElement>('[data-i18n]').forEach(el => (el.textContent = t(el.dataset.i18n!)));
+    document.querySelectorAll<HTMLElement>('[data-i18n-title]').forEach(el => (el.title = t(el.dataset.i18nTitle!)));
+    document.querySelectorAll<HTMLElement>('[data-i18n-aria]').forEach(el => el.setAttribute('aria-label', t(el.dataset.i18nAria!)));
     document.title = t('title');
     this.renderHints();
     if (this.mapBtn) this.mapBtn.title = t(this.mapBtn.getAttribute('aria-pressed') === 'true' ? 'backToGlobe' : 'flatMap');
     this.globe.lang = lang(); this.globe.markDirty();
     if (!this.menu.classList.contains('hidden')) this.renderMenu();
+    this.time.refresh();
     if (this.current) this.renderInfo(this.current);
   }
 
@@ -533,7 +536,6 @@ export class Shell {
     };
     const key = chips.slice(0, 3), extra = chips.slice(3);
     if (!it.route) extra.push([t('latitude'), coordStr]);
-    const hasMore = true;
     this.renderDexRow();
     stopNarration();
     const descP = h('p', { class: 'desc', 'data-testid': 'info-desc' }, tr(it.desc, l));
@@ -560,13 +562,13 @@ export class Shell {
         key.length ? h('dl', { class: 'stats-row' }, ...key.map(([k, v]) => h('div', {}, h('dt', {}, k), h('dd', {}, v)))) : null,
         groupOf(it.key) ? h('button', { class: 'pill cmp-open', 'data-testid': 'info-compare', onclick: () => this.hooks.openCompare(it.key) }, h('span', { html: icon('ruler', 14) }), t('cmpThis')) : null,
         this.dexRow,
-        hasMore ? h('details', { class: 'more' },
+        h('details', { class: 'more' },
           h('summary', { html: icon('chevron', 14) }, h('span', {}, t('moreDetails'))),
           funP,
           it.how ? h('p', { class: 'fun how', 'data-testid': 'info-how' }, h('b', {}, t('howMoves')), ' ', tr(it.how, l)) : null,
           it.habitat ? h('p', { class: 'meta' }, t('habitat') + ': ' + tr(it.habitat, l)) : null,
           extra.length ? h('dl', { class: 'facts' }, ...extra.map(([k, v]) => h('div', {}, h('dt', {}, k), h('dd', {}, v)))) : null,
-          h('p', { class: 'meta prov', 'data-testid': 'provenance' }, t('modelNote') + ' ' + t(it.route ? (it.route.line === 'demo' ? 'routeDemo' : 'routeNote') : it.type === 'animal' ? 'rangeNote' : ['landmark', 'volcano', 'space', 'discovery'].includes(it.type) ? 'placeNote' : 'repNote'))) : null,
+          h('p', { class: 'meta prov', 'data-testid': 'provenance' }, t('modelNote') + ' ' + t(it.route ? (it.route.line === 'demo' ? 'routeDemo' : 'routeNote') : it.type === 'animal' ? 'rangeNote' : ['landmark', 'volcano', 'space', 'discovery'].includes(it.type) ? 'placeNote' : 'repNote'))),
         h('div', { class: 'info-footer' },
           it.type !== 'vehicle' ? h('div', { class: 'reactions' }, react('like', 'heart'), react('visited', 'flag')) : null,
           it.route ? h('button', { class: 'cta cta-sm', 'data-testid': 'ride', html: icon('ride', 16), onclick: () => void this.startRide(it) }, h('span', {}, t('ride'))) : null,
@@ -609,7 +611,7 @@ export class Shell {
     this.info.classList.add('hidden');
     document.body.classList.add('riding');
     let first = false;
-    const viewBtn = h('button', { class: 'pill', 'data-testid': 'ride-view', onclick: () => { first = !first; this.globe.setRideView(first); viewBtn.textContent = first ? '🎥 3rd' : '👀 1st'; } }, '👀 1st');
+    const viewBtn = h('button', { class: 'pill', 'data-testid': 'ride-view', onclick: () => { first = !first; this.globe.setRideView(first); viewBtn.textContent = t(first ? 'rideThird' : 'rideFirst'); } }, t('rideFirst'));
     this.rideBar.replaceChildren(h('strong', {}, it.emoji + ' ' + tr(it.name, lang())), viewBtn,
       h('button', { class: 'pill danger', 'data-testid': 'ride-exit', onclick: () => this.exitRide() }, t('exitRide')), h('span', { class: 'tip' }, t('rideTip')));
     this.rideBar.classList.remove('hidden');
@@ -623,6 +625,6 @@ export class Shell {
 
   private fullscreen(): void {
     if (document.fullscreenElement) void document.exitFullscreen();
-    else void document.documentElement.requestFullscreen?.().catch(() => toast('Fullscreen is not available here'));
+    else void document.documentElement.requestFullscreen?.().catch(() => toast(t('noFullscreen')));
   }
 }

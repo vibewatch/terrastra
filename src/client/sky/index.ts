@@ -11,8 +11,6 @@ export function openSky(host: HTMLElement, opts: TheatreOpts): Theatre {
   }
   const t = new Theatre(host, { ...opts, onClose: () => { if (open === t) open = null; opts.onClose(); } });
   open = t;
-  (window as unknown as { __sky?: Theatre }).__sky = t;
   return t;
 }
 
-export const skyOpen = () => open !== null;

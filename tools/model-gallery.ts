@@ -2,7 +2,7 @@
 // Query params: ?type=landmark|animal|discovery|vehicle  &keys=eiffel,lion  &cols=4  &size=320  &yaw=0.6  &pitch=0.35  &lod=far  &zoom=2.5  &cy=0.6 (look-at height as a fraction of model height)
 import * as THREE from 'three';
 import { CATALOGUE } from '../src/shared/data/catalogue.ts';
-import { buildModel, whenModelReady } from '../src/client/models/kit.ts';
+import { buildFresh, whenModelReady } from '../src/client/models/kit.ts';
 import { setupStudio } from '../src/client/models/preview.ts';
 import { setModelDetail } from '../src/client/models/library.ts';
 import { human, type HumanPose } from '../src/client/models/human.ts';
@@ -41,7 +41,7 @@ for (const item of items) {
     const pose = (item.model as unknown as { pose: HumanPose }).pose;
     human(model, 0, 0, 0, { h: 1, pose, phase: 0.25, top: '#2563eb', bottom: '#374151', hair: '#3b2a20', shoes: '#1f2937', detail: (q.get('detail') as 'lo' | 'hi') ?? 'hi', sleeve: Number(q.get('sleeve') ?? 1), shorts: q.has('shorts') });
   } else {
-    model = buildModel(item.model);
+    model = buildFresh(item.model);
     setModelDetail(model, far);
   }
   timings.push([item.key, performance.now() - t0]);

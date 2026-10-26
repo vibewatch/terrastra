@@ -518,7 +518,7 @@ export const FLOW_BODIES = new Set<BodyId>([...Object.keys(FLOW) as BodyId[], 'v
  * staggered phases and cross-faded (the classic flow-map trick), so the bands shear and storms turn forever without
  * smearing. Venus just slides its whole cloud deck around (it laps the planet every four days).
  */
-export function patchFlow(id: BodyId, mat: THREE.MeshStandardMaterial, uFlow: { value: number }): void {
+function patchFlow(id: BodyId, mat: THREE.MeshStandardMaterial, uFlow: { value: number }): void {
   const f = FLOW[id];
   if (!f && id !== 'venus') return;
   mat.customProgramCacheKey = () => 'flow-' + id;
@@ -647,7 +647,7 @@ const ENCKE = { a: 2.2178, e: 0.8471, i: 11.35, node: 334.19, peri: 187.27, tp: 
 export const COMET_NAME = { en: 'Comet Encke', zh: '恩克彗星' };
 
 /** Heliocentric ecliptic position (AU) of Encke at time `ms`. */
-export function enckeAU(ms: number): [number, number, number] {
+function enckeAU(ms: number): [number, number, number] {
   const { a, e } = ENCKE, P = 365.25 * Math.pow(a, 1.5);
   let M = (((ms - ENCKE.tp) / 864e5) / P) * TAU;
   M = Math.atan2(Math.sin(M), Math.cos(M));
@@ -686,7 +686,7 @@ class Comet {
   private u = { uT: { value: 0 }, uAnti: { value: new THREE.Vector3(1, 0, 0) }, uBack: { value: new THREE.Vector3(0, 0, 1) }, uLen: { value: 1 }, uK: { value: 0 },
     uScale: { value: 1 }, uPr: { value: 1 } };
   private coma: THREE.Sprite;
-  private orbit: THREE.Line;
+  readonly orbit: THREE.Line;
   readonly pos = new THREE.Vector3();
 
   constructor(scene: THREE.Scene, q: Quality, now: number) {
@@ -738,7 +738,7 @@ class Comet {
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-export interface FxBody { id: BodyId; R: number; tilt: THREE.Object3D; spin: THREE.Object3D; node: THREE.Object3D; mat: THREE.Material; geo: THREE.BufferGeometry }
+interface FxBody { id: BodyId; R: number; tilt: THREE.Object3D; spin: THREE.Object3D; node: THREE.Object3D; mat: THREE.Material; geo: THREE.BufferGeometry }
 
 /** All of the above, driven once per frame by the Solar System view. */
 export class SolarFX {

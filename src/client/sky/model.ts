@@ -74,7 +74,7 @@ function planetHelio(id: PlanetId, ms: number, out = new THREE.Vector3()) {
 const moonRel = (ms: number, out = new THREE.Vector3()) => { const m = moonGeo(ms); return ecl(m.lon, m.lat, m.distKm, out); };
 
 /** Translucent shadow cone that shows mostly its outline (a rim), so it never fogs the whole view. */
-export function coneMaterial(color: number, op: number): THREE.ShaderMaterial {
+function coneMaterial(color: number, op: number): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     uniforms: { uColor: { value: new THREE.Color(color) }, uOp: { value: op } },
     vertexShader: /* glsl */ `
@@ -108,6 +108,16 @@ function cone(r0: number, r1: number, len: number, mat: THREE.Material): THREE.M
   const m = new THREE.Mesh(g, mat);
   m.renderOrder = 3;
   return m;
+}
+
+/** Frees the geometries and materials of a removed subtree (shared textures such as the glow map are kept). */
+function disposeTree(o: THREE.Object3D): void {
+  o.traverse(c => {
+    const m = c as THREE.Mesh;
+    m.geometry?.dispose();
+    const mat = m.material as THREE.Material | THREE.Material[] | undefined;
+    if (Array.isArray(mat)) mat.forEach(x => x.dispose()); else mat?.dispose();
+  });
 }
 
 function line(color: number, op: number, dashed = false): THREE.Line {
@@ -383,14 +393,14 @@ void main() { float d = dot(normalize(vN), uSun); float lit = smoothstep(-0.04, 
     this.earth.material.uniforms.uShadow.value = k === 'solar' ? 1 : 0;
 
     // helio: orbits of Earth and the planets involved
-    for (const o of [...this.orbits.children]) { this.orbits.remove(o); (o as THREE.Line).geometry.dispose(); }
-    for (const p of this.planets.values()) this.helio.remove(p);
+    for (const o of [...this.orbits.children]) { this.orbits.remove(o); disposeTree(o); }
+    for (const p of this.planets.values()) { this.helio.remove(p); disposeTree(p); }
     this.planets.clear();
-    for (const s of this.sights.values()) this.helio.remove(s);
+    for (const s of this.sights.values()) { this.helio.remove(s); disposeTree(s); }
     this.sights.clear();
     this.at.planets.clear();
-    if (this.stream) { this.helio.remove(this.stream.pts); this.stream.pts.geometry.dispose(); this.stream = null; }
-    for (const c of [...this.seasonGhosts.children]) this.seasonGhosts.remove(c);
+    if (this.stream) { this.helio.remove(this.stream.pts); disposeTree(this.stream.pts); this.stream = null; }
+    for (const c of [...this.seasonGhosts.children]) { this.seasonGhosts.remove(c); disposeTree(c); }
     if (!isLocal) {
       const ep: THREE.Vector3[] = [];
       for (let i = 0; i <= 160; i++) ep.push(earthHelio(setup.t + (i / 160 - 0.5) * 365.25 * 864e5).multiplyScalar(AUS));
@@ -799,12 +809,7 @@ void main() { float d = dot(normalize(vN), uSun); float lit = smoothstep(-0.04, 
   render(r: THREE.WebGLRenderer): void { r.render(this.scene, this.camera); }
 
   dispose(): void {
-    this.scene.traverse(o => {
-      const m = o as THREE.Mesh;
-      m.geometry?.dispose();
-      const mat = m.material as THREE.Material | THREE.Material[] | undefined;
-      if (Array.isArray(mat)) mat.forEach(x => x.dispose()); else mat?.dispose();
-    });
+    disposeTree(this.scene);
     this.labelHost.remove();
     this.labels.clear();
   }

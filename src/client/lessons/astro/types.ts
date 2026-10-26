@@ -67,7 +67,7 @@ export interface AstroClock {
 }
 
 /** A lab slider: a parameter the learner changes; the kit reads it each frame with `ctx.param(id)`. */
-export interface AstroParam {
+interface AstroParam {
   id: string; name: Pair; min: number; max: number; value: number;
   /** slider step (default: (max − min) / 100) */
   step?: number;
@@ -75,7 +75,7 @@ export interface AstroParam {
   fmt?: Pair; dp?: number;
 }
 /** A lab task: it ticks itself once `done` holds for the parameters and the clock value. */
-export interface LabTask { text: Pair; done: (p: Readonly<Record<string, number>>, v: number) => boolean }
+interface LabTask { text: Pair; done: (p: Readonly<Record<string, number>>, v: number) => boolean }
 
 /**
  * One kit and its options; `cam` overrides the kit's own framing. `params` turn the step into a lab: sliders in the
@@ -114,7 +114,7 @@ export type AstroScene =
 export type KitId = AstroScene['kit'];
 
 /** Camera: look at `target` (default origin) from direction `from`, `dist` away. The scene's up axis is +z. */
-export interface AstroCam { from: V3; dist: number; target?: V3 }
+interface AstroCam { from: V3; dist: number; target?: V3 }
 
 export interface LabelOpts {
   /** colour (CSS) */ c?: string;

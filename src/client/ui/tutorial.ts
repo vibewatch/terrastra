@@ -7,16 +7,24 @@ const STEPS: { n: number; target?: string }[] = [
   { n: 4, target: '#btn-hub' }, { n: 5, target: '#btn-hub' }, { n: 6, target: '#btn-menu' }, { n: 7 },
 ];
 
+let close: (() => void) | null = null;
+/** Closes the walkthrough (and its key handler) if it is open. */
+export function closeTutorial(): void { close?.(); }
+
 export function openTutorial(openTours?: () => void): void {
-  document.querySelector('.tutorial')?.remove();
+  closeTutorial();
   let i = 0;
   const ring = h('div', { class: 'tut-ring', 'aria-hidden': 'true' });
   const card = h('div', { class: 'tut-card', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'tut-title', 'data-testid': 'tutorial' });
   const root = h('div', { class: 'tutorial' }, ring, card);
-  const finish = (celebrate: boolean) => {
-    save('tutorial', 'done');
+  const dismiss = () => {
     root.remove();
     document.removeEventListener('keydown', onKey, true);
+    close = null;
+  };
+  const finish = (celebrate: boolean) => {
+    save('tutorial', 'done');
+    dismiss();
     if (celebrate) confetti(50);
   };
   const onKey = (e: KeyboardEvent) => {
@@ -50,5 +58,6 @@ export function openTutorial(openTours?: () => void): void {
   };
   document.body.append(root);
   document.addEventListener('keydown', onKey, true);
+  close = dismiss;
   go(0);
 }

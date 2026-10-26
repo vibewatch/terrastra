@@ -123,7 +123,6 @@ describe('progress backup file', async () => {
     expect(readBackup('not json')).toBeNull();
     expect(readBackup(JSON.stringify(p))).toBeNull();
     expect(readBackup(JSON.stringify({ kind: 'terrastra-progress', v: 1, progress: { v: 2 } }))).toBeNull();
-    const old = readBackup(JSON.stringify({ ...backupOf(p, 5), kind: 'pocket-planet-progress' }));
-    expect(old && summary(old).seen).toBe(2);
+    expect(readBackup(JSON.stringify({ ...backupOf(p, 5), kind: 'other-app' }))).toBeNull();
   });
 });

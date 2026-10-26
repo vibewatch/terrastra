@@ -460,6 +460,23 @@ test('solar system: zoom out from Earth, visit Mars and a feature, land back on 
   await expect.poll(() => page.evaluate(() => localStorage.getItem('pp.cst'))).not.toBeNull();
   await cst.click();
   await expect(cst).toHaveAttribute('aria-pressed', String(on));
+  // Display options: orbit lines and names switch off, are remembered, and switch back on.
+  const orbits = page.getByTestId('solar-orbits'), names = page.getByTestId('solar-names');
+  const orbitShown = () => page.evaluate(() => [...(window as any).__pp.solar().view.rts.values()].some((r: any) => r.orbit?.visible));
+  await expect(orbits).toHaveAttribute('aria-pressed', 'true');
+  await expect.poll(orbitShown).toBe(true);
+  await orbits.click();
+  await expect(orbits).toHaveAttribute('aria-pressed', 'false');
+  await expect.poll(orbitShown).toBe(false);
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('pp.solarOrbits'))).toBe('false');
+  await orbits.click();
+  await expect.poll(orbitShown).toBe(true);
+  await expect.poll(() => page.locator('.sb-label:not(.on):visible').count()).toBeGreaterThan(0);
+  await names.click();
+  await expect(names).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('.sb-label:not(.on):visible')).toHaveCount(0);
+  await names.click();
+  await expect(names).toHaveAttribute('aria-pressed', 'true');
   if (!mobile) {
     // Icon-only dock: names come from the HUD tooltip, which stands in for the native title one.
     expect(await page.locator('[title]').count()).toBe(0);

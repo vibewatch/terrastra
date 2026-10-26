@@ -3,7 +3,8 @@ import { BODIES, BODY } from '../../src/shared/data/solar.ts';
 import { BODY_TEXT } from '../../src/shared/data/solar-text.ts';
 import { SOLAR_FEATURES } from '../../src/shared/data/solar-features.ts';
 import { WIKI } from '../../src/shared/data/wiki.ts';
-import { daysJ2000, displayMoonDist, displayOrbit, displayRadius, keplerPosition, relativePosition, subSolarLon } from '../../src/shared/lib/orbits.ts';
+import { daysJ2000, displayMoonDist, displayOrbit, displayRadius, keplerPosition, relativePosition } from '../../src/shared/lib/orbits.ts';
+import { subsolar } from '../../src/shared/lib/sun.ts';
 import { hasKey } from '../../src/client/lib/i18n.ts';
 
 const lonOf = (v: number[]) => ((Math.atan2(v[1], v[0]) * 180) / Math.PI + 360) % 360;
@@ -29,8 +30,8 @@ describe('solar orbits', () => {
   });
 
   it('has the sun over Greenwich around noon UTC', () => {
-    expect(Math.abs(subSolarLon(Date.UTC(2024, 2, 20, 12)))).toBeLessThan(4);
-    expect(Math.abs(subSolarLon(Date.UTC(2024, 2, 20, 18)) + 90)).toBeLessThan(4);
+    expect(Math.abs(subsolar(Date.UTC(2024, 2, 20, 12))[1])).toBeLessThan(4);
+    expect(Math.abs(subsolar(Date.UTC(2024, 2, 20, 18))[1] + 90)).toBeLessThan(4);
   });
 
   it('keeps display scales ordered: orbits by distance, moons outside their planet and in order', () => {

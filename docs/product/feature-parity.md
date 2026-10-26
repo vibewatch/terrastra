@@ -1,5 +1,7 @@
 # Feature Parity: Reference (myearthtoy.com) vs Terrastra
 
+> Historical MVP baseline. Since then the app has moved to English and Simplified Chinese only (`Lang = 'en' | 'zh'`), dropped offline mode and grown a Solar System, deep-space levels, a sky theatre and lessons. The current state and priorities live in [the 2026-10 roadmap](../planning/improvement-roadmap-2026-10.md).
+
 Legend: ✅ parity · ≈ comparable, different design · ➕ improved over reference · ⏭ backlog (see [backlog](../planning/backlog.md)) · ✖ intentionally out of scope.
 Reference facts come from the anonymous exploration and the bundle analysis ([exploration report](../research/exploration-report.md)). All Terrastra code, models, copy and data are original. Nothing is copied from the reference.
 

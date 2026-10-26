@@ -22,7 +22,7 @@ for (const s of SOLAR_SITES) {
 }
 /** Sites on / around a world (not the deep-space craft). */
 export const sitesOf = (id: BodyId): SolarSite[] => BY_BODY.get(id) ?? [];
-export const FAR_CRAFT = SOLAR_SITES.filter(s => s.helio);
+const FAR_CRAFT = SOLAR_SITES.filter(s => s.helio);
 
 /** Where a deep-space craft is (AU) for a date: its 2026-01-01 spot moved outward at its cruise speed. */
 export function helioAU(s: SolarSite, ms: number): number {
@@ -41,7 +41,7 @@ export function behindWorld(p: THREE.Vector3, cam: THREE.Vector3, o: THREE.Vecto
 }
 
 /** A world as the site layer needs it. */
-export interface SiteBody { id: BodyId; R: number; pos: THREE.Vector3; tilt: THREE.Object3D; spin: THREE.Object3D }
+interface SiteBody { id: BodyId; R: number; pos: THREE.Vector3; tilt: THREE.Object3D; spin: THREE.Object3D }
 
 interface SiteRT {
   s: SolarSite;
@@ -239,12 +239,6 @@ export class SiteLayer {
       if (r.label.hidden === show) r.label.hidden = !show;
       r.label.classList.toggle('on', s === this.sel);
     }
-  }
-
-  /** World position of a site (for flying to it). */
-  worldPos(s: SolarSite, out = new THREE.Vector3()): THREE.Vector3 | null {
-    const r = this.rt.get(s.key);
-    return r?.holder.parent ? r.pivot.getWorldPosition(out) : null;
   }
 
   relabel(): void {

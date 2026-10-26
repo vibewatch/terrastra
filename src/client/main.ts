@@ -1,6 +1,5 @@
 import { classroom, onClassroom, apply as applyClassroom } from './lib/classroom.ts';
 import { parseView, type Bookmark } from './lib/viewlink.ts';
-import { retireOffline } from './lib/offline.ts';
 import { ssbsOn } from './lib/ssbs.ts';
 import './styles.css';
 import './hud.css';
@@ -14,7 +13,7 @@ import { loadCountries, paintEarth, paintedLand } from './globe/painter.ts';
 import { borderPositions, borderLonLat } from './globe/borders.ts';
 import { CATALOGUE, BY_KEY } from '../shared/data/catalogue.ts';
 import { Shell } from './ui/shell.ts';
-import { h, toast, confetti, closeModal } from './ui/dom.ts';
+import { h, toast, confetti } from './ui/dom.ts';
 import { store, subscribe, setStickerHandler, setSyncer, setMe, replaceProgress } from './store.ts';
 import { t, lang, onLang } from './lib/i18n.ts';
 import { tr } from '../shared/data/types.ts';
@@ -55,7 +54,6 @@ const loader = document.getElementById('loader');
 async function boot(): Promise<void> {
   if (lowfx) document.body.classList.add('lowfx');
   applyClassroom();
-  retireOffline();
   window.addEventListener('offline', () => toast('📴 ' + t('nowOffline'), 5000));
   document.body.classList.add('q-' + quality.tier);
   initTooltips();
@@ -66,7 +64,9 @@ async function boot(): Promise<void> {
   if (linkHead === 'sky') void import('./sky/index.ts').catch(() => {});
   else if (linkHead === 'map') void import('./map/flatmap.ts').catch(() => {});
   else if (SCALE_ROUTES[linkHead]) void import('./solar/ui.ts').catch(() => {});
-  const topo = (await (await fetch(url('data/countries-110m.json'))).json()) as Topology;
+  const topoRes = await fetch(url('data/countries-110m.json'));
+  if (!topoRes.ok) throw new Error(`country map: HTTP ${topoRes.status}`);
+  const topo = (await topoRes.json()) as Topology;
   await Promise.race([document.fonts?.ready, new Promise(r => setTimeout(r, 150))]);
   const countries = loadCountries(topo);
   const texWidth = quality.mapW;
@@ -403,7 +403,7 @@ async function boot(): Promise<void> {
   const openBookmarks = () => bmMod(m => m.openBookmarks({ current: currentView, open: navTo }));
   const startTour = (id: string) => { endLesson(); toursMod(m => m.startTour(id, tourHost)); };
 
-  const showCollection = () => collectionMod(([{ openCollection }]) => openCollection(it => { closeModal(); closeModal(); shell.showItem(it); }));
+  const showCollection = () => collectionMod(([{ openCollection }]) => openCollection(it => shell.showItem(it)));
   const showPassport = () => collectionMod(([, { openPassport }]) => openPassport({
     here: () => shell.current ? [shell.current.lat, shell.current.lon] : [globe.lat, globe.lon],
     travel: (it, from) => { shell.showItem(it); if (Math.abs(from[0] - it.lat) + Math.abs(from[1] - it.lon) > 2) globe.showFlightArc(from, [it.lat, it.lon]); },
@@ -531,7 +531,7 @@ async function boot(): Promise<void> {
 
   const deepLink = !!location.hash;
   route();
-  if (!deepLink && load<string | null>('tutorial', null) !== 'done' && !params.has('notut')) setTimeout(openTutorial, 600);
+  if (!deepLink && load<string | null>('tutorial', null) !== 'done' && !params.has('notut')) setTimeout(() => openTutorial(openTours), 600);
 }
 
 boot().catch(err => {

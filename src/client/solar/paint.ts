@@ -7,7 +7,7 @@
 import type { BodyId } from '../../shared/data/solar.ts';
 import { mulberry32 } from '../../shared/lib/rng.ts';
 
-export interface BodyMaps {
+interface BodyMaps {
   w: number;
   h: number;
   /** RGBA, w × h × 4. */

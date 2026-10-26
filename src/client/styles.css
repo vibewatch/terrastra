@@ -388,12 +388,7 @@ a:hover { text-decoration: underline; }
 .switch-card input { position: absolute; opacity: 0; pointer-events: none; }
 .sw-emoji { display: inline-grid; place-items: center; color: var(--muted); flex: none; }
 .sw-label { flex: 1; font-size: .84rem; color: var(--text-2); }
-.sw-track { width: 30px; height: 18px; border-radius: 9px; background: #3f3f46; position: relative; flex: none; transition: background .2s; }
-.sw-track::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; transition: transform .2s; }
-.switch-card input:checked ~ .sw-track { background: var(--accent); }
-.switch-card input:checked ~ .sw-track::after { transform: translateX(12px); }
 .switch-card:has(input:focus-visible) { outline: 2px solid var(--accent); }
-.menu-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); font-size: 0.86rem; color: var(--text-2); }
 .menu-links { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--hud-line); }
 .menu-links a {
   --cut: 7px;
@@ -782,7 +777,7 @@ body.time-travel .bl, body.riding .time-bar, body.gaming .time-bar { visibility:
 }
 .hub-card:hover { background: var(--hover); border-color: rgba(255, 255, 255, 0.16); }
 .hub-ico { --c: #7dd3fc; width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center; color: var(--c); background: color-mix(in srgb, var(--c) 14%, transparent); border: 1px solid color-mix(in srgb, var(--c) 26%, transparent); margin-bottom: 8px; }
-.c-green .hub-ico { --c: #6ee7b7; } .c-purple .hub-ico { --c: #c4b5fd; } .c-orange .hub-ico { --c: #fcd34d; } .c-violet .hub-ico { --c: #7dd3fc; }
+.c-green .hub-ico { --c: #6ee7b7; } .c-purple .hub-ico { --c: #c4b5fd; } .c-orange .hub-ico { --c: #fcd34d; }
 .c-type .hub-ico { --c: inherit; }
 .hub-card strong { font-size: 1rem; font-weight: 600; letter-spacing: -0.01em; }
 .hub-sub { font-size: .8rem; color: var(--muted); flex: 1; line-height: 1.45; }
@@ -969,6 +964,9 @@ body:has(.info:not(.hidden)) .bl { display: none; }
 .sb-label.k-comet { position: absolute; left: 0; top: 0; padding: 2px 6px; white-space: nowrap; pointer-events: none; font-size: 11px; color: #a5f3fc; text-shadow: 0 0 6px rgba(0, 0, 0, .9); }
 .sb-label.k-comet[hidden] { display: none; }
 .sb-label.on { color: var(--accent); font-weight: 600; }
+/* display option "names off": worlds lose their names, features and deep objects keep their dots; the selection stays named */
+.no-names .sb-label:not(.on) { display: none; }
+.no-names :is(.sf-label, .dl-label):not(.on, .home) > span { display: none; }
 .sf-label { display: flex; align-items: center; gap: 6px; margin: -8px 0 0 -6px; font-size: 11.5px; color: #e4e4e7; --k: #cbd5e1; }
 .sf-label i { width: 8px; height: 8px; border-radius: 50%; background: var(--k); box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.55), 0 0 10px var(--k); flex: none; }
 .sf-label:hover span, .sf-label.on span { color: #fff; }
@@ -1047,7 +1045,7 @@ body:has(.info:not(.hidden)) .bl { display: none; }
 .dl-label.home.flip { padding: 4px 22px 4px 10px; translate: calc(-100% + 11px) -11px; }
 .dl-label.home.flip::before { left: auto; right: 6px; }
 /* Out in deep space the clock means nothing: only the meter and the Messier list stay. */
-.solar-ui.deep .solar-time > :not([data-testid=solar-measure]):not([data-testid=solar-messier]) { display: none; }
+.solar-ui.deep .solar-time > :not([data-testid=solar-measure]):not([data-testid=solar-messier]):not([data-testid=solar-names]) { display: none; }
 
 /* ---- scale rail: universe … Earth ---- */
 .sr-universe { --sc: #f0abfc; --d: 9px; } .sr-laniakea { --sc: #c4b5fd; --d: 8px; } .sr-group { --sc: #a5b4fc; --d: 7px; }

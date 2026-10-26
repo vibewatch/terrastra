@@ -6,7 +6,7 @@ import { h } from './dom.ts';
 import { icon } from './icons.ts';
 import { t, lang, fmtNum } from '../lib/i18n.ts';
 import { url } from '../lib/env.ts';
-import { fetchArticle, type WikiArticle, type WikiSection } from '../lib/wikipedia.ts';
+import { articleUrl, fetchArticle, type WikiArticle, type WikiSection } from '../lib/wikipedia.ts';
 import { WIKI } from '../../shared/data/wiki.ts';
 import { CATALOGUE } from '../../shared/data/catalogue.ts';
 import { TYPE_META } from '../../shared/data/typemeta.ts';
@@ -16,7 +16,7 @@ import { tr, type CatalogueItem, type Lang } from '../../shared/data/types.ts';
 const FIRST_SECTIONS = 4;
 const HTML_LANG: Record<Lang, string> = { en: 'en', zh: 'zh-CN' };
 
-export interface ReaderHooks { close: () => void; pick: (it: CatalogueItem) => void }
+interface ReaderHooks { close: () => void; pick: (it: CatalogueItem) => void }
 
 /** Anything with a Wikipedia article: catalogue items, and solar-system bodies/features (no type → no nearby list). */
 export type Readable = Pick<CatalogueItem, 'key' | 'name' | 'desc'> & Partial<Pick<CatalogueItem, 'type' | 'slug' | 'lat' | 'lon' | 'route' | 'wiki' | 'funFact'>>;
@@ -24,7 +24,7 @@ export type Readable = Pick<CatalogueItem, 'key' | 'name' | 'desc'> & Partial<Pi
 export class Reader {
   readonly el: HTMLElement;
   private scroller = h('div', { class: 'reader-scroll' });
-  private seg = h('div', { class: 'reader-lang', role: 'group', 'aria-label': 'Language' });
+  private seg = h('div', { class: 'reader-lang', role: 'group', 'aria-label': t('language') });
   private ext = h('a', { class: 'icon-btn', target: '_blank', rel: 'noopener', 'data-testid': 'reader-wiki-link', html: icon('external', 16) });
   private item: Readable | null = null;
   private readLang: Lang = lang();
@@ -61,6 +61,7 @@ export class Reader {
       h('button', { class: l === this.readLang ? 'on' : '', 'aria-pressed': String(l === this.readLang), 'data-testid': 'reader-lang-' + l,
         disabled: l === 'zh' && !titles?.[1], onclick: () => this.show(it, l) }, l === 'en' ? 'EN' : '中文')));
     this.el.querySelector('.reader-back')?.setAttribute('aria-label', t('readerClose'));
+    this.seg.setAttribute('aria-label', t('language'));
   }
 
   private async load(it: Readable, want: Lang): Promise<void> {
@@ -68,7 +69,7 @@ export class Reader {
     const titles = WIKI[it.key];
     const l: Lang = want === 'zh' && titles?.[1] ? 'zh' : 'en';
     const title = l === 'zh' ? titles![1]! : titles?.[0] ?? it.wiki ?? it.name.en;
-    this.ext.setAttribute('href', `https://${l}.wikipedia.org/wiki/${encodeURIComponent(title.replace(/ /g, '_'))}`);
+    this.ext.setAttribute('href', articleUrl(l, title));
     this.ext.setAttribute('title', t('readerOpenWiki'));
     this.scroller.replaceChildren(this.skeleton(it));
     this.scroller.scrollTop = 0;

@@ -7,6 +7,7 @@ import { icon, type IconName } from './icons.ts';
 import { t, lang, onLang } from '../lib/i18n.ts';
 import { load, save } from '../lib/storage.ts';
 import { classroomLink } from '../lib/classroom.ts';
+import { closeTutorial } from './tutorial.ts';
 import { skyEvents } from '../../shared/lib/astro/events.ts';
 import { BY_KEY } from '../../shared/data/catalogue.ts';
 
@@ -172,15 +173,13 @@ function missionTime(ms: number, t0?: number): string {
 const done = () => new Set(load<string[]>('toursDone', []));
 
 let active: { root: HTMLElement; stop: () => void } | null = null;
-export const touring = () => active !== null;
-
-export function stopTour(): void { active?.stop(); }
+function stopTour(): void { active?.stop(); }
 
 export function startTour(id: string, host: TourHost): void {
   const tour = TOURS.find(x => x.id === id);
   if (!tour) return;
   stopTour();
-  document.querySelector('.tutorial')?.remove();
+  closeTutorial();
   const steps = tour.steps();
   let i = 0;
   const ring = h('div', { class: 'tour-spot', 'aria-hidden': 'true' });

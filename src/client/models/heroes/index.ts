@@ -15,13 +15,13 @@ const loading = new Map<string, Promise<Pack>>();
 export const PACK_IDS: string[] = Object.keys(LOADERS).map(p => p.slice(2, -3));
 
 /** Splits a `pack/name` hero reference; returns null for anything else. */
-export function parseHero(ref: unknown): { pack: string; name: string } | null {
+function parseHero(ref: unknown): { pack: string; name: string } | null {
   if (typeof ref !== 'string') return null;
   const i = ref.indexOf('/');
   return i > 0 ? { pack: ref.slice(0, i), name: ref.slice(i + 1) } : null;
 }
 
-export function loadPack(id: string): Promise<Pack> {
+function loadPack(id: string): Promise<Pack> {
   const have = loaded.get(id);
   if (have) return Promise.resolve(have);
   let p = loading.get(id);

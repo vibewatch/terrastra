@@ -222,7 +222,7 @@ const S: Star[] = [
 export const NEARBY_STARS: DeepObject[] = S.map(s => ({ ...s, scale: 'stars', kind: 'star' }));
 
 /** Rough look of a star from its spectral type: colour class and kind of star (for the card). */
-export type StarClass = 'red_dwarf' | 'orange_dwarf' | 'yellow_dwarf' | 'white_star' | 'blue_star' | 'giant' | 'white_dwarf' | 'brown_dwarf';
+type StarClass = 'red_dwarf' | 'orange_dwarf' | 'yellow_dwarf' | 'white_star' | 'blue_star' | 'giant' | 'white_dwarf' | 'brown_dwarf';
 export function starClass(spec: string): StarClass {
   const c = spec[0];
   if (c === 'D') return 'white_dwarf';

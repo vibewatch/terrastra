@@ -73,7 +73,7 @@ export function foldModel(sq: number, er: number): { A: number; E: number; a: nu
   return { A, E: er / 100, a: 0.4, b: 2.8 * Math.min(1, A / 0.55) };
 }
 /** has erosion turned the anticline into a valley (lower than the syncline)? */
-export function foldInverted(sq: number, er: number): boolean {
+function foldInverted(sq: number, er: number): boolean {
   const { A, E, b } = foldModel(sq, er);
   return sq >= 30 && 2 * A - b * E < -0.15;
 }

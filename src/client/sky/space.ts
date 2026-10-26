@@ -18,7 +18,7 @@ function sph(p: GeoPoint, r = 1.003): THREE.Vector3 {
   return new THREE.Vector3(Math.cos(la) * Math.cos(lo) * r, Math.cos(la) * Math.sin(lo) * r, Math.sin(la) * r);
 }
 
-export interface SpaceState { sunEq: Vec3; moonEq: Vec3; sunDir: THREE.Vector3; moonPos: THREE.Vector3 }
+interface SpaceState { sunEq: Vec3; moonEq: Vec3; sunDir: THREE.Vector3; moonPos: THREE.Vector3 }
 
 export class SpaceScene {
   readonly scene = new THREE.Scene();
@@ -41,9 +41,10 @@ export class SpaceScene {
     this.earth = new THREE.Mesh(new THREE.SphereGeometry(1, 128, 64), earthMaterial());
     this.earth.renderOrder = 2;
     this.scene.add(this.earth);
-    bodyTexture('earth', 2048).then(t => { this.earth.material.uniforms.uDay.value = t; this.earth.material.needsUpdate = true; }).catch(() => {});
-    this.earth.material.uniforms.uDay.value = new THREE.DataTexture(new Uint8Array([30, 60, 110, 255]), 1, 1);
-    this.earth.material.uniforms.uDay.value.needsUpdate = true;
+    const placeholder = new THREE.DataTexture(new Uint8Array([30, 60, 110, 255]), 1, 1);
+    placeholder.needsUpdate = true;
+    this.earth.material.uniforms.uDay.value = placeholder;
+    bodyTexture('earth', 2048).then(t => { this.earth.material.uniforms.uDay.value = t; this.earth.material.needsUpdate = true; placeholder.dispose(); }).catch(() => {});
     this.earth.add(this.paths);
 
     this.moon = new THREE.Mesh(new THREE.SphereGeometry(R_MOON / R_EARTH, 96, 48), moonMaterial());
@@ -97,7 +98,7 @@ export class SpaceScene {
 
   /** Draw a solar eclipse's central line and limits on the globe. */
   setPath(path: PathPoint[] | null): void {
-    for (const c of [...this.paths.children]) { this.paths.remove(c); (c as THREE.Line).geometry.dispose(); }
+    for (const c of [...this.paths.children]) { const l = c as THREE.Line; this.paths.remove(l); l.geometry.dispose(); (l.material as THREE.Material).dispose(); }
     if (!path?.length) return;
     const line = (pts: (GeoPoint | null)[], color: number, op: number) => {
       // split where a limit drops off the Earth

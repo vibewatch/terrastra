@@ -45,10 +45,9 @@ export function toHorizon(p: Vec3, o: GeoPoint, at: Vec3): Vec3 {
 export const altOf = (v: Vec3) => Math.asin(v[1] / Math.hypot(v[0], v[1], v[2])) / D2R;
 export const azOf = (v: Vec3) => ((Math.atan2(v[0], -v[2]) / D2R) + 360) % 360;
 export const norm = (v: Vec3): Vec3 => { const l = Math.hypot(v[0], v[1], v[2]); return [v[0] / l, v[1] / l, v[2] / l]; };
-export const sub = (a: Vec3, b: Vec3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 export const len = (v: Vec3) => Math.hypot(v[0], v[1], v[2]);
-export const dot = (a: Vec3, b: Vec3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-export const cross = (a: Vec3, b: Vec3): Vec3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const dot = (a: Vec3, b: Vec3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const cross = (a: Vec3, b: Vec3): Vec3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 /** Angle between two directions (radians), precise for tiny angles. */
 export const angle = (a: Vec3, b: Vec3) => Math.atan2(len(cross(a, b)), dot(a, b));
 

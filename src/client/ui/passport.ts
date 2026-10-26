@@ -8,7 +8,7 @@ import { haversineKm } from '../../shared/lib/geo.ts';
 import { load, save } from '../lib/storage.ts';
 import { icon } from './icons.ts';
 
-export interface PassportHooks {
+interface PassportHooks {
   /** current globe position, used to pick the nearest next stop */
   here: () => [number, number];
   /** fly to an item and open its card, drawing a flight arc from `from` */
@@ -16,7 +16,7 @@ export interface PassportHooks {
 }
 
 /** Unstamped place in the book closest to `here`. */
-export function nextStop(b: PassportBook, seen: Record<string, number>, here: [number, number]): CatalogueItem | null {
+function nextStop(b: PassportBook, seen: Record<string, number>, here: [number, number]): CatalogueItem | null {
   let best: CatalogueItem | null = null, bestKm = Infinity;
   for (const k of b.keys) {
     if (k in seen) continue;

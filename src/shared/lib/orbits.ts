@@ -14,7 +14,7 @@ export type Vec3 = [number, number, number];
 /** Days since J2000.0 (TT ≈ UTC is fine here). */
 export function daysJ2000(ms: number): number { return (ms - J2000_MS) / 864e5; }
 
-export function solveKepler(M: number, e: number): number {
+function solveKepler(M: number, e: number): number {
   let E = M + e * Math.sin(M);
   for (let k = 0; k < 8; k++) {
     const dE = (E - e * Math.sin(E) - M) / (1 - e * Math.cos(E));
@@ -43,7 +43,7 @@ export function keplerPosition(k: Kepler, d: number): Vec3 {
 }
 
 /** Geocentric ecliptic position of the Moon (km), accurate to about a degree. */
-export function moonPosition(d: number): Vec3 {
+function moonPosition(d: number): Vec3 {
   const L = (218.316 + 13.176396 * d) * D2R, M = (134.963 + 13.064993 * d) * D2R, F = (93.272 + 13.22935 * d) * D2R;
   const D = (297.85 + 12.190749 * d) * D2R;
   const lam = L + (6.289 * Math.sin(M) - 1.274 * Math.sin(M - 2 * D) + 0.658 * Math.sin(2 * D)) * D2R;
@@ -93,16 +93,6 @@ export function helioKm(id: BodyId, d: number): Vec3 {
 export function distanceKm(a: BodyId, b: BodyId, d: number): number {
   const p = helioKm(a, d), q = helioKm(b, d);
   return Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
-}
-
-/** Sub-solar longitude on Earth (deg, east-positive) for a UTC time, with the equation of time. */
-export function subSolarLon(ms: number): number {
-  const dt = new Date(ms);
-  const start = Date.UTC(dt.getUTCFullYear(), 0, 0);
-  const g = ((2 * Math.PI) / 365) * ((ms - start) / 864e5 - 1);
-  const eq = 229.18 * (0.000075 + 0.001868 * Math.cos(g) - 0.032077 * Math.sin(g) - 0.014615 * Math.cos(2 * g) - 0.040849 * Math.sin(2 * g));
-  const mins = dt.getUTCHours() * 60 + dt.getUTCMinutes() + dt.getUTCSeconds() / 60;
-  return ((((720 - mins - eq) / 4) + 540) % 360) - 180;
 }
 
 export function cross(a: Vec3, b: Vec3): Vec3 { return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]; }

@@ -80,7 +80,7 @@ export interface FigureAnchors {
 const SKIN = '#e9b993';
 
 /** Shoulder, elbow and wrist of a figure's arm in body space (same maths the figure uses, for overlays). */
-export function armJoints(o: Pick<FigureOpts, 'h' | 'armL' | 'armR'>, sgn: -1 | 1): { sh: V3; el: V3; wr: V3; dir: V3 } {
+function armJoints(o: Pick<FigureOpts, 'h' | 'armL' | 'armR'>, sgn: -1 | 1): { sh: V3; el: V3; wr: V3; dir: V3 } {
   const u = o.h ?? 0.62, sh: V3 = [sgn * 0.135 * u, 0.735 * u, 0];
   const { elbow, wrist, dir } = armFK(sgn, (sgn < 0 ? o.armL : o.armR) ?? {}, sh, 0.17 * u, 0.155 * u);
   return { sh, el: elbow, wr: wrist, dir };

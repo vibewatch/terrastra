@@ -1,7 +1,8 @@
 import type { CatalogueItem, I18n, Lang } from '../data/types.ts';
 import { tr } from '../data/types.ts';
 import { shuffle, pick } from '../lib/rng.ts';
-import { CITIES } from '../data/cities.ts';
+import { CITIES, cityName } from '../data/cities.ts';
+import { CONTINENT_NAMES } from '../data/iso.ts';
 
 export type QuizSet = 'mixed' | 'animals' | 'geo' | 'landmarks' | 'secrets';
 export type QuizLevel = 'easy' | 'normal' | 'hard';
@@ -69,26 +70,26 @@ const TEMPLATES: Template[] = [
   } },
   { id: 'an_where', set: 'animals', make: c => {
     const an = by(c, 'animal').filter(a => a.continent !== 'ocean' && a.continent !== 'antarctica'); const it = pick(an, c.rnd);
-    const conts = ['africa', 'europe', 'asia', 'north-america', 'south-america', 'oceania'];
-    const label = (k: string) => ({ africa: 'Africa', europe: 'Europe', asia: 'Asia', 'north-america': 'North America', 'south-america': 'South America', oceania: 'Oceania' } as Record<string, string>)[k];
+    const conts = ['africa', 'europe', 'asia', 'north-america', 'south-america', 'oceania'] as const;
+    const label = (k: CatalogueItem['continent']) => CONTINENT_NAMES[k][c.lang];
     return build('an_where', 'animals', { en: `On which continent can you find the wild ${tr(it.name, 'en').toLowerCase()} on our globe?`, zh: `在地球仪上，野生的${tr(it.name, 'zh')}生活在哪个大洲？` },
       label(it.continent), conts.map(label), c, it);
   } },
   { id: 'geo_capital', set: 'geo', make: c => {
     const caps = CITIES.filter(x => x[5]); const it = pick(caps, c.rnd);
-    return build('geo_capital', 'geo', { en: `What is the capital of ${c.country(it[1])}?`, zh: `${c.country(it[1])}的首都是哪里？` }, it[0], caps.map(x => x[0]), c, { lat: it[2], lon: it[3] });
+    return build('geo_capital', 'geo', { en: `What is the capital of ${c.country(it[1])}?`, zh: `${c.country(it[1])}的首都是哪里？` }, cityName(it[0], c.lang), caps.map(x => cityName(x[0], c.lang)), c, { lat: it[2], lon: it[3] });
   } },
   { id: 'geo_northmost', set: 'geo', make: c => {
     const cs = shuffle(CITIES, c.rnd).slice(0, c.nOpts); const top = cs.reduce((a, b) => (a[2] >= b[2] ? a : b));
-    return build('geo_northmost', 'geo', { en: 'Which city is furthest north?', zh: '哪座城市最靠北？' }, top[0], cs.map(x => x[0]), c);
+    return build('geo_northmost', 'geo', { en: 'Which city is furthest north?', zh: '哪座城市最靠北？' }, cityName(top[0], c.lang), cs.map(x => cityName(x[0], c.lang)), c);
   } },
   { id: 'geo_southmost', set: 'geo', make: c => {
     const cs = shuffle(CITIES, c.rnd).slice(0, c.nOpts); const top = cs.reduce((a, b) => (a[2] <= b[2] ? a : b));
-    return build('geo_southmost', 'geo', { en: 'Which city is furthest south?', zh: '哪座城市最靠南？' }, top[0], cs.map(x => x[0]), c);
+    return build('geo_southmost', 'geo', { en: 'Which city is furthest south?', zh: '哪座城市最靠南？' }, cityName(top[0], c.lang), cs.map(x => cityName(x[0], c.lang)), c);
   } },
   { id: 'geo_equator', set: 'geo', make: c => {
     const cs = shuffle(CITIES, c.rnd).slice(0, c.nOpts); const top = cs.reduce((a, b) => (Math.abs(a[2]) <= Math.abs(b[2]) ? a : b));
-    return build('geo_equator', 'geo', { en: 'Which city is closest to the equator?', zh: '哪座城市离赤道最近？' }, top[0], cs.map(x => x[0]), c);
+    return build('geo_equator', 'geo', { en: 'Which city is closest to the equator?', zh: '哪座城市离赤道最近？' }, cityName(top[0], c.lang), cs.map(x => cityName(x[0], c.lang)), c);
   } },
   { id: 'sec_kind', set: 'secrets', make: c => {
     const ds = by(c, 'discovery'); const it = pick(ds, c.rnd);

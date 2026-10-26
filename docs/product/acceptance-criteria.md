@@ -1,5 +1,7 @@
 # Acceptance Criteria: Terrastra
 
+> Historical MVP baseline. Since then the app has moved to English and Simplified Chinese only (`Lang = 'en' | 'zh'`), dropped offline mode and grown a Solar System, deep-space levels, a sky theatre and lessons. The current state and priorities live in [the 2026-10 roadmap](../planning/improvement-roadmap-2026-10.md).
+
 Format: Given / When / Then. **Verified by** names the automated test: `e2e:` = `tests/e2e/app.spec.ts` (Playwright,
 screenshots in [`docs/assets/screenshots/`](../assets/screenshots/)), `unit:` = `tests/unit/logic.test.ts`, `api:` = `tests/unit/server.test.ts`.
 

@@ -28,7 +28,7 @@ export function countryLayer(list: Country[], opts: { names?: boolean; capitals?
 }
 
 /** The region with every country faintly shaded and no names: the board for map questions. */
-export function blankMap(extra: { paint?: Paint[]; marks?: Mark[] } = {}): StageScene {
+function blankMap(extra: { paint?: Paint[]; marks?: Mark[] } = {}): StageScene {
   return {
     cam: AFRICA_CAM, names: false, borders: true,
     paint: [{ fill: { k: 'land', a2: COUNTRIES.map(x => x.a2), c: C.white }, a: 0.14 }, ...(extra.paint ?? [])],

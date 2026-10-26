@@ -11,8 +11,6 @@ import { genericDef, type Fallback, type GalaxyDef } from './galaxies/generic-mo
 import { LOCAL } from './galaxies/local.ts';
 import { NEARBY } from './galaxies/nearby.ts';
 
-export type { NebulaModel, NebulaTier, Fallback };
-
 const MODELS: Record<string, GalaxyDef> = { ...LOCAL, ...NEARBY, ...FAR };
 
 export const hasGalaxyModel = (key: string): boolean => key in MODELS;
@@ -20,7 +18,7 @@ export const hasGalaxyModel = (key: string): boolean => key in MODELS;
 const defFor = (key: string, fb?: Fallback): GalaxyDef | null => MODELS[key] ?? (fb ? genericDef(fb) : null);
 
 /** Raw primitives of a model (shared by the 3D build and the painter). */
-export function galaxyData(key: string, tier: NebulaTier, fallback?: Fallback): NB | null {
+function galaxyData(key: string, tier: NebulaTier, fallback?: Fallback): NB | null {
   const d = defFor(key, fallback);
   if (!d) return null;
   const b = new NB(hashStr(key), tier);

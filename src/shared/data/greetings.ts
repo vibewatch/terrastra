@@ -1,5 +1,5 @@
 /** "Hello" in a main local language of each country: [greeting, BCP-47 voice language, pronunciation hint]. */
-export type Greeting = [text: string, lang: string, say: string];
+type Greeting = [text: string, lang: string, say: string];
 
 export const GREETINGS: Record<string, Greeting> = {
   CN: ['你好', 'zh-CN', 'nǐ hǎo'], TW: ['你好', 'zh-TW', 'nǐ hǎo'], HK: ['你好', 'zh-HK', 'néih hóu'], JP: ['こんにちは', 'ja-JP', 'kon-nee-chee-wah'],

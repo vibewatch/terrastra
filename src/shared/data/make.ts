@@ -4,7 +4,7 @@ import type { Continent } from './iso.ts';
 type N2 = [en: string, zh: string];
 
 /** Compact spec for catalogue items that keep their English and Chinese text side by side. */
-export interface ItemSpec {
+interface ItemSpec {
   key: string;
   slug: string;
   name: N2;

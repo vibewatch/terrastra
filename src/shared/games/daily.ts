@@ -3,8 +3,8 @@ import { mulberry32, shuffle } from '../lib/rng.ts';
 import type { CatalogueItem } from '../data/types.ts';
 
 export const MAX_GUESSES = 6;
-export const HIT_KM = 200;
-export const EPOCH = Date.UTC(2026, 0, 1);
+const HIT_KM = 200;
+const EPOCH = Date.UTC(2026, 0, 1);
 const SEED = 4242;
 const MIN_NEIGHBOUR_KM = 1200;
 

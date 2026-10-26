@@ -9,6 +9,7 @@ import { icon } from '../ui/icons.ts';
 import { Select } from '../ui/select.ts';
 import { t, lang, onLang, fmtNum } from '../lib/i18n.ts';
 import { sfx } from '../lib/sfx.ts';
+import { load, save } from '../lib/storage.ts';
 import { tr, type Lang } from '../../shared/data/types.ts';
 import { BODIES, BODY, type BodyId, type SolarBody } from '../../shared/data/solar.ts';
 import { BODY_TEXT } from '../../shared/data/solar-text.ts';
@@ -32,8 +33,7 @@ import type { CatalogueItem } from '../../shared/data/types.ts';
 type Sel = SolarSelection | { kind: 'deep'; o: DeepObject } | { kind: 'scale'; id: ScaleId };
 
 /** URL fragment per scale (`#milkyway/dp_sgr_a`). */
-export const SCALE_HASH: Record<ScaleId, string> = { universe: 'universe', laniakea: 'laniakea', group: 'localgroup', galaxy: 'milkyway', stars: 'nearbystars', solar: 'solar' };
-export const scaleFromHash = (h: string): ScaleId | undefined => (Object.keys(SCALE_HASH) as ScaleId[]).find(k => SCALE_HASH[k] === h);
+const SCALE_HASH: Record<ScaleId, string> = { universe: 'universe', laniakea: 'laniakea', group: 'localgroup', galaxy: 'milkyway', stars: 'nearbystars', solar: 'solar' };
 const SCALE_THUMB: Record<ScaleId, DeepKind> = { universe: 'deepfield', laniakea: 'supercluster', group: 'group', galaxy: 'arm', stars: 'star', solar: 'star' };
 /** What sits at the middle of each deep scale (the meter's "home" end). */
 const DEEP_HOME: Record<DeepScale, string> = { stars: 'meterHome', galaxy: 'meterHome', group: 'sc_galaxy', laniakea: 'sc_group', universe: 'sc_laniakea' };
@@ -48,8 +48,6 @@ function sepLy(a?: DeepObject, b?: DeepObject): number {
   const p = v(a), q = v(b);
   return Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
 }
-
-export { fmtLy };
 
 export interface SolarHost {
   quality: Quality;
@@ -100,6 +98,8 @@ export class SolarUI {
   private speedEl = h('span', { class: 'solar-speed', 'data-testid': 'solar-speed' });
   private playBtn = h('button', { class: 'icon-btn', 'data-testid': 'solar-play' });
   private cstBtn = h('button', { class: 'icon-btn cst-toggle', 'data-testid': 'solar-cst', 'data-i18n-tip': 'cst_toggle', title: t('cst_toggle'), html: icon('sparkle', 15) });
+  private orbitsBtn = h('button', { class: 'icon-btn cst-toggle', 'data-testid': 'solar-orbits', 'data-i18n-tip': 'orbitsToggle', title: t('orbitsToggle'), html: icon('planet', 15) });
+  private namesBtn = h('button', { class: 'icon-btn cst-toggle', 'data-testid': 'solar-names', 'data-i18n-tip': 'namesToggle', title: t('namesToggle'), html: icon('tag', 15) });
   private hint = h('p', { class: 'solar-hint' });
   private meterBtn = h('button', { class: 'icon-btn cst-toggle', 'data-testid': 'solar-measure', 'data-i18n-tip': 'meter', title: t('meter'), 'aria-pressed': 'false', html: icon('ruler', 15) });
   private meterA = new Select({ testid: 'meter-a', label: t('meterFrom'), className: 'meter-sel', value: 'earth', options: [], onChange: () => this.applyMeter() });
@@ -147,6 +147,8 @@ export class SolarUI {
           this.dateEl,
           h('button', { class: 'icon-btn', 'data-testid': 'solar-now', 'data-i18n-tip': 'now', title: t('now'), html: icon('reset', 15), onclick: () => { this.view.resetTime(); this.renderDate(this.view.simMs); } }),
           this.cstBtn,
+          this.orbitsBtn,
+          this.namesBtn,
           this.meterBtn,
           this.messierBtn),
         this.meterEl,
@@ -167,10 +169,14 @@ export class SolarUI {
     window.setInterval(() => { if (this.view.isActive && !document.hidden) this.renderReadout(); }, 250);
     this.playBtn.onclick = () => this.setSpeed(this.speedIdx === 0 ? 2 : 0);
     this.cstBtn.onclick = () => { sfx.tap(); this.setCst(!this.view.cst.visible); };
+    this.orbitsBtn.onclick = () => { sfx.tap(); this.setOption('orbits', !this.view.orbits); };
+    this.namesBtn.onclick = () => { sfx.tap(); this.setOption('names', !this.view.names); };
     this.meterBtn.onclick = () => { sfx.tap(); this.setMeter(this.meterEl.classList.contains('hidden')); };
     this.messierBtn.onclick = () => { sfx.tap(); this.setMessier(this.messierEl.classList.contains('hidden')); };
     this.fillMeter();
-    this.setCst(localStorage.getItem('pp.cst') !== '0');
+    this.setCst(Boolean(load('cst', true)));
+    this.setOption('orbits', load('solarOrbits', true));
+    this.setOption('names', load('solarNames', true));
     this.renderDock();
     this.setSpeed(2);
     this.view.setEarthCanvas(host.earthCanvas());
@@ -187,8 +193,17 @@ export class SolarUI {
     this.view.cst.visible = on;
     this.cstBtn.setAttribute('aria-pressed', String(on));
     this.cstBtn.classList.toggle('on', on);
-    try { localStorage.setItem('pp.cst', on ? '1' : '0'); } catch { /* private mode */ }
+    save('cst', on);
     if (!on && this.sel?.kind === 'cst') this.showCard(null);
+  }
+
+  /** Display options (remembered): orbit lines, and names on everything you can tap. */
+  private setOption(k: 'orbits' | 'names', on: boolean): void {
+    this.view[k] = on;
+    const b = k === 'orbits' ? this.orbitsBtn : this.namesBtn;
+    b.setAttribute('aria-pressed', String(on));
+    b.classList.toggle('on', on);
+    save(k === 'orbits' ? 'solarOrbits' : 'solarNames', on);
   }
 
   // ---------- distance meter ----------

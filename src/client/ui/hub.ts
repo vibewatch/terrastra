@@ -12,11 +12,11 @@ import { dayIndex } from '../../shared/games/daily.ts';
 import { ssbsOn } from '../lib/ssbs.ts';
 
 export type HubTab = 'learn' | 'look' | 'play' | 'me';
-export const HUB_TABS: HubTab[] = ['learn', 'look', 'play', 'me'];
+const HUB_TABS: HubTab[] = ['learn', 'look', 'play', 'me'];
 const TAB_ICON: Record<HubTab, IconName> = { learn: 'book', look: 'telescope', play: 'game', me: 'user' };
 const TAB_LABEL: Record<HubTab, string> = { learn: 'hubLearn', look: 'hubLook', play: 'hubPlay', me: 'hubMe' };
 
-export interface HubActions {
+interface HubActions {
   lessons(): void; astro(): void; ssbs(): void; tours(): void;
   sky(): void; tonight(): void; time(): void; compare(): void; bookmarks(): void; radio(): void;
   game(kind: 'daily' | 'placeit' | 'quiz'): void;

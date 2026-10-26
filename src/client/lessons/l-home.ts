@@ -19,7 +19,7 @@ const wrap = (lon: number) => ((((lon + 180) % 360) + 360) % 360) - 180;
 /** Noon Sun altitude (°) at latitude `lat` when the overhead Sun is at `dec` (0 below the horizon). */
 export const noonAlt = (lat: number, dec: number) => Math.max(0, 90 - Math.abs(lat - dec));
 /** Day length (hours) from the sunrise equation (no refraction). */
-export function dayHours(lat: number, dec: number): number {
+function dayHours(lat: number, dec: number): number {
   const c = -Math.tan((lat * Math.PI) / 180) * Math.tan((dec * Math.PI) / 180);
   return c <= -1 ? 24 : c >= 1 ? 0 : (2 * Math.acos(c) * 180) / Math.PI / 15;
 }

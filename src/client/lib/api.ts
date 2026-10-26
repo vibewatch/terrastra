@@ -2,7 +2,7 @@ import type { Progress } from '../../shared/lib/progress.ts';
 import { HAS_API, url } from './env.ts';
 
 export interface Me { id: number; email: string; handle: string | null }
-export interface GuestbookEntry { id: number; handle: string; body: string; created_at: string }
+interface GuestbookEntry { id: number; handle: string; body: string; created_at: string }
 
 async function j<T>(res: Response): Promise<T> {
   if (!res.ok) {

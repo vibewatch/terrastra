@@ -407,7 +407,7 @@ export function tree(p: THREE.Object3D, x: number, y: number, z: number, s = 0.0
   }
 }
 
-export interface SkinOpts { paint?: Paint; flat?: boolean; closed?: boolean; caps?: boolean; metal?: number; rough?: number; inward?: boolean }
+interface SkinOpts { paint?: Paint; flat?: boolean; closed?: boolean; caps?: boolean; metal?: number; rough?: number; inward?: boolean }
 
 /**
  * Indexed surface through rings of 3D points (hulls, fuselages, car bodies, robes). Rings may be open profiles

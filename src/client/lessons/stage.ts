@@ -64,8 +64,8 @@ export interface StageScene {
 }
 
 export type Ocean = 'pacific' | 'atlantic' | 'indian' | 'arctic';
-export const OCEAN_COLORS: Record<Ocean, string> = { pacific: '#2f80ed', atlantic: '#27ae9f', indian: '#8e6cf0', arctic: '#9fd8ff' };
-export const CONTINENT_COLORS: Record<Continent, string> = {
+const OCEAN_COLORS: Record<Ocean, string> = { pacific: '#2f80ed', atlantic: '#27ae9f', indian: '#8e6cf0', arctic: '#9fd8ff' };
+const CONTINENT_COLORS: Record<Continent, string> = {
   asia: '#f2c94c', europe: '#6fcf97', africa: '#f2994a', 'north-america': '#eb5757', 'south-america': '#bb6bd9', oceania: '#56ccf2', antarctica: '#e0e6ee',
 };
 
@@ -246,7 +246,7 @@ interface LiveLine { def: Line; mesh: THREE.Mesh; mat: THREE.ShaderMaterial; hea
 interface LiveMark { def: Mark; v: THREE.Vector3; el: HTMLElement }
 interface LiveLayer { def: Paint; cv: HTMLCanvasElement | null; shown: number }
 
-export interface StageOpts {
+interface StageOpts {
   low?: boolean; lang: () => 'en' | 'zh';
   /** the part of the viewport (px) left free for the globe, i.e. not under the lesson card */
   frame?: () => { left: number; top: number; width: number; height: number } | null;
@@ -395,7 +395,6 @@ export class LessonStage {
     g.markDirty();
   }
 
-  /** Re-render text after a language switch. */
   /** What the lesson maps say about one place: its country (if on land), climate type and natural vegetation. */
   here(lat: number, lon: number): { a2?: string; climate?: Climate; biome?: Biome } {
     const countries = this.globe.countryShapes(), w = 512, hh = w / 2;

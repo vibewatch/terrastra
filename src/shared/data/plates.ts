@@ -1,7 +1,7 @@
 // Simplified major tectonic plate boundaries for the globe overlay (hand-traced from general geography, not survey data).
-export type BoundaryKind = 'ridge' | 'trench' | 'collision' | 'transform' | 'rift';
+type BoundaryKind = 'ridge' | 'trench' | 'collision' | 'transform' | 'rift';
 
-export interface PlateBoundary {
+interface PlateBoundary {
   name: string;
   kind: BoundaryKind;
   /** [lat, lon] polyline; consecutive points are joined along great circles */

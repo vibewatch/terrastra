@@ -1,6 +1,6 @@
 import { load, save } from './lib/storage.ts';
 import { emptyProgress, isProgress, mergeProgress, type Progress } from '../shared/lib/progress.ts';
-import { newlyEarned, STICKERS } from '../shared/lib/stickers.ts';
+import { newlyEarned } from '../shared/lib/stickers.ts';
 import { ANIMALS, DISCOVERIES } from '../shared/data/catalogue.ts';
 import { DEFAULT_SETTINGS, type Settings } from './globe/scene.ts';
 import type { Me } from './lib/api.ts';
@@ -14,13 +14,6 @@ export const store = {
   settings: { ...DEFAULT_SETTINGS, ...load<Partial<Settings>>('settings', {}) } as Settings,
   me: null as Me | null,
 };
-
-// Music was off by default before it became per-level; saved settings carried that default, so turn it on once.
-if (!load<boolean>('bgm2', false)) {
-  store.settings.bgm = true;
-  save('settings', store.settings);
-  save('bgm2', true);
-}
 
 export function subscribe(fn: Listener): () => void { subs.add(fn); return () => subs.delete(fn); }
 function emit(): void { for (const fn of subs) fn(); }
@@ -57,5 +50,3 @@ function scheduleSync(): void {
   clearTimeout(syncTimer);
   syncTimer = window.setTimeout(() => void syncer?.(), 1500);
 }
-
-export const STICKER_COUNT = STICKERS.length;

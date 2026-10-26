@@ -25,7 +25,7 @@ function yPlan(L: [number, number, number], w: number, rot = 0, arc = 5): [numbe
 }
 
 // ---------------------------------------------------------------------------------------------------------
-export const redeemer: Builder = (gp, r) => {
+const redeemer: Builder = (gp, r) => {
   const c = r.color!;
   // Corcovado: forested granite pinnacle above Rio, Tijuca rainforest on the flanks, Guanabara Bay at its foot
   const PK = 0.42;
@@ -81,7 +81,7 @@ export const redeemer: Builder = (gp, r) => {
 };
 
 // ---------------------------------------------------------------------------------------------------------
-export const burj: Builder = (gp, r) => {
+const burj: Builder = (gp, r) => {
   const c = r.color!;
   // Downtown Dubai: Burj Lake with the fountain, plaza podium, then the buttressed Y-core spiralling up in setbacks
   const hf: HFn = (x, z) => {
@@ -121,7 +121,7 @@ export const burj: Builder = (gp, r) => {
 };
 
 // ---------------------------------------------------------------------------------------------------------
-export const cnTower: Builder = (gp, r) => {
+const cnTower: Builder = (gp, r) => {
   const c = r.color!;
   // Toronto harbourfront: Lake Ontario, Rogers Centre dome, the tower's hexagonal Y-shaft, SkyPod & antenna mast
   const hf: HFn = (_x, z) => (z > 0.22 ? 0.002 : 0.012 + 0.002 * fbm(_x * 30, 0, z * 30));
@@ -162,7 +162,7 @@ export const cnTower: Builder = (gp, r) => {
 };
 
 // ---------------------------------------------------------------------------------------------------------
-export const petra: Builder = (gp, r) => {
+const petra: Builder = (gp, r) => {
   const c = r.color!;
   // Al-Khazneh: a two-storey Hellenistic facade cut into a rose-red cliff at the mouth of the Siq gorge
   const CL = 0.82;

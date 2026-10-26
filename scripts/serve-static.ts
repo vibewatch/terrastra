@@ -4,7 +4,7 @@
  */
 import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
-import { extname, join, normalize } from 'node:path';
+import { extname, join, normalize, sep } from 'node:path';
 
 const PORT = Number(process.env.PORT ?? 8791);
 const BASE = process.env.BASE_PATH ?? '/terrastra/';
@@ -15,10 +15,11 @@ const TYPES: Record<string, string> = {
 };
 
 createServer(async (req, res) => {
-  const path = decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname);
+  let path: string;
+  try { path = decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname); } catch { res.writeHead(400).end('bad path'); return; }
   if (!path.startsWith(BASE)) { res.writeHead(404).end('outside base'); return; }
   let file = normalize(join(ROOT, path.slice(BASE.length)));
-  if (!file.startsWith(ROOT)) { res.writeHead(403).end(); return; }
+  if (file !== ROOT && !file.startsWith(ROOT + sep)) { res.writeHead(403).end(); return; }
   try {
     if ((await stat(file)).isDirectory()) file = join(file, 'index.html');
     res.writeHead(200, { 'content-type': TYPES[extname(file)] ?? 'application/octet-stream' }).end(await readFile(file));

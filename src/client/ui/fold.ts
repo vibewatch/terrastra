@@ -15,7 +15,7 @@ const panels = new Set<HTMLElement>();
 
 export const folded = (panel: HTMLElement) => panel.classList.contains('mini');
 
-export function setFolded(panel: HTMLElement, on: boolean): void {
+function setFolded(panel: HTMLElement, on: boolean): void {
   save(KEY, on);
   for (const p of panels) {
     p.classList.toggle('mini', on);

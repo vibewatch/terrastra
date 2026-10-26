@@ -16,7 +16,7 @@ const MIN = 6e4, HOUR = 36e5, DAY = 864e5;
 const dot = (a: Vec3, b: Vec3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 
 /** Besselian elements at an instant (Earth equatorial radii, equatorial frame of date). */
-export interface Besselian {
+interface Besselian {
   t: number; x: number; y: number; l1: number; l2: number; tf1: number; tf2: number;
   /** Fundamental-plane axes: X east, Y north, G toward the Sun along the shadow axis. */
   X: Vec3; Y: Vec3; G: Vec3;
@@ -26,7 +26,7 @@ export interface Besselian {
   rho1: number;
 }
 
-export function besselian(t: number): Besselian {
+function besselian(t: number): Besselian {
   const s = eqVec(sunGeo(t)), m = eqVec(moonGeo(t));
   const M: Vec3 = [m[0] / EARTH_KM, m[1] / EARTH_KM, m[2] / EARTH_KM];
   const gx = s[0] / EARTH_KM - M[0], gy = s[1] / EARTH_KM - M[1], gz = s[2] / EARTH_KM - M[2], D = Math.hypot(gx, gy, gz);

@@ -185,9 +185,4 @@ export class StationDots {
     }
     return best;
   }
-
-  dispose(): void {
-    this.pts.geometry.dispose(); this.mat.dispose();
-    this.hi.geometry.dispose(); this.hiMat.dispose();
-  }
 }

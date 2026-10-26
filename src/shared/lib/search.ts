@@ -24,7 +24,7 @@ export function norm(s: string): string {
   return x.replace(/(?:messier|梅西耶)(?=\d)/g, 'm');
 }
 
-export interface Terms {
+interface Terms {
   /** Display names in every language. */
   names: string[];
   /** Curated aliases, catalogue numbers, related people/missions. */

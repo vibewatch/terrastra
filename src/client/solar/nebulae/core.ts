@@ -231,7 +231,7 @@ export function inPoly(P: P2[], x: number, y: number): boolean {
   return c;
 }
 /** Distance from (x,y) to the polygon outline. */
-export function polyDist(P: P2[], x: number, y: number): number {
+function polyDist(P: P2[], x: number, y: number): number {
   let d = 1e9;
   for (let i = 0, j = P.length - 1; i < P.length; j = i++) {
     const [ax, ay] = P[j], [bx, by] = P[i], dx = bx - ax, dy = by - ay, t = clamp(((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy || 1));

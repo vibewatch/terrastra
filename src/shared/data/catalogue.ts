@@ -638,7 +638,7 @@ export const DISCOVERIES: CatalogueItem[] = [
     'For decades the government would not even say it existed.', 'US'),
 ];
 
-export const VEHICLES: CatalogueItem[] = [
+const VEHICLES: CatalogueItem[] = [
   V('vh_liner', 'ocean-liner', ['Ocean liner', '远洋客轮'], '🚢',
     { kind: 'ship', pts: [[50.9, -1.4], [49.5, -6], [46, -30], [41, -60], [40.5, -73.9]], mode: 'pingpong', speed: 1.4 },
     { kind: 'ship', color: '#16181d', accent: '#c8102e', variant: 'liner' },

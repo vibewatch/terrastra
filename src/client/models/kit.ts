@@ -966,7 +966,6 @@ const B: Record<string, Builder> = {
 const FALLBACK: Builder = (gp, r) => { cyl(gp, r.color ?? '#ffcc33', 0, 0, 0, 0.12, 0.5); ball(gp, r.color ?? '#ffcc33', 0, 0.6, 0, 0.3); };
 
 Object.assign(B, ANIMAL_BUILDERS, NATURE_BUILDERS, VEHICLE_BUILDERS, DISCOVERY_BUILDERS);
-export const KINDS = Object.keys(B);
 
 // Shared vertex-colored materials for baked static meshes: smooth or flat; roughness / metalness ride per vertex.
 const bakedMats = new Map<string, THREE.MeshStandardMaterial>();
@@ -1176,7 +1175,7 @@ function clusterLod(b: Bucket, R: number, withColor: boolean): Bucket {
 }
 
 /** Parts smaller than this fraction of the model's radius are "detail": dropped at the far level of detail. */
-export const LOD_DETAIL = 0.045;
+const LOD_DETAIL = 0.045;
 
 /**
  * Merges static child meshes of a built model group into a few vertex-colored meshes (smooth / flat) that keep each
@@ -1312,35 +1311,19 @@ export function bakeStaticMeshes(gp: THREE.Group): void {
   }
 }
 
-const modelProtoCache = new Map<string, THREE.Group>();
-
-/** True when `buildModel(recipe)` can produce the final model synchronously (its hero pack is loaded). */
+/** True when `buildFresh(recipe)` produces the final model (its hero pack is loaded). */
 export const modelReady = (recipe: ModelRecipe): boolean => heroReady(recipe.hero);
-/** Loads whatever `buildModel(recipe)` needs (the recipe's hero pack). */
+/** Loads whatever `buildFresh(recipe)` needs (the recipe's hero pack). */
 export const whenModelReady = (recipe: ModelRecipe): Promise<void> => whenHeroReady(recipe.hero);
 
 /**
- * Builds (or clones a cached prototype of) a recipe's model. Call `whenModelReady` first for hero recipes;
- * if the pack is still loading this returns the generic kind model without caching it.
+ * Builds and bakes a recipe's model without caching (`library.ts` caches the prototypes). Call `whenModelReady`
+ * first for hero recipes; if the pack is still loading this returns the generic kind model.
  */
-/** Builds and bakes a recipe's model without caching (the worker uses this; its hero pack must be loaded). */
 export function buildFresh(recipe: ModelRecipe): THREE.Group {
   const proto = new THREE.Group();
   const hero = heroBuilder(recipe.hero);
   (hero ?? B[recipe.kind] ?? FALLBACK)(proto, { color: '#cccccc', ...recipe });
   bakeStaticMeshes(proto);
   return proto;
-}
-
-export function buildModel(recipe: ModelRecipe): THREE.Group {
-  const key = JSON.stringify(recipe);
-  let proto = modelProtoCache.get(key);
-  if (!proto) {
-    proto = new THREE.Group();
-    const hero = heroBuilder(recipe.hero);
-    (hero ?? B[recipe.kind] ?? FALLBACK)(proto, { color: '#cccccc', ...recipe });
-    bakeStaticMeshes(proto);
-    if (hero || heroReady(recipe.hero)) modelProtoCache.set(key, proto);
-  }
-  return proto.clone(true);
 }

@@ -4,7 +4,6 @@ import { t } from '../lib/i18n.ts';
 import * as THREE from 'three';
 import { QUALITY, AdaptiveResolution, type Quality } from './quality.ts';
 import type { CatalogueItem, Lang } from '../../shared/data/types.ts';
-import { tr } from '../../shared/data/types.ts';
 import { latLonToVec, vecToLatLon, slerpLatLon } from '../../shared/lib/geo.ts';
 import { buildModel, modelReady, setModelDetail, whenModelReady } from '../models/library.ts';
 import { mat } from '../models/prims.ts';
@@ -18,6 +17,14 @@ import { subsolar } from '../../shared/lib/sun.ts';
 import { GlobeLayers, RENDER_ORDER, graticuleStep } from './layers.ts';
 import { buildStarField, gmstRad, SPACE_BG } from '../lib/starfield.ts';
 import type { StationDots } from './stations.ts';
+
+const FLIGHT_ARC_MAT = new THREE.LineBasicMaterial({ color: '#38bdf8', transparent: true, opacity: 0.65, depthWrite: false });
+const PIN_STICK = new THREE.CylinderGeometry(0.06, 0.06, 1, 6).translate(0, 0.5, 0);
+const PIN_HEAD = new THREE.SphereGeometry(0.22, 12, 8);
+const PICK_RAY = new THREE.Raycaster();
+const UNIT_SPHERE = new THREE.Sphere(new THREE.Vector3(), 1);
+const arcMats = new Map<string, THREE.MeshBasicMaterial>();
+const arcMat = (color: string) => arcMats.get(color) ?? arcMats.set(color, new THREE.MeshBasicMaterial({ color })).get(color)!;
 
 export type AuraPreset = 'waves' | 'aurora' | 'ember' | 'dusk' | 'sculpture';
 export type SurfaceMode = 'realistic' | 'minimal' | 'political';
@@ -47,20 +54,19 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 export const DEFAULT_H = 2.2;
-export const MIN_H = 0.07;
+const MIN_H = 0.07;
 /** Environment (image-based) light strength on the models. */
 const ENV_INTENSITY = 0.4;
 /** Real-time model shadows are drawn only below this camera height, where models are big enough to show them. */
 const SHADOW_MAX_H = 0.6;
 const SHADOW_STRENGTH = 0.72;
 export const MAX_H = 4.5;
-export const TIER_ZOOM = [0, 0, 4.3, 5.3];
+const TIER_ZOOM = [0, 0, 4.3, 5.3];
 // zoom readout: ×4.0 at the default altitude, proportional to 1/altitude.
-export const zoomFromH = (h: number) => (4 * DEFAULT_H) / h;
-export const hFromZoom = (z: number) => (4 * DEFAULT_H) / z;
+const zoomFromH = (h: number) => (4 * DEFAULT_H) / h;
 
 /** Altitude (in globe radii) at which route items travel, given their current model scale. */
-export function routeAltitude(kind: NonNullable<CatalogueItem['route']>['kind'], s: number): number {
+function routeAltitude(kind: NonNullable<CatalogueItem['route']>['kind'], s: number): number {
   if (kind === 'orbit') return 1.06 + s * 0.6;
   if (kind === 'plane' || kind === 'fly') return 1 + Math.max(0.01, s * 1.4);
   return 1.0;
@@ -306,7 +312,7 @@ interface Placed {
 }
 
 
-export interface GlobeEvents {
+interface GlobeEvents {
   onPick?: (item: CatalogueItem | null) => void;
   onHover?: (item: CatalogueItem | null, screen: { x: number; y: number } | null) => void;
   onGlobeTap?: (lat: number, lon: number) => void;
@@ -452,6 +458,8 @@ export class Globe {
   /** The playing radio station (unit vector): the surface ripples spread from it when nothing is selected. */
   beacon: THREE.Vector3 | null = null;
   private audioLevel = 0;
+  /** Live radio levels (0..1): bass, mid, high. */
+  private live: [number, number, number] = [0, 0, 0];
   private layers: GlobeLayers | null = null;
   private dirty = true;
   private last = performance.now();
@@ -764,7 +772,6 @@ export class Globe {
   /** Cosine of the angle from the camera axis beyond which surface points are hidden behind the globe. */
   private horizonCos(margin: number): number { return 1 / Math.max(1.0001, this.camera.position.length()) - margin; }
 
-  /** Whether an item should be shown right now, ignoring which side of the globe it is on. */
   /** Whether an item is switched on for browsing (its layer and any time filter), whatever the zoom: the flat map's pins. */
   listed(it: CatalogueItem): boolean {
     return this.settings[TYPE_META[it.type].layer] && (!this.itemFilter || this.itemFilter(it));
@@ -899,7 +906,7 @@ export class Globe {
 
   /** Draws an AuraFM-style glowing orbital telemetry arc between two coordinates. */
   showFlightArc(from: [number, number], to: [number, number], keep = false): void {
-    if (!keep) this.flightArcGroup.clear();
+    if (!keep) this.clearFlightArcs();
     const dist = this.angDist(from, to);
     if (dist < 0.03) return;
     const pts: THREE.Vector3[] = [];
@@ -912,9 +919,13 @@ export class Globe {
       pts.push(new THREE.Vector3(...latLonToVec(la, lo, r)));
     }
     const geo = new THREE.BufferGeometry().setFromPoints(pts);
-    const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: '#38bdf8', transparent: true, opacity: 0.65, depthWrite: false }));
-    this.flightArcGroup.add(line);
+    this.flightArcGroup.add(new THREE.Line(geo, FLIGHT_ARC_MAT));
     this.dirty = true;
+  }
+
+  private clearFlightArcs(): void {
+    for (const o of this.flightArcGroup.children) (o as THREE.Line).geometry.dispose();
+    this.flightArcGroup.clear();
   }
 
   get zoom(): number { return zoomFromH(this.h); }
@@ -1165,21 +1176,15 @@ export class Globe {
   /** Live radio levels (0..1) drive the aurora, city lights and the station ripples. */
   setAudio(bass: number, mid: number, high: number): void {
     this.audioLevel = bass;
-    this.earthUniforms.uAudioBass.value = 0.12 + bass * 0.9;
-    this.earthUniforms.uAudioMid.value = 0.1 + mid * 0.9;
-    const a = this.atmosUniforms;
-    a.uAudioBass.value = 0.12 + bass * 0.8;
-    a.uAudioMid.value = 0.1 + mid * 0.8;
-    a.uAudioHigh.value = 0.08 + high * 0.8;
+    this.live = [bass, mid, high];
   }
 
   screenToLatLon(x: number, y: number): [number, number] | null {
     const el = this.renderer.domElement;
     const ndc = new THREE.Vector2((x / el.clientWidth) * 2 - 1, -(y / el.clientHeight) * 2 + 1);
-    const ray = new THREE.Raycaster();
-    ray.setFromCamera(ndc, this.camera);
+    PICK_RAY.setFromCamera(ndc, this.camera);
     const p = new THREE.Vector3();
-    if (!ray.ray.intersectSphere(new THREE.Sphere(new THREE.Vector3(), 1), p)) return null;
+    if (!PICK_RAY.ray.intersectSphere(UNIT_SPHERE, p)) return null;
     return vecToLatLon(p.x, p.y, p.z);
   }
 
@@ -1219,19 +1224,24 @@ export class Globe {
     if (prev && next && prev.item.key !== next.item.key) {
       this.showFlightArc([prev.item.lat, prev.item.lon], [next.item.lat, next.item.lon]);
     } else if (!key) {
-      this.flightArcGroup.clear();
+      this.clearFlightArcs();
     }
     this.selected = key;
     this.dirty = true;
   }
 
   // ---------- pins / arcs for games ----------
-  clearPins(): void { this.pinsRoot.clear(); this.dirty = true; }
+  clearPins(): void {
+    // pins share their geometry; arcs own theirs
+    this.pinsRoot.traverse(o => { if (o instanceof THREE.Mesh && o.geometry !== PIN_STICK && o.geometry !== PIN_HEAD) o.geometry.dispose(); });
+    this.pinsRoot.clear();
+    this.dirty = true;
+  }
   addPin(lat: number, lon: number, color: string): void {
     const g = new THREE.Group();
     const s = Math.max(0.006, this.h * 0.02);
-    const stick = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 1, 6).translate(0, 0.5, 0), mat('#eeeeee'));
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.22, 12, 8), mat(color, { emissive: color }));
+    const stick = new THREE.Mesh(PIN_STICK, mat('#eeeeee'));
+    const head = new THREE.Mesh(PIN_HEAD, mat(color, { emissive: color }));
     head.position.y = 1.05;
     g.add(stick, head);
     g.scale.setScalar(s * 1.8);
@@ -1248,7 +1258,7 @@ export class Globe {
       pts.push(new THREE.Vector3(...latLonToVec(la, lo, lift)));
     }
     const geo = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 64, Math.max(0.0015, this.h * 0.0025), 5);
-    this.pinsRoot.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color })));
+    this.pinsRoot.add(new THREE.Mesh(geo, arcMat(color)));
     this.dirty = true;
   }
   private angDist(a: [number, number], b: [number, number]): number {
@@ -1276,11 +1286,8 @@ export class Globe {
 
   // ---------- photo ----------
   capture(type = 'image/jpeg'): string {
-    const labels = this.labelsEl.style.visibility;
     this.renderer.render(this.scene, this.camera);
-    const url = this.renderer.domElement.toDataURL(type, 0.9);
-    this.labelsEl.style.visibility = labels;
-    return url;
+    return this.renderer.domElement.toDataURL(type, 0.9);
   }
 
   // ---------- frame ----------
@@ -1388,7 +1395,7 @@ export class Globe {
       p.obj.scale.setScalar(s);
       if (it.route) {
         const r = it.route, pts = p.pts;
-        const a = pts[p.seg], b = pts[Math.min(pts.length - 1, p.seg + 1)] ?? pts[0];
+        const a = pts[p.seg], b = pts[(p.seg + 1) % pts.length];
         const seg = this.angDist(a, b) * (180 / Math.PI) || 1;
         p.t += (r.speed * dt) / 1000 / seg;
         if (p.t >= 1) {
@@ -1498,9 +1505,11 @@ export class Globe {
     const mid = 0.12 + activeBoost * 0.8 + 0.06 * (Math.sin(tSec * 3.3 + 1.2) * 0.5 + 0.5);
     const high = 0.10 + activeBoost * 0.5 + 0.05 * (Math.cos(tSec * 4.5 + 0.7) * 0.5 + 0.5);
 
+    // the live radio, when playing, wins over the idle breathing
+    const [lb, lm, lh] = this.live;
     this.earthUniforms.uTime.value = tSec;
-    this.earthUniforms.uAudioBass.value = bass;
-    this.earthUniforms.uAudioMid.value = mid;
+    this.earthUniforms.uAudioBass.value = Math.max(bass, 0.12 + lb * 0.9);
+    this.earthUniforms.uAudioMid.value = Math.max(mid, 0.1 + lm * 0.9);
 
     const targetLandMix = this.settings.surfaceMode === 'minimal' ? 0.0 : 1.0;
     this.earthUniforms.uLandMix.value += (targetLandMix - this.earthUniforms.uLandMix.value) * 0.12;
@@ -1518,9 +1527,9 @@ export class Globe {
       this.atmosMesh.quaternion.copy(this.camera.quaternion);
       this.atmosUniforms.uTime.value = tSec;
       this.atmosUniforms.uCameraDist.value = this.camera.position.length();
-      this.atmosUniforms.uAudioBass.value = bass;
-      this.atmosUniforms.uAudioMid.value = mid;
-      this.atmosUniforms.uAudioHigh.value = high;
+      this.atmosUniforms.uAudioBass.value = Math.max(bass, 0.12 + lb * 0.8);
+      this.atmosUniforms.uAudioMid.value = Math.max(mid, 0.1 + lm * 0.8);
+      this.atmosUniforms.uAudioHigh.value = Math.max(high, 0.08 + lh * 0.8);
       this.atmosUniforms.uColorA.value.lerp(this.targetColorA, 0.06);
       this.atmosUniforms.uColorB.value.lerp(this.targetColorB, 0.06);
       this.atmosUniforms.uColorC.value.lerp(this.targetColorC, 0.06);
@@ -1605,8 +1614,6 @@ export class Globe {
     return s;
   }
 
-  itemName(key: string): string { const it = this.placed.get(key)?.item ?? this.pending.get(key); return it ? tr(it.name, this.lang) : ''; }
-
   private frame(): void {
     const now = performance.now();
     // Phones: when the view is still, ambient animation (clouds, ships, bobbing) runs at a capped rate.
@@ -1628,7 +1635,7 @@ export class Globe {
     this.styleBorders();
     if (this.layers) {
       this.layers.setVisible(this.eff, this.gameMode);
-      this.layers.update(this.clock, dt, this.camera.position.length() - 1, this.routeState, this.orbitAlt, this.placedObj);
+      this.layers.update(this.clock, dt, real, this.camera.position.length() - 1, this.routeState, this.orbitAlt, this.placedObj);
     }
     if (this.radio) {
       this.radio.group.visible = !this.gameMode;

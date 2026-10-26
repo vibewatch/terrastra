@@ -13,7 +13,7 @@
 | Planning | [Implementation plan](planning/implementation-plan.md) | Milestones M0–M12 with exit criteria |
 | Planning | [Backlog](planning/backlog.md) | Done tasks T-01…T-24 and open items B-01…B-17 with priority and size |
 
-**Current priorities:** [现状评估与分级改进路线图（2026-10）](planning/improvement-roadmap-2026-10.md) — verified issues, P0–P3 improvements, feature proposals, dependencies and acceptance gates. The original PRD and backlog describe the MVP; they are historical planning, not a current feature inventory.
+**Current priorities:** [现状评估与分级改进路线图（2026-10）](planning/improvement-roadmap-2026-10.md) — verified issues, P0–P3 improvements, feature proposals, dependencies and acceptance gates. The original PRD, spec, acceptance criteria, feature parity and backlog describe the MVP; they are historical planning, not a current feature inventory.
 
 Suggested reading order: exploration report, PRD, ADRs, architecture, spec, then acceptance criteria.
 

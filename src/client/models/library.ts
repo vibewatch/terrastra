@@ -21,7 +21,7 @@ const loadKit = () => (kit ??= import('./kit.ts').catch((e: unknown) => { kit = 
 
 interface Built { g: THREE.Group; final: boolean }
 interface Job { id: number; recipe: ModelRecipe; resolve: (b: Built) => void; reject: (e: Error) => void }
-interface Slot { w: Worker; busy: Job | null }
+interface Slot { w: Worker; busy: Job | null; alive: boolean }
 const queue: Job[] = [];
 let slots: Slot[] | null = null;
 let nextId = 1;
@@ -39,10 +39,11 @@ function pool(): Slot[] {
       if (!slots.length) for (const j of queue.splice(0)) j.reject(new Error('no workers'));
       break;
     }
-    const slot: Slot = { w, busy: null };
+    const slot: Slot = { w, busy: null, alive: false };
     w.onmessage = (e: MessageEvent<{ id: number; ok: boolean; model?: PackedModel; final?: boolean; err?: string }>) => {
       const job = slot.busy;
       slot.busy = null;
+      slot.alive = true;
       if (job && job.id === e.data.id) {
         if (e.data.ok) {
           try { job.resolve({ g: unpackModel(e.data.model!), final: e.data.final !== false }); } catch (err) { job.reject(err as Error); }
@@ -53,6 +54,13 @@ function pool(): Slot[] {
     w.onerror = ev => {
       // A worker that fails to start (e.g. blocked module workers) disables the pool; queued jobs go to the main thread.
       ev.preventDefault();
+      if (slot.alive) {
+        // a stray error in a worker that already delivered models: only the job in hand is lost
+        slot.busy?.reject(new Error('worker error'));
+        slot.busy = null;
+        pump();
+        return;
+      }
       workersBroken = true;
       const jobs = [...(slot.busy ? [slot.busy] : []), ...queue.splice(0)];
       slot.busy = null;
@@ -83,7 +91,7 @@ function buildInWorker(recipe: ModelRecipe, urgent: boolean): Promise<Built> {
 async function buildOnMain(recipe: ModelRecipe): Promise<Built> {
   const k = await loadKit();
   await k.whenModelReady(recipe);
-  return { g: k.buildModel(recipe), final: k.modelReady(recipe) };
+  return { g: k.buildFresh(recipe), final: k.modelReady(recipe) };
 }
 
 /** True when `buildModel(recipe)` can return the final model immediately. */
@@ -114,9 +122,6 @@ function build(key: string, recipe: ModelRecipe, urgent: boolean): Promise<void>
   }
   return p;
 }
-
-/** Number of models waiting for or being built in workers (for diagnostics). */
-export const buildBacklog = () => queue.length + (slots?.filter(s => s.busy).length ?? 0);
 
 /**
  * Returns a fresh instance of a ready model (call `whenModelReady` first). Baked meshes that carry a level-of-detail

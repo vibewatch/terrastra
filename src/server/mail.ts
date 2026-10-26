@@ -12,7 +12,7 @@ import { readFileSync } from 'node:fs';
 export type SendMail = (to: string, link: string) => Promise<void>;
 type Env = Record<string, string | undefined>;
 
-export function mailBody(link: string): { subject: string; text: string; html: string } {
+function mailBody(link: string): { subject: string; text: string; html: string } {
   const subject = 'Your Terrastra sign-in link · 寰星登录链接';
   const text = `Tap this link to sign in to Terrastra. It works once and expires in 15 minutes.\n点击下面的链接登录寰星。链接只能使用一次，15 分钟后失效。\n\n${link}\n\nIf you didn't ask for this, you can ignore this email.\n如果不是你本人操作，请忽略这封邮件。`;
   const esc = link.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
@@ -66,12 +66,14 @@ function smtpMailer(u: URL, from: string, ca?: string): SendMail {
     let failed: Error | null = null;
     const onData = (d: Buffer) => {
       buf += d.toString('utf8');
-      // a reply is complete at a line "NNN text" (a space, not "-", after the code)
-      const m = buf.match(/(?:^|\r\n)(\d{3}) [^\r\n]*\r\n$/);
+      // a reply is complete at a line "NNN text" or a bare "NNN" (not "NNN-", which continues)
+      const m = buf.match(/(?:^|\r\n)(\d{3})(?: [^\r\n]*)?\r\n$/);
       if (m && waiting) { const all = buf; buf = ''; const w = waiting; waiting = null; w(all); }
     };
     const onErr = (e: Error) => { failed = e; if (waiting) { const w = waiting; waiting = null; w(''); } };
-    const attach = (s: Socket | TLSSocket) => { s.on('data', onData); s.on('error', onErr); };
+    // a server hanging up mid-conversation must not leave a reply pending forever
+    const onClose = () => { if (waiting) onErr(failed ?? new Error('smtp: connection closed')); };
+    const attach = (s: Socket | TLSSocket) => { s.on('data', onData); s.on('error', onErr); s.on('close', onClose); };
     attach(sock);
     const reply = () => new Promise<string>(res => { waiting = res; });
     const expect = async (ok: string) => {

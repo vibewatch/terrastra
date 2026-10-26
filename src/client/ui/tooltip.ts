@@ -38,7 +38,7 @@ function adopt(el: Element): void {
 }
 
 /** Text a screen reader would read from the element's content: `aria-hidden` subtrees (decorative emoji, icons) do not count. */
-export function spokenText(el: Element): string {
+function spokenText(el: Element): string {
   let out = '';
   for (const n of el.childNodes) {
     if (n.nodeType === Node.TEXT_NODE) out += n.textContent ?? '';

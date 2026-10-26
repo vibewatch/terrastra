@@ -33,7 +33,7 @@ const AU = 149_597_870.7;
 function rng(seed: number) { return () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296); }
 
 /** Sky state after `update`, for acts to read. */
-export interface SkyState {
+interface SkyState {
   sun: Vec3; moon: Vec3; sunAlt: number; sunAz: number; moonAlt: number; moonAz: number;
   /** Angular radii and separation (degrees). */
   rs: number; rm: number; sep: number;
@@ -276,9 +276,6 @@ void main() { gl_FragColor = vec4(uCol + uRim * smoothstep(-0.02, 0.02, vY), 1.0
     this.meteors = []; this.spawnAcc = 0;
     if (this.radLabel) { this.radLabel.el.remove(); this.labels = this.labels.filter(l => l !== this.radLabel); this.radLabel = null; }
   }
-
-  /** Show or hide all of this scene's labels. */
-  showLabels(on: boolean): void { for (const l of this.labels) if (!on) l.el.style.display = 'none'; }
 
   /** A screen label pinned to a direction (horizon frame). */
   label(text: string, cls = 'sky-lbl'): Label {

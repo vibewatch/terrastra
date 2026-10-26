@@ -3,9 +3,9 @@
  * Each level of the app has its own mood: key, mode, chord loop, pace and timbre.
  * Moving between levels crossfades from one mood to the next. The radio ducks it.
  */
-import { audioCtx } from './sfx.ts';
+import { audioAllowed, audioCtx } from './sfx.ts';
 
-export type MusicLevel = 'earth' | 'sky' | 'solar' | 'galaxy' | 'group' | 'laniakea' | 'universe';
+type MusicLevel = 'earth' | 'sky' | 'solar' | 'galaxy' | 'group' | 'laniakea' | 'universe';
 
 interface Mood {
   /** Tonic (Hz). */
@@ -234,16 +234,20 @@ function build(): typeof graph {
   return graph;
 }
 
-/** Browsers start audio only after a gesture: resume on the first one. */
+/** Browsers start audio only after a gesture: build or resume on the first one. */
+const UNLOCK = ['pointerdown', 'pointerup', 'keydown', 'click'] as const;
 function armUnlock(): void {
   if (unlockArmed) return;
   unlockArmed = true;
   const go = () => {
-    removeEventListener('pointerdown', go, true); removeEventListener('keydown', go, true);
+    // a touch's pointerdown does not count as a gesture yet; its pointerup does
+    if (!audioAllowed()) return;
+    for (const e of UNLOCK) removeEventListener(e, go, true);
     unlockArmed = false;
-    if (on && graph && graph.a.state === 'suspended') void graph.a.resume();
+    if (!on) return;
+    if (graph && graph.a.state === 'suspended') void graph.a.resume(); else sync();
   };
-  addEventListener('pointerdown', go, true); addEventListener('keydown', go, true);
+  for (const e of UNLOCK) addEventListener(e, go, true);
 }
 
 function sync(): void {
@@ -251,14 +255,15 @@ function sync(): void {
     if (graph) {
       const g = graph.master.gain, t = graph.a.currentTime;
       g.cancelScheduledValues(t); g.setValueAtTime(g.value, t); g.setTargetAtTime(0, t, 0.5);
+      // the old player always stops after the fade; turning music back on starts a fresh one
       const p = player;
       player = null;
-      if (p) window.setTimeout(() => { if (!on) p.stop(); else if (player !== p) p.stop(); }, 1500);
+      if (p) window.setTimeout(() => p.stop(), 1500);
     }
     return;
   }
   const gr = build();
-  if (!gr) return;
+  if (!gr) { if (typeof AudioContext !== 'undefined') armUnlock(); return; }
   if (gr.a.state === 'suspended') armUnlock();
   const g = gr.master.gain, t = gr.a.currentTime;
   g.cancelScheduledValues(t); g.setValueAtTime(g.value, t); g.setTargetAtTime(VOLUME, t, 0.8);

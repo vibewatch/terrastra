@@ -8,7 +8,7 @@ import { sfx } from '../lib/sfx.ts';
 import { icon } from './icons.ts';
 
 /** Formats a time-machine stop for display. */
-export function stopLabel(s: Stop): string {
+function stopLabel(s: Stop): string {
   if (s === 'now') return t('tmNow');
   if (s === 'dino') return t('tmDino');
   return s < 0 ? t('bce', { n: fmtNum(-s) }) : s === 1 ? t('ce1') : String(s);

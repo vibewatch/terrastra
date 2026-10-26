@@ -11,7 +11,7 @@ import { pblob } from './animals.ts';
  */
 
 export type HFn = (x: number, z: number) => number;
-export interface IslandOpts { rings?: number; segs?: number; rz?: number; base?: number; side?: (y: number, x: number, z: number) => string }
+interface IslandOpts { rings?: number; segs?: number; rz?: number; base?: number; side?: (y: number, x: number, z: number) => string }
 
 export const sstep = (a: number, b: number, x: number) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 export const ridged = (x: number, z: number, oct = 3) => {

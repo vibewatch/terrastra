@@ -53,6 +53,7 @@ export function setupStudio(renderer: THREE.WebGLRenderer, scene: THREE.Scene): 
   }
 }
 
+/** w × hPx: the target canvas's backing-store size in device pixels. */
 function ensureRenderer(w: number, hPx: number): THREE.WebGLRenderer | null {
   if (sharedFailed) return null;
   if (!sharedRenderer) {
@@ -71,7 +72,8 @@ function ensureRenderer(w: number, hPx: number): THREE.WebGLRenderer | null {
       return null;
     }
   }
-  sharedRenderer.setSize(w, hPx, false);
+  const pr = sharedRenderer.getPixelRatio();
+  sharedRenderer.setSize(w / pr, hPx / pr, false);
   if (sharedCamera) {
     sharedCamera.aspect = w / hPx;
     sharedCamera.updateProjectionMatrix();
@@ -133,7 +135,7 @@ function renderOne(p: ActivePreview): void {
   p.group.rotation.x = p.pitch;
   const w = p.canvas.width || 220;
   const hPx = p.canvas.height || 140;
-  const renderer = ensureRenderer(w / 2, hPx / 2);
+  const renderer = ensureRenderer(w, hPx);
   if (renderer && sharedScene && sharedCamera && sharedRoot && p.ctx) {
     sharedRoot.clear();
     sharedRoot.add(p.group);
