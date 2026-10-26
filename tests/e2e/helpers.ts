@@ -28,8 +28,10 @@ export async function shot(page: Page, name: string): Promise<void> {
 /** Opens an activity from the Explore hub: shelf tab, then its row. */
 /** Picks an option in one of the app's dropdowns (ui/select.ts). */
 export async function pickOption(page: Page, testid: string, value: string): Promise<void> {
-  await page.getByTestId(testid).click();
-  await page.locator(`[role=option][data-value="${value}"]`).click();
+  const btn = page.getByTestId(testid);
+  await btn.click();
+  const list = await btn.getAttribute('aria-controls');
+  await page.locator(`#${list} [role=option][data-value="${value}"]`).click();
   await expect(page.getByTestId(testid)).toHaveAttribute('data-value', value);
 }
 

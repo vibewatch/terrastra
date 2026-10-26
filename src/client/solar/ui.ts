@@ -14,26 +14,40 @@ import { BODIES, BODY, type BodyId, type SolarBody } from '../../shared/data/sol
 import { BODY_TEXT } from '../../shared/data/solar-text.ts';
 import { SOLAR_FEATURES } from '../../shared/data/solar-features.ts';
 import { AU_KM, LIGHT_KMS, daysJ2000, distanceKm, relativePosition } from '../../shared/lib/orbits.ts';
-import { interiorOf } from '../../shared/data/solar-interiors.ts';
 import type { Quality } from '../globe/quality.ts';
 import type { Reader, Readable } from '../ui/reader.ts';
 import { SolarView, SPEEDS, featuresOf, type SolarSelection } from './view.ts';
 import { sitesOf, helioAU } from './sites.ts';
 import { deepThumb } from './deep.ts';
-import { fmtLy } from './fmt.ts';
+import { fmtLy, fmtYears } from './fmt.ts';
 import { invalidateUI } from '../ui/occluders.ts';
 import { foldable, foldButton } from '../ui/fold.ts';
 import { drawConstellation, constellationText } from './constellations.ts';
 import { SOLAR_SITES } from '../../shared/data/solar-sites.ts';
-import { DEEP_OBJECTS, SCALE_INFO, type DeepObject, type DeepKind, type DeepScale, type ScaleId } from '../../shared/data/cosmos.ts';
+import { starClass } from '../../shared/data/nearby-stars.ts';
+import { DEEP_OBJECTS, MESSIER, SCALE_INFO, type DeepObject, type DeepKind, type DeepScale, type ScaleId } from '../../shared/data/cosmos.ts';
+import { messierGroup, type MessierGroup } from '../../shared/data/messier.ts';
 import type { CatalogueItem } from '../../shared/data/types.ts';
 
 type Sel = SolarSelection | { kind: 'deep'; o: DeepObject } | { kind: 'scale'; id: ScaleId };
 
 /** URL fragment per scale (`#milkyway/dp_sgr_a`). */
-export const SCALE_HASH: Record<ScaleId, string> = { universe: 'universe', laniakea: 'laniakea', group: 'localgroup', galaxy: 'milkyway', solar: 'solar' };
+export const SCALE_HASH: Record<ScaleId, string> = { universe: 'universe', laniakea: 'laniakea', group: 'localgroup', galaxy: 'milkyway', stars: 'nearbystars', solar: 'solar' };
 export const scaleFromHash = (h: string): ScaleId | undefined => (Object.keys(SCALE_HASH) as ScaleId[]).find(k => SCALE_HASH[k] === h);
-const SCALE_THUMB: Record<ScaleId, DeepKind> = { universe: 'deepfield', laniakea: 'supercluster', group: 'group', galaxy: 'arm', solar: 'star' };
+const SCALE_THUMB: Record<ScaleId, DeepKind> = { universe: 'deepfield', laniakea: 'supercluster', group: 'group', galaxy: 'arm', stars: 'star', solar: 'star' };
+/** What sits at the middle of each deep scale (the meter's "home" end). */
+const DEEP_HOME: Record<DeepScale, string> = { stars: 'meterHome', galaxy: 'meterHome', group: 'sc_galaxy', laniakea: 'sc_group', universe: 'sc_laniakea' };
+const LY_KM = 9.4607e12;
+/** True straight-line distance (ly) between two deep objects; a missing one is us, at the origin. */
+function sepLy(a?: DeepObject, b?: DeepObject): number {
+  const v = (o?: DeepObject): [number, number, number] => {
+    if (!o) return [0, 0, 0];
+    const l = o.l * Math.PI / 180, bb = o.b * Math.PI / 180;
+    return [Math.cos(bb) * Math.cos(l) * o.distLy, Math.cos(bb) * Math.sin(l) * o.distLy, Math.sin(bb) * o.distLy];
+  };
+  const p = v(a), q = v(b);
+  return Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
+}
 
 export { fmtLy };
 
@@ -101,6 +115,9 @@ export class SolarUI {
     this.meterOut,
     h('p', { class: 'meter-note', 'data-i18n': 'meterNote' }, t('meterNote')));
   /** Telemetry in the HUD corner: target, coordinates/field of view, range. */
+  private messierBtn = h('button', { class: 'icon-btn cst-toggle', 'data-testid': 'solar-messier', 'data-i18n-tip': 'messier', title: t('messier'), 'aria-pressed': 'false', html: icon('telescope', 15) });
+  private messierEl = h('div', { class: 'solar-messier hidden', role: 'group', 'data-testid': 'messier-panel', 'data-occludes': true });
+  private mFilter: MessierGroup | 'all' = 'all';
   private readout = h('dl', { class: 'hud-readout', 'data-occludes': true, 'aria-hidden': 'true' });
   private sel: Sel | null = null;
   private speedIdx = 2;
@@ -130,9 +147,11 @@ export class SolarUI {
           this.dateEl,
           h('button', { class: 'icon-btn', 'data-testid': 'solar-now', 'data-i18n-tip': 'now', title: t('now'), html: icon('reset', 15), onclick: () => { this.view.resetTime(); this.renderDate(this.view.simMs); } }),
           this.cstBtn,
-          this.meterBtn),
+          this.meterBtn,
+          this.messierBtn),
         this.meterEl,
         this.dock),
+      this.messierEl,
       this.hint,
       h('div', { class: 'hud-frame', 'aria-hidden': 'true' },
         h('i', { class: 'hc c-tl' }), h('i', { class: 'hc c-tr' }), h('i', { class: 'hc c-bl' }), h('i', { class: 'hc c-br' }),
@@ -149,6 +168,7 @@ export class SolarUI {
     this.playBtn.onclick = () => this.setSpeed(this.speedIdx === 0 ? 2 : 0);
     this.cstBtn.onclick = () => { sfx.tap(); this.setCst(!this.view.cst.visible); };
     this.meterBtn.onclick = () => { sfx.tap(); this.setMeter(this.meterEl.classList.contains('hidden')); };
+    this.messierBtn.onclick = () => { sfx.tap(); this.setMessier(this.messierEl.classList.contains('hidden')); };
     this.fillMeter();
     this.setCst(localStorage.getItem('pp.cst') !== '0');
     this.renderDock();
@@ -172,13 +192,29 @@ export class SolarUI {
   }
 
   // ---------- distance meter ----------
+  /** The meter measures between worlds in the Solar System, and between the named objects of a deep scale (in light-years). */
   private fillMeter(): void {
-    const l = lang(), opts = BODIES.map(x => ({ value: x.id, label: `${x.emoji} ${tr(x.name, l)}` }));
-    for (const [sel, key] of [[this.meterA, 'meterFrom'], [this.meterB, 'meterTo']] as const) {
-      sel.setOptions(opts);
+    const l = lang(), sc = this.view.scale;
+    let opts: { value: string; label: string }[], defA: string, defB: string;
+    if (sc === 'solar') {
+      opts = BODIES.map(x => ({ value: x.id, label: `${x.emoji} ${tr(x.name, l)}` }));
+      defA = 'earth'; defB = 'mars';
+    } else {
+      const objs = this.view.deep.objectsOf(sc).filter(o => o.kind !== 'cmb' && o.kind !== 'void' && o.kind !== 'arm');
+      opts = [{ value: 'home', label: `🏠 ${sc === 'stars' || sc === 'galaxy' ? t('meterHome') : t(DEEP_HOME[sc])}` },
+        ...objs.map(o => ({ value: o.key, label: `${o.emoji} ${tr(o.name, l)}` }))];
+      defA = 'home';
+      defB = this.sel?.kind === 'deep' && this.sel.o.scale === sc ? this.sel.o.key : (objs.find(o => (o.rank ?? 1) >= 2) ?? objs[0]).key;
+    }
+    const has = (v: string) => opts.some(o => o.value === v);
+    for (const [sel, key, def] of [[this.meterA, 'meterFrom', defA], [this.meterB, 'meterTo', defB]] as const) {
+      sel.setOptions(opts, has(sel.value) ? sel.value : def);
       sel.el.querySelectorAll('[aria-label]').forEach(e => e.setAttribute('aria-label', t(key)));
     }
     this.meterEl.setAttribute('aria-label', t('meter'));
+    const note = this.meterEl.querySelector<HTMLElement>('.meter-note')!;
+    note.dataset.i18n = sc === 'solar' ? 'meterNote' : 'meterNoteDeep';
+    note.textContent = t(note.dataset.i18n);
   }
 
   private setMeter(on: boolean): void {
@@ -186,22 +222,26 @@ export class SolarUI {
     this.meterBtn.classList.toggle('on', on);
     this.meterBtn.setAttribute('aria-pressed', String(on));
     if (on) {
-      // measure from Earth to whatever is picked (or Mars)
-      const cur = this.sel ? this.bodyOf(this.sel) : null;
+      this.setMessier(false);
+      this.fillMeter();
+      // measure from Earth (or us) to whatever is picked
+      const cur = this.sel ? this.bodyOf(this.sel) ?? (this.sel.kind === 'deep' ? this.sel.o.key : null) : null;
       if (cur && cur !== this.meterA.value) this.meterB.value = cur;
     }
     this.applyMeter();
   }
 
   private applyMeter(): void {
-    const on = !this.meterEl.classList.contains('hidden');
-    this.view.setMeasure(on ? [this.meterA.value as BodyId, this.meterB.value as BodyId] : null);
+    const on = !this.meterEl.classList.contains('hidden'), solar = this.view.scale === 'solar';
+    this.view.setMeasure(on && solar ? [this.meterA.value as BodyId, this.meterB.value as BodyId] : null);
+    this.view.deep.setMeasure(on && !solar ? [this.meterA.value, this.meterB.value] : null);
     this.renderMeter();
   }
 
   /** Live numbers: true distance, AU, light travel time and how long a car would take. */
   private renderMeter(): void {
-    if (this.meterEl.classList.contains('hidden')) { this.view.meterLabel.textContent = ''; return; }
+    if (this.meterEl.classList.contains('hidden')) { this.view.meterLabel.textContent = this.view.deep.meterLabel.textContent = ''; return; }
+    if (this.view.scale !== 'solar') { this.renderDeepMeter(); return; }
     const l = lang(), a = this.meterA.value as BodyId, b = this.meterB.value as BodyId;
     const km = a === b ? 0 : distanceKm(a, b, daysJ2000(this.view.simMs));
     const sec = km / LIGHT_KMS, carH = km / 100;
@@ -220,6 +260,72 @@ export class SolarUI {
     this.view.meterLabel.textContent = a === b ? '' : fmtKm(km, l);
   }
 
+  /** Light-years between two deep objects, light travel time, and how long Voyager 1 (17 km/s) or a car would take. */
+  private renderDeepMeter(): void {
+    const l = lang(), a = this.meterA.value, b = this.meterB.value;
+    const ly = a === b ? 0 : sepLy(DEEP_OBJECTS.find(o => o.key === a), DEEP_OBJECTS.find(o => o.key === b));
+    const rows: [string, string][] = [
+      [t('meterDist'), fmtLy(ly, l)],
+      [t('meterLight'), fmtYears(ly, l)],
+      [t('meterProbe'), fmtYears(ly * LIGHT_KMS / 17, l)],
+      [t('meterCar'), fmtYears(ly * LY_KM / 100 / 8766, l)],
+    ];
+    const sig = rows.flat().join('|');
+    if (this.meterOut.dataset.sig !== sig) {
+      this.meterOut.dataset.sig = sig;
+      this.meterOut.replaceChildren(...rows.map(([k, v]) => h('div', {}, h('dt', {}, k), h('dd', {}, v))));
+    }
+    this.view.deep.meterLabel.textContent = a === b ? '' : fmtLy(ly, l);
+  }
+
+  // ---------- Messier list ----------
+  private setMessier(on: boolean): void {
+    if (on === !this.messierEl.classList.contains('hidden')) return;
+    if (on) this.setMeter(false);
+    this.messierEl.classList.toggle('hidden', !on);
+    this.messierBtn.classList.toggle('on', on);
+    this.messierBtn.setAttribute('aria-pressed', String(on));
+    this.view.deep.boostMessier = on;
+    if (on) this.renderMessier();
+  }
+
+  private renderMessier(): void {
+    if (this.messierEl.classList.contains('hidden')) return;
+    const l = lang(), f = this.mFilter;
+    const list = MESSIER.filter(o => f === 'all' || messierGroup(o.kind) === f);
+    const groups: (MessierGroup | 'all')[] = ['all', 'galaxy', 'nebula', 'open', 'globular'];
+    const short = (o: DeepObject) => {
+      const n = tr(o.name, l).replace(/ ?[(（]M\d+[)）]$/, '');
+      return /^(Messier |梅西耶)\d+$/.test(n) ? t('dk_' + o.kind) : n;
+    };
+    this.messierEl.setAttribute('aria-label', t('messier'));
+    this.messierEl.replaceChildren(
+      h('div', { class: 'messier-head' },
+        h('b', {}, t('messier')),
+        h('span', { class: 'messier-n', 'data-testid': 'messier-count' }, String(list.length)),
+        h('button', { class: 'icon-btn', 'data-testid': 'messier-close', 'aria-label': t('close'), html: icon('close', 14), onclick: () => this.setMessier(false) })),
+      h('div', { class: 'messier-filters', role: 'radiogroup' }, ...groups.map(g => h('button', {
+        class: 'tag-chip' + (g === f ? ' on' : ''), role: 'radio', 'aria-checked': String(g === f), 'data-testid': 'mf-' + g,
+        onclick: () => { sfx.tap(); this.mFilter = g; this.renderMessier(); } }, g === 'all' ? t('messierAll') : t('mg_' + g)))),
+      h('div', { class: 'messier-list', role: 'list' }, ...list.map(o => h('button', {
+        class: 'messier-item', role: 'listitem', 'data-testid': 'mx-' + o.messier, 'data-key': o.key, title: tr(o.name, l),
+        onclick: () => { sfx.tap(); this.goTo(o.key); } },
+        h('b', {}, 'M' + o.messier), h('span', { class: 'chip-emoji', 'aria-hidden': 'true' }, o.emoji), h('span', {}, short(o))))),
+      h('p', { class: 'messier-note' }, t('messierNote')));
+    this.syncMessier();
+  }
+
+  /** Marks the picked object in the Messier list (and scrolls it into view). */
+  private syncMessier(): void {
+    if (this.messierEl.classList.contains('hidden')) return;
+    const key = this.sel?.kind === 'deep' ? this.sel.o.key : '';
+    for (const b of this.messierEl.querySelectorAll<HTMLElement>('.messier-item')) {
+      const on = b.dataset.key === key;
+      b.classList.toggle('on', on);
+      if (on) b.scrollIntoView({ block: 'nearest' });
+    }
+  }
+
   private bodyOf(s: Sel): BodyId | null {
     return s.kind === 'body' ? s.id : s.kind === 'feature' ? s.f.body : s.kind === 'site' ? s.s.body : null;
   }
@@ -229,6 +335,7 @@ export class SolarUI {
     this.el.dataset.scale = s;
     this.showHint();
     this.renderDock();
+    if (!this.meterEl.classList.contains('hidden')) { this.fillMeter(); this.applyMeter(); }
     // Arriving at a scale shows what it is (unless something there is already picked).
     // On phones the sheet would hide the view, so the card waits for a tap on the scale's name.
     if (s !== 'solar' && !matchMedia('(max-width: 760px)').matches) this.showCard({ kind: 'scale', id: s });
@@ -380,6 +487,8 @@ export class SolarUI {
     this.renderDock();
     this.syncDock();
     this.fillMeter();
+    this.renderMeter();
+    this.renderMessier();
     this.setSpeed(this.speedIdx);
     if (this.sel) this.renderCard();
     this.reader?.relang();
@@ -388,8 +497,6 @@ export class SolarUI {
   // ---------- card ----------
   private showCard(sel: Sel | null): void {
     this.sel = sel;
-    // the cutaway belongs to its world's card
-    if (this.view.interiorId && !(sel?.kind === 'body' && sel.id === this.view.interiorId)) this.view.setInterior(null);
     this.syncDock();
     const base = '#' + SCALE_HASH[this.view.scale];
     if (!sel) {
@@ -400,10 +507,12 @@ export class SolarUI {
     }
     if (sel.kind !== 'scale') sfx.pop();
     const picked = this.bodyOf(sel);
-    if (picked && !this.meterEl.classList.contains('hidden') && picked !== this.meterA.value && picked !== this.meterB.value) {
-      this.meterB.value = picked;
+    const toMeasure = picked ?? (sel.kind === 'deep' ? sel.o.key : null);
+    if (toMeasure && !this.meterEl.classList.contains('hidden') && toMeasure !== this.meterA.value && toMeasure !== this.meterB.value) {
+      this.meterB.value = toMeasure;
       this.applyMeter();
     }
+    this.syncMessier();
     const key = sel.kind === 'body' ? sel.id : sel.kind === 'feature' ? sel.f.key : sel.kind === 'site' ? sel.s.key : sel.kind === 'deep' ? sel.o.key : '';
     history.replaceState(null, '', key ? base + '/' + key : base);
     this.renderCard();
@@ -518,8 +627,6 @@ export class SolarUI {
     const moons = s.kind === 'body' ? BODIES.filter(b => b.parent === s.id && b.kind === 'moon') : [];
     const sites = s.kind === 'body' ? sitesOf(s.id) : [];
     const hasMore = extra.length > 0 || Boolean(it.funFact?.en);
-    const layers = s.kind === 'body' ? interiorOf(s.id) : null;
-    const inside = Boolean(layers) && this.view.interiorId === body.id;
     this.drawHero();
     this.infoMain.replaceChildren(
       h('div', { class: 'info-hero solar-hero' },
@@ -532,9 +639,6 @@ export class SolarUI {
         h('h2', { 'data-testid': 'solar-name' }, tr(it.name, l)),
         h('p', { class: 'desc' }, tr(it.desc, l)),
         key.length ? h('dl', { class: 'stats-row' }, ...key.map(([k, v]) => stat(k, v))) : null,
-        layers ? h('button', { class: 'pill pill-sm interior-btn' + (inside ? ' on' : ''), 'data-testid': 'solar-interior', 'aria-pressed': String(inside), html: icon('contrast', 14),
-          onclick: () => { sfx.tap(); this.view.setInterior(inside ? null : body.id); this.renderCard(); } }, h('span', {}, t(inside ? 'interiorClose' : 'interiorOpen'))) : null,
-        layers && inside ? this.layerList(body.id, layers) : null,
         hasMore ? h('details', { class: 'more' },
           h('summary', { html: icon('chevron', 14) }, h('span', {}, t('moreDetails'))),
           it.funFact?.en ? h('p', { class: 'fun' }, h('b', {}, t('funFact')), ' ', tr(it.funFact, l)) : null,
@@ -557,23 +661,6 @@ export class SolarUI {
           s.kind === 'body' && s.id === 'earth' ? h('button', { class: 'cta cta-sm', 'data-testid': 'solar-enter-earth', html: icon('globe', 16), onclick: () => this.backToEarth() }, h('span', {}, t('enterEarth'))) : null,
           h('button', { class: 'read-more', 'data-testid': 'solar-read-more', 'aria-expanded': String(this.readerOpen), onclick: () => { sfx.tap(); void this.toggleReader(); } },
             h('span', {}, this.readerOpen ? t('readerClose') : t('readMore')), h('span', { html: icon('book', 14) })))));
-  }
-
-  /** The layers of a world shown cut open, from the surface down to the centre. */
-  private layerList(id: BodyId, layers: NonNullable<ReturnType<typeof interiorOf>>): HTMLElement {
-    const l = lang(), R = BODY[id].radiusKm;
-    const sig = (x: number) => Number(x.toPrecision(x >= 1000 ? 3 : 2));
-    const items = layers.map((ly, i) => {
-      const km = sig((ly.r - (i ? layers[i - 1].r : 0)) * R);
-      return h('li', { 'data-testid': 'layer-' + i },
-        h('i', { class: 'layer-swatch', style: `--c:${ly.color}` }),
-        h('span', { class: 'layer-name' }, tr(ly.name, l) + (ly.maybe ? ' ' + t('layerMaybe') : '')),
-        h('span', { class: 'layer-meta' }, `${t('ls_' + ly.state)} · ${fmtNum(km)}${l === 'zh' ? ' 公里' : ' km'}`));
-    }).reverse();
-    return h('div', { class: 'solar-list solar-layers', 'data-testid': 'solar-layers' },
-      h('h3', {}, t('interiorTitle')),
-      h('ol', { class: 'layer-list' }, ...items),
-      h('p', { class: 'meter-note' }, t('interiorNote')));
   }
 
   private readBtn(): HTMLElement {
@@ -614,6 +701,8 @@ export class SolarUI {
       eyebrow = t('dk_' + o.kind) + (o.morph && o.kind !== 'dwarf' ? ' · ' + t('mo_' + o.morph) : '');
       chip = t('dk_' + o.kind);
       key.push([t('lightYears'), fmtLy(o.distLy, l)]);
+      if (o.spec) key.push([t('starType'), t('stc_' + starClass(o.spec))]);
+      if (o.messier) key.push([t('messierNo'), 'M' + o.messier]);
       if (o.sizeLy) key.push([t('across'), fmtLy(o.sizeLy, l)]);
       if (o.distLy >= 1 && o.distLy < 1e9) extra.push([t('lookback'), t('yearsAgo', { n: fmtLy(o.distLy, l).replace(/ ?(light-years|光年)$/, '') })]);
       extra.push([t('scaleIs'), t('sc_' + o.scale)]);

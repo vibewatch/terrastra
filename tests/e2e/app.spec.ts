@@ -507,26 +507,15 @@ test('solar system: zoom out from Earth, visit Mars and a feature, land back on 
   expect(errors).toEqual([]);
 });
 
-test('solar: interior cutaway and distance meter @mobile', async ({ page }, info) => {
+test('solar: distance meter @mobile', async ({ page }, info) => {
   const errors: string[] = [];
   page.on('pageerror', e => errors.push(e.message));
+  const mobile = info.project.name === 'mobile';
   await openApp(page, '/?lowfx=1&notut#solar/jupiter');
   await expect(page.getByTestId('solar-name')).toHaveText('Jupiter', { timeout: 30_000 });
-  const inside = page.getByTestId('solar-interior');
-  await inside.click();
-  await expect(inside).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.getByTestId('solar-layers').locator('li')).toHaveCount(4);
-  await expect(page.getByTestId('solar-layers').locator('li').first()).toContainText(/atmosphere/i);
-  await expect(page.getByTestId('layer-0')).toContainText(/core/i);
-  await expect.poll(() => page.evaluate(() => (window as any).__pp.solar().view.tween), { timeout: 30_000 }).toBeNull();
-  await page.waitForTimeout(800);
-  await shot(page, `${info.project.name}_36_solar_interior`);
-  await inside.click();
-  await expect(page.getByTestId('solar-layers')).toHaveCount(0);
 
   // The meter measures from Earth to the picked body, live with the clock.
   // (phones hide the bottom bar while a card is open)
-  const mobile = info.project.name === 'mobile';
   if (mobile) await page.getByTestId('solar-info-close').click();
   await page.getByTestId('solar-measure').click();
   if (mobile) await pickOption(page, 'meter-b', 'jupiter');
@@ -542,6 +531,7 @@ test('solar: interior cutaway and distance meter @mobile', async ({ page }, info
   await shot(page, `${info.project.name}_37_solar_meter`);
   await page.getByTestId('meter-close').click();
   await expect(page.getByTestId('meter-label')).toBeHidden();
+
   expect(errors).toEqual([]);
 });
 
@@ -583,6 +573,52 @@ test('scale ladder: rail climbs from Earth to the universe and back @mobile', as
   await level(page, 'earth');
   await expect(page.locator('body')).not.toHaveClass(/solar/, { timeout: 20_000 });
   await expect(page.getByTestId('rail-earth')).toHaveClass(/on/);
+  expect(errors).toEqual([]);
+});
+
+test('deep space: nearby stars, Messier list and light-year meter @mobile', async ({ page }, info) => {
+  const errors: string[] = [];
+  page.on('pageerror', e => errors.push(e.message));
+  const mobile = info.project.name === 'mobile';
+  await openApp(page, '/?lowfx=1&notut#nearbystars/dp_sirius');
+  await expect(page.getByTestId('solar-name')).toHaveText('Sirius', { timeout: 30_000 });
+  await expect(page.getByTestId('solar-info')).toContainText('White star');
+  await expect(page.getByTestId('rail-stars')).toHaveClass(/on/);
+
+  // light-year meter: from us to the picked star (phones hide the bottom bar while a card is open)
+  if (mobile) await page.getByTestId('solar-info-close').click();
+  await page.getByTestId('solar-measure').click();
+  await expect(page.getByTestId('meter-a')).toHaveAttribute('data-value', 'home');
+  if (mobile) await pickOption(page, 'meter-b', 'dp_sirius');
+  await expect(page.getByTestId('meter-b')).toHaveAttribute('data-value', 'dp_sirius');
+  await expect(page.getByTestId('meter-out')).toContainText('8.6 light-years');
+  await expect(page.getByTestId('deep-meter-label')).toBeVisible();
+  await pickOption(page, 'meter-a', 'dp_alpha_centauri');
+  await expect(page.getByTestId('meter-out')).toContainText(/9\.\d light-years/);
+  await page.waitForTimeout(1200);
+  await shot(page, `${info.project.name}_38_ly_meter`);
+
+  // the Messier list replaces the meter, filters by type and flies to the pick on its own scale
+  await page.getByTestId('solar-messier').click();
+  await expect(page.getByTestId('solar-meter')).toBeHidden();
+  await expect(page.getByTestId('messier-count')).toHaveText('110');
+  await page.getByTestId('mf-globular').click();
+  await expect(page.getByTestId('messier-count')).toHaveText('29');
+  await page.getByTestId('mf-all').click();
+  await page.getByTestId('mx-27').click();
+  await expect(page.getByTestId('solar-name')).toHaveText('Dumbbell Nebula (M27)', { timeout: 30_000 });
+  await expect(page).toHaveURL(/#milkyway\/dp_m27$/);
+  await expect(page.getByTestId('solar-info')).toContainText('M27');
+  if (mobile) await page.getByTestId('solar-info-close').click();
+  await page.getByTestId('mx-81').click();
+  await expect(page).toHaveURL(/#laniakea\/dp_m81$/, { timeout: 30_000 });
+  await expect(page.getByTestId('solar-name')).toHaveText("Bode's Galaxy (M81)");
+  if (mobile) await page.getByTestId('solar-info-close').click();
+  await expect(page.getByTestId('mx-81')).toHaveClass(mobile ? /messier-item/ : /on/);
+  await page.waitForTimeout(1500);
+  await shot(page, `${info.project.name}_39_messier`);
+  await page.getByTestId('messier-close').click();
+  await expect(page.getByTestId('messier-panel')).toBeHidden();
   expect(errors).toEqual([]);
 });
 

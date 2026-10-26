@@ -13,7 +13,7 @@ export interface SpaceHit {
   level: I18n;
 }
 
-const HASH: Record<ScaleId, string> = { universe: 'universe', laniakea: 'laniakea', group: 'localgroup', galaxy: 'milkyway', solar: 'solar' };
+const HASH: Record<ScaleId, string> = { universe: 'universe', laniakea: 'laniakea', group: 'localgroup', galaxy: 'milkyway', stars: 'nearbystars', solar: 'solar' };
 
 export function spaceIndex(): SpaceHit[] {
   const SOLAR = SCALE_INFO.solar.name;

@@ -85,7 +85,7 @@ describe('orbiter label occlusion', () => {
   });
 });
 
-describe('distance meter and interiors', () => {
+describe('distance meter', () => {
   it('measures true centre-to-centre distances', async () => {
     const { distanceKm, helioKm, AU_KM } = await import('../../src/shared/lib/orbits.ts');
     const d = daysJ2000(Date.UTC(2026, 0, 3));   // near perihelion
@@ -103,22 +103,5 @@ describe('distance meter and interiors', () => {
       expect(km).toBeGreaterThan(54e6);
       expect(km).toBeLessThan(402e6);
     }
-  });
-
-  it('describes each interior from the centre out, ending at the surface', async () => {
-    const { INTERIORS, drawRadii } = await import('../../src/shared/data/solar-interiors.ts');
-    for (const [id, layers] of Object.entries(INTERIORS)) {
-      expect(id in BODY).toBe(true);
-      expect(layers!.at(-1)!.r).toBe(1);
-      layers!.forEach((l, i) => {
-        expect(l.r).toBeGreaterThan(i ? layers![i - 1].r : 0);
-        expect(hasKey('ls_' + l.state, 'en') && hasKey('ls_' + l.state, 'zh')).toBe(true);
-        expect(l.name.en && l.name.zh).toBeTruthy();
-      });
-      // drawn bands keep their order and every one is visibly thick
-      const vis = drawRadii(layers!);
-      vis.forEach((v, i) => expect(v - (i ? vis[i - 1] : 0)).toBeGreaterThan(0.017));
-    }
-    expect(drawRadii(INTERIORS.earth!).at(-2)).toBeCloseTo(0.982, 3);
   });
 });

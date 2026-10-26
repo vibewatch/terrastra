@@ -8,12 +8,12 @@ import { icon } from './icons.ts';
 import { t, onLang, lang } from '../lib/i18n.ts';
 import { sfx } from '../lib/sfx.ts';
 
-export type RailLevel = 'universe' | 'laniakea' | 'group' | 'galaxy' | 'solar' | 'earth';
-export const RAIL: RailLevel[] = ['universe', 'laniakea', 'group', 'galaxy', 'solar', 'earth'];
+export type RailLevel = 'universe' | 'laniakea' | 'group' | 'galaxy' | 'stars' | 'solar' | 'earth';
+export const RAIL: RailLevel[] = ['universe', 'laniakea', 'group', 'galaxy', 'stars', 'solar', 'earth'];
 /** Rough size of each level, shown as a HUD readout next to its name. */
 const SPAN: Record<RailLevel, { en: string; zh: string }> = {
   universe: { en: '93 bn ly', zh: '930亿光年' }, laniakea: { en: '520 M ly', zh: '5.2亿光年' }, group: { en: '10 M ly', zh: '1000万光年' },
-  galaxy: { en: '87,400 ly', zh: '8.7万光年' }, solar: { en: '~120 AU', zh: '约120天文单位' }, earth: { en: '12,742 km', zh: '12,742 公里' },
+  galaxy: { en: '87,400 ly', zh: '8.7万光年' }, stars: { en: '130 ly', zh: '130光年' }, solar: { en: '~120 AU', zh: '约120天文单位' }, earth: { en: '12,742 km', zh: '12,742 公里' },
 };
 
 const label = (l: RailLevel) => [h('i', { class: 'lv-dot', 'aria-hidden': 'true' }), h('span', { class: 'lv-text' }, h('b', {}, t('sc_' + l)), h('small', {}, SPAN[l][lang()]))];

@@ -1,10 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { radecToGal, eclToGal, galToEcl, galVec } from '../../src/shared/lib/sky.ts';
-import { DEEP_OBJECTS, SCALE_INFO, SCALES } from '../../src/shared/data/cosmos.ts';
+import { DEEP_OBJECTS, MESSIER, SCALE_INFO, SCALES } from '../../src/shared/data/cosmos.ts';
+import { messierGroup } from '../../src/shared/data/messier.ts';
 import { SOLAR_SITES } from '../../src/shared/data/solar-sites.ts';
 import { BODY } from '../../src/shared/data/solar.ts';
 import { WIKI } from '../../src/shared/data/wiki.ts';
 import { hasKey } from '../../src/client/lib/i18n.ts';
+import { starClass } from '../../src/shared/data/nearby-stars.ts';
+import { LEVELS } from '../../src/client/solar/deep.ts';
 
 const angDiff = (a: number, b: number) => Math.abs(((a - b + 540) % 360) - 180);
 
@@ -44,6 +47,42 @@ describe('deep-space content', () => {
       expect(SCALE_INFO[s]?.name.zh, s).toBeTruthy();
       expect(hasKey('sc_' + s, 'zh') && hasKey('sc_' + s, 'en')).toBe(true);
     }
+  });
+
+  it('maps the nearest stars at their real distances', () => {
+    const near = DEEP_OBJECTS.filter(o => o.scale === 'stars');
+    expect(near.length).toBeGreaterThanOrEqual(30);
+    for (const o of near) {
+      expect(o.kind, o.key).toBe('star');
+      expect(o.spec, o.key).toMatch(/^[OBAFGKMLTD]/);
+      expect(o.distLy, o.key).toBeLessThan(LEVELS.stars.upLy / 4);
+      expect(hasKey('stc_' + starClass(o.spec!), 'en') && hasKey('stc_' + starClass(o.spec!), 'zh'), o.key).toBe(true);
+    }
+    // the closest is Proxima Centauri, beside Alpha Centauri A/B
+    const [first] = [...near].sort((a, b) => a.distLy - b.distLy);
+    expect(first.key).toBe('dp_proxima_centauri');
+    expect(starClass('M5.5V')).toBe('red_dwarf');
+    expect(starClass('K1.5III')).toBe('giant');
+    expect(starClass('F5IV')).toBe('white_star');
+    expect(starClass('DZ8')).toBe('white_dwarf');
+  });
+
+  it('lists all 110 Messier objects, each once, on the scale its distance puts it', () => {
+    expect(MESSIER.map(o => o.messier)).toEqual(Array.from({ length: 110 }, (_, i) => i + 1));
+    const count = (g: string) => MESSIER.filter(o => messierGroup(o.kind) === g).length;
+    expect(count('globular')).toBe(29);
+    expect(count('galaxy')).toBe(40);
+    for (const o of MESSIER) {
+      const want = o.distLy < 1e5 ? 'galaxy' : o.distLy < 1e7 ? 'group' : 'laniakea';
+      expect(o.scale, o.key).toBe(want);
+    }
+    // the generated ones land where the sky puts them: M2 (globular in Aquarius), M81 (Bode's Galaxy)
+    const m = (n: number) => MESSIER[n - 1];
+    expect(m(2).l).toBeCloseTo(53.4, 0);
+    expect(m(2).b).toBeCloseTo(-35.8, 0);
+    expect(m(81).l).toBeCloseTo(142.1, 0);
+    expect(m(81).b).toBeCloseTo(40.9, 0);
+    expect(m(42).key).toBe('dp_orion_nebula');
   });
 
   it('places Andromeda ~2.5 million light-years out', () => {

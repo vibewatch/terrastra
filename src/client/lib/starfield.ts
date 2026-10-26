@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { CONSTELLATIONS } from '../../shared/data/constellations.ts';
 import { galToEq } from '../../shared/lib/sky.ts';
+import { buildMilkyWay } from './milkyway.ts';
 
 /** Deep-space clear colour shared by the Earth and Solar System views. */
 export const SPACE_BG = 0x020306;
@@ -47,7 +48,8 @@ export const starTint = (ra: number, dec: number) => tint((ra * 7.31 + dec * 3.1
 
 /**
  * The night sky at infinity: the real bright stars of the constellation figures plus `n` seeded fainter stars,
- * thicker along the Milky Way. It follows the camera like a skybox and draws first, behind everything.
+ * thicker along the Milky Way, over the Milky Way's diffuse glow. It follows the camera like a skybox and draws first,
+ * behind everything.
  */
 export function buildStarField(n: number, frame: SkyFrame, radius: number): THREE.Points<THREE.BufferGeometry, THREE.ShaderMaterial> {
   const pos: number[] = [], mag: number[] = [], col: number[] = [];
@@ -88,11 +90,19 @@ export function buildStarField(n: number, frame: SkyFrame, radius: number): THRE
   // below every scene layer (the globe itself is -10): a tie lets three.js draw the nearer Earth first and the stars over it
   pts.renderOrder = -1000;
   pts.frustumCulled = false;
-  pts.onBeforeRender = (renderer, _s, camera) => {
-    mat.uniforms.uPr.value = renderer.getPixelRatio();
+  const follow = (camera: THREE.Camera) => {
     pts.position.setFromMatrixPosition(camera.matrixWorld);
     pts.updateMatrixWorld();
   };
+  pts.onBeforeRender = (renderer, _s, camera) => {
+    mat.uniforms.uPr.value = renderer.getPixelRatio();
+    follow(camera);
+  };
+  // the glow rides along as a child (sharing any sky rotation) and draws just before the stars
+  const glow = buildMilkyWay(frame, radius * 0.98);
+  glow.renderOrder = -1001;
+  glow.onBeforeRender = (_r, _s, camera) => follow(camera);
+  pts.add(glow);
   return pts;
 }
 

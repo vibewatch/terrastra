@@ -52,7 +52,7 @@ export const TOURS: Tour[] = [
   {
     id: 'cosmos', icon: 'planet', minutes: 4,
     title: ['From home to the Milky Way', '从家园到银河系'],
-    blurb: ['Zoom out one level at a time: Earth, the planets, our galaxy and its neighbours.', '一层一层向外看：地球、行星、我们的银河系和它的邻居。'],
+    blurb: ['Zoom out one level at a time: Earth, the planets, the nearest stars, our galaxy and its neighbours.', '一层一层向外看：地球、行星、最近的恒星、我们的银河系和它的邻居。'],
     steps: () => [
       { title: ['Start at home', '从家出发'], run: x => x.earth(30, 110, 2.6),
         body: ['This is Earth, the only place we know of with life. Its air is a very thin layer: compared with the whole planet, thinner than the skin of an apple. Now we zoom out, one level at a time.',
@@ -63,6 +63,9 @@ export const TOURS: Tour[] = [
       { title: ['The whole Solar System', '整个太阳系'], run: x => x.go('solar'),
         body: ['Eight planets travel around the Sun. Their sizes are enlarged here so you can see them: at true scale, at this distance they would be smaller than specks of dust.',
           '八颗行星绕着太阳转。这里把它们放大了，好让你看清；如果按真实比例，在这么远的地方看，它们比灰尘还小。'] },
+      { title: ['Our nearest stars', '离我们最近的恒星'], run: x => x.go('nearbystars/dp_alpha_centauri'),
+        body: ['The nearest star system, Alpha Centauri, is 4.4 light-years away: its light takes more than four years to get here. Most of our neighbours are small red dwarfs, too dim to see without a telescope.',
+          '最近的恒星系统半人马座α离我们 4.4 光年，它的光要走四年多才能到达这里。我们的邻居大多是小小的红矮星，不用望远镜根本看不见。'] },
       { title: ['Our galaxy', '我们的星系'], run: x => x.go('milkyway'),
         body: ['The Sun is just one of 100–400 billion stars in the Milky Way, a barred spiral galaxy nearly 90,000 light-years across.',
           '太阳只是银河系 1000 亿到 4000 亿颗恒星中的一颗。银河系是一个棒旋星系，直径将近 9 万光年。'] },

@@ -11,6 +11,7 @@ import { galToEq } from '../../shared/lib/sky.ts';
 import { gast, sunEcef, moonEcef, planetGeo, radec, type PlanetId } from '../../shared/lib/astro/ephem.ts';
 import type { GeoPoint, Vec3 } from '../../shared/lib/astro/types.ts';
 import { lang } from '../lib/i18n.ts';
+import { MILKY_WAY_GLSL } from '../lib/milkyway.ts';
 import {
   D2R, R_MOON, R_SUN, horizonMatrix, obsEcef, toHorizon, altOf, azOf, norm, len, angle, overlap, precess,
   glowTexture, bodyTexture,
@@ -99,10 +100,7 @@ export class GroundSky {
       fragmentShader: /* glsl */ `
 uniform vec3 uSun; uniform float uDay, uTot, uSunAlt, uFilter, uVis; uniform mat3 uH2G;
 varying vec3 vD;
-float hash(vec3 p) { return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453); }
-float vnoise(vec3 p) { vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
-  return mix(mix(mix(hash(i), hash(i + vec3(1,0,0)), f.x), mix(hash(i + vec3(0,1,0)), hash(i + vec3(1,1,0)), f.x), f.y),
-             mix(mix(hash(i + vec3(0,0,1)), hash(i + vec3(1,0,1)), f.x), mix(hash(i + vec3(0,1,1)), hash(i + vec3(1,1,1)), f.x), f.y), f.z); }
+${MILKY_WAY_GLSL}
 void main() {
   vec3 d = normalize(vD);
   float h = max(d.y, 0.0);
@@ -128,11 +126,8 @@ void main() {
   vec3 g = uH2G * d;
   float b = asin(clamp(g.z, -1.0, 1.0));
   float l = atan(g.y, g.x);
-  float band = exp(-pow(b / 0.16, 2.0)) * (0.55 + 0.45 * exp(-pow(l / 0.9, 2.0)));
-  band *= 0.6 + 0.8 * vnoise(d * 9.0) * vnoise(d * 23.0 + 3.0);
-  band *= 1.0 - 0.75 * exp(-pow(b / 0.03, 2.0)) * smoothstep(1.2, 0.0, abs(l));
   float dark = (1.0 - smoothstep(0.0, 0.08, uDay)) * smoothstep(0.0, 0.25, h + 0.02);
-  col += vec3(0.07, 0.075, 0.09) * band * dark * (1.0 - uFilter);
+  col += milkyWay(normalize(g)) * 0.16 * dark * (1.0 - uFilter);
   col = mix(col, vec3(0.0), uFilter);
   gl_FragColor = vec4(col, 1.0);
 }`,

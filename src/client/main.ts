@@ -46,7 +46,7 @@ declare global { interface Window { __pp?: { ready: boolean; globe: Globe; shell
 
 const params = new URLSearchParams(location.search);
 /** `#solar/jupiter`, `#milkyway/dp_sgr_a`, `#universe` … */
-const SCALE_ROUTES: Record<string, ScaleId> = { solar: 'solar', milkyway: 'galaxy', localgroup: 'group', laniakea: 'laniakea', universe: 'universe' };
+const SCALE_ROUTES: Record<string, ScaleId> = { solar: 'solar', nearbystars: 'stars', milkyway: 'galaxy', localgroup: 'group', laniakea: 'laniakea', universe: 'universe' };
 const lowfx = lowFxFrom(params, matchMedia('(prefers-reduced-motion: reduce)').matches);
 const quality = detectQuality(params, lowfx);
 const app = document.getElementById('app')!;
@@ -152,7 +152,7 @@ async function boot(): Promise<void> {
   let navSeq = 0;
   let scaleNow: ScaleId = 'solar';
   // Background music follows the level the user is looking at.
-  const tune = () => music.setLevel(inSky ? 'sky' : inSolar ? scaleNow : 'earth');
+  const tune = () => music.setLevel(inSky ? 'sky' : inSolar ? (scaleNow === 'stars' ? 'galaxy' : scaleNow) : 'earth');
   const loadSolarMod = lazy(() => import('./solar/ui.ts'));
   const loadSolar = async () => solar ??= new (await loadSolarMod()).SolarUI(app, { quality, earthCanvas: () => earthCv, exit: leaveSolar, onScale: s => { rail.set(s); scaleNow = s; tune(); }, openSky: () => void openSky() });
   const routeOf = (o: { focus?: string; scale?: ScaleId }) => {

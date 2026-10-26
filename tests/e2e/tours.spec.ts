@@ -27,8 +27,9 @@ test('guided tours: pick from the help panel, walk every step, leave or finish',
 
   await walk('cosmos', async i => {
     if (i === 1) await expect(page.locator('body.solar')).toHaveCount(1, { timeout: 60_000 });
-    if (i === 3) await expect(page.getByTestId('rail-galaxy')).toHaveClass(/on/, { timeout: 30_000 });
-    if (i === 5) await expect(page.getByTestId('rail-group')).toHaveClass(/on/, { timeout: 30_000 });
+    if (i === 3) await expect(page.getByTestId('rail-stars')).toHaveClass(/on/, { timeout: 30_000 });
+    if (i === 4) await expect(page.getByTestId('rail-galaxy')).toHaveClass(/on/, { timeout: 30_000 });
+    if (i === 6) await expect(page.getByTestId('rail-group')).toHaveClass(/on/, { timeout: 30_000 });
   });
   await walk('eclipse', async i => {
     if (i === 1) { await expect(page.getByTestId('sky')).toBeVisible({ timeout: 60_000 }); await expect(page.getByTestId('sky-view-model')).toHaveAttribute('aria-selected', 'true'); }

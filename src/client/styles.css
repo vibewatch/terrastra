@@ -1046,11 +1046,12 @@ body:has(.info:not(.hidden)) .bl { display: none; }
 .dl-label.flip { flex-direction: row-reverse; padding: 2px 0 2px 6px; translate: calc(-100% + 7px) 0; }
 .dl-label.home.flip { padding: 4px 22px 4px 10px; translate: calc(-100% + 11px) -11px; }
 .dl-label.home.flip::before { left: auto; right: 6px; }
-.solar-ui.deep .solar-time { display: none; }
+/* Out in deep space the clock means nothing: only the meter and the Messier list stay. */
+.solar-ui.deep .solar-time > :not([data-testid=solar-measure]):not([data-testid=solar-messier]) { display: none; }
 
 /* ---- scale rail: universe … Earth ---- */
 .sr-universe { --sc: #f0abfc; --d: 9px; } .sr-laniakea { --sc: #c4b5fd; --d: 8px; } .sr-group { --sc: #a5b4fc; --d: 7px; }
-.sr-galaxy { --sc: #93c5fd; --d: 6px; } .sr-solar { --sc: #fcd34d; --d: 6px; } .sr-earth { --sc: #38bdf8; --d: 6px; }
+.sr-galaxy { --sc: #93c5fd; --d: 6px; } .sr-stars { --sc: #fde68a; --d: 6px; } .sr-solar { --sc: #fcd34d; --d: 6px; } .sr-earth { --sc: #38bdf8; --d: 6px; }
 /* Tablet widths and phones held sideways: the tool row needs room, so the search box flexes instead of the brand wrapping under it. */
 @media (min-width: 761px) and (max-width: 1100px) {
   .topbar { grid-template-columns: auto minmax(0, 1fr) auto; }
@@ -1101,7 +1102,7 @@ body:has(.info:not(.hidden)) .bl { display: none; }
   /* Only this level's root and the current step fit next to the toolbar (the scale rail covers going up). */
             .solar-info { max-height: 58vh; }
   .solar-info.expanded { height: auto; }
-  body:has(.solar-info:not(.hidden)) .solar-bottom, body:has(.solar-info:not(.hidden)) .solar-hint { display: none; }
+  body:has(.solar-info:not(.hidden)) .solar-bottom, body:has(.solar-info:not(.hidden)) .solar-hint, body:has(.solar-info:not(.hidden)) .solar-messier { display: none; }
   .sb-label { font-size: 11.5px; }
           }
 /* ---- Sci-fi HUD theme for the space views (scoped to .solar-ui / body.solar); a light echo on the globe ---- */
@@ -1135,14 +1136,32 @@ body:has(.info:not(.hidden)) .bl { display: none; }
   letter-spacing: .05em; color: #fde68a; background: rgba(4, 10, 20, 0.7); border: 1px solid rgba(251, 191, 36, 0.55); border-radius: 2px; }
 .meter-label[hidden] { display: none; }
 @media (max-width: 520px) { .meter-out { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 6px; } .meter-out > div:nth-child(3) { padding-left: 0; border-left: 0; } }
-/* ---- interior cutaway ---- */
-.interior-btn { margin-top: 12px; display: inline-flex; align-items: center; gap: 6px; }
-.interior-btn.on { color: var(--hud-hi); box-shadow: inset 0 0 0 1px var(--hud); }
-.layer-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
-.layer-list li { display: grid; grid-template-columns: 14px 1fr auto; align-items: center; gap: 8px; font-size: .82rem; }
-.layer-swatch { width: 12px; height: 12px; border-radius: 2px; background: var(--c); box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5); }
-.layer-meta { color: var(--muted); font-size: .74rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.solar-layers .meter-note { margin-top: 6px; }
+/* ---- Messier list ---- */
+/* A side sheet on the right, so the object the camera flies to (screen centre) stays in view. */
+.solar-messier { position: absolute; top: 84px; right: 20px; z-index: 6; display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; width: 300px;
+  max-height: calc(100% - 330px); min-height: 220px; border-radius: 3px; border: 1px solid var(--hud-line);
+  background: var(--hud-corners), var(--hud-panel); box-shadow: 0 14px 40px rgba(0, 0, 0, 0.5); }
+.solar-messier.hidden { display: none; }
+.messier-head { display: flex; align-items: center; gap: 8px; color: var(--hud-hi); font-family: var(--font-hud); font-size: .8rem; letter-spacing: .05em; }
+.messier-head b { font-weight: 600; }
+.messier-n { color: var(--hud-dim); font-variant-numeric: tabular-nums; }
+.messier-head .icon-btn { margin-left: auto; width: var(--btn-icon-sm); height: var(--btn-icon-sm); border-color: transparent; background: transparent; border-radius: 2px; }
+.messier-filters { display: flex; flex-wrap: wrap; gap: 4px; }
+.messier-filters .tag-chip { padding: 2px 9px; font-size: .72rem; }
+.messier-filters .tag-chip.on { color: var(--hud-hi); background: rgba(103, 232, 249, .14); box-shadow: inset 0 0 0 1px var(--hud); }
+.messier-list { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: start; gap: 2px; overflow-y: auto; overscroll-behavior: contain; }
+.messier-item { display: flex; align-items: center; gap: 5px; min-width: 0; padding: 3px 6px; border: 0; border-radius: 2px; background: transparent; color: var(--text);
+  font-size: .74rem; text-align: left; cursor: pointer; }
+.messier-item:hover { background: var(--hover); }
+.messier-item.on { background: rgba(251, 191, 36, .16); box-shadow: inset 0 0 0 1px rgba(251, 191, 36, .55); }
+.messier-item b { flex: none; min-width: 34px; color: var(--hud-hi); font-family: var(--font-hud); font-weight: 500; font-variant-numeric: tabular-nums; }
+.messier-item .chip-emoji { flex: none; font-size: .8rem; }
+.messier-item span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.messier-note { margin: 0; color: var(--faint); font-size: .68rem; line-height: 1.35; }
+@media (max-width: 760px) {
+  .solar-messier { top: auto; left: 8px; right: 8px; width: auto; bottom: calc(var(--space-dock, 96px) + 28px); max-height: 38vh; min-height: 0; }
+  .messier-note { display: none; }
+}
 /* Constellation names: faint sky lettering under the planet labels */
 .cst-label { padding: 1px 6px; border: 0; background: none; color: rgba(125, 211, 252, .62); font: 500 11px/1.4 var(--font-hud), var(--font, system-ui), sans-serif;
   letter-spacing: .14em; text-transform: uppercase; white-space: nowrap; cursor: pointer; text-shadow: 0 0 6px rgba(0, 0, 0, .9); transition: color .15s; }

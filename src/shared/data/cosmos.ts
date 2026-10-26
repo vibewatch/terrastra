@@ -1,14 +1,16 @@
 /**
- * The scales above the Solar System: the Milky Way, the Local Group, the Laniakea Supercluster and the observable
+ * The scales above the Solar System: the nearby stars, the Milky Way, the Local Group, the Laniakea Supercluster and the observable
  * universe. Every object is placed by galactic coordinates (l, b in degrees, as seen from the Sun) and its distance
  * from the Sun in light-years (comoving distance for far objects), so all scales share one real frame.
  */
 import type { I18n } from './types.ts';
+import { NEARBY_STARS } from './nearby-stars.ts';
+import { MESSIER_EXTRA } from './messier.ts';
 
 /** Scales from the largest to the planets (the order of the scale ladder). */
-export type ScaleId = 'universe' | 'laniakea' | 'group' | 'galaxy' | 'solar';
+export type ScaleId = 'universe' | 'laniakea' | 'group' | 'galaxy' | 'stars' | 'solar';
 export type DeepScale = Exclude<ScaleId, 'solar'>;
-export const SCALES: ScaleId[] = ['universe', 'laniakea', 'group', 'galaxy', 'solar'];
+export const SCALES: ScaleId[] = ['universe', 'laniakea', 'group', 'galaxy', 'stars', 'solar'];
 
 export type DeepKind =
   | 'blackhole' | 'arm' | 'bar' | 'nebula' | 'remnant' | 'starcluster' | 'globular' | 'star'
@@ -45,6 +47,10 @@ export interface DeepObject {
   morph?: Morph;
   /** Bigger = drawn larger / labelled earlier (1 = normal, 3 = landmark). */
   rank?: number;
+  /** Stars: spectral type of the (main) star, e.g. `M5.5V`, `K1.5III`, `DZ8`. */
+  spec?: string;
+  /** Number in Messier's catalogue (M1–M110), if it has one. */
+  messier?: number;
   desc: I18n;
   funFact?: I18n;
   wiki: string;
@@ -83,6 +89,14 @@ export const SCALE_INFO: Record<ScaleId, ScaleInfo> = {
     funFact: { en: 'The Sun takes about 230 million years to circle the Milky Way once. The last time it was here, the first dinosaurs were appearing!',
       zh: '太阳绕银河系转一圈要约2.3亿年。上次它在这个位置时，第一批恐龙才刚刚出现！' },
     wiki: 'Milky Way',
+  },
+  stars: {
+    id: 'stars', name: { en: 'Nearby Stars', zh: '附近的恒星' }, emoji: '✨', sizeLy: 130,
+    desc: { en: "The Sun's neighbourhood: the closest stars, most of them small red dwarfs too dim to see, and the bright stars we know by name.",
+      zh: '太阳的街坊邻居：离我们最近的恒星——大多是暗得看不见的小红矮星——还有那些我们叫得出名字的亮星。' },
+    funFact: { en: 'Of the stars within 20 light-years, about three out of four are red dwarfs. Not one of those can be seen without a telescope!',
+      zh: '20光年以内的恒星，大约四颗里就有三颗是红矮星，而它们没有一颗能用肉眼看到！' },
+    wiki: 'List of nearest stars',
   },
   solar: {
     id: 'solar', name: { en: 'Solar System', zh: '太阳系' }, emoji: '☀️', sizeLy: 3,
@@ -148,14 +162,14 @@ const GALAXY: DeepObject[] = [
     funFact: { en: 'It may be the far end of the Norma Arm, which wraps nearly all the way around the galaxy.',
       zh: '它可能是矩尺臂的远端——矩尺臂几乎绕了银河系一整圈。' },
     wiki: 'Norma Arm' },
-  { key: 'dp_orion_nebula', scale: 'galaxy', kind: 'nebula', name: { en: 'Orion Nebula', zh: '猎户座大星云' }, emoji: '☁️',
+  { key: 'dp_orion_nebula', messier: 42, scale: 'galaxy', kind: 'nebula', name: { en: 'Orion Nebula', zh: '猎户座大星云' }, emoji: '☁️',
     l: 209.01, b: -19.38, distLy: 1_344, sizeLy: 24, rank: 2,
     desc: { en: "A glowing cloud where new stars are being born, bright enough to see with your own eyes in Orion's sword.",
       zh: '一团正在诞生新恒星的发光云气，亮到用肉眼就能在猎户座的“佩剑”里看到它。' },
     funFact: { en: 'It is the closest big star nursery to Earth and holds thousands of baby stars.',
       zh: '它是离地球最近的大型“恒星育婴房”，里面有几千颗恒星宝宝。' },
     wiki: 'Orion Nebula' },
-  { key: 'dp_eagle_nebula', scale: 'galaxy', kind: 'nebula', name: { en: 'Eagle Nebula', zh: '鹰状星云' }, emoji: '🦅',
+  { key: 'dp_eagle_nebula', messier: 16, scale: 'galaxy', kind: 'nebula', name: { en: 'Eagle Nebula', zh: '鹰状星云' }, emoji: '🦅',
     l: 16.96, b: 0.81, distLy: 5_700, sizeLy: 70, rank: 2,
     desc: { en: "A star nursery shaped like an eagle. Inside are the 'Pillars of Creation', tall towers of gas where stars are forming.",
       zh: '一片形状像老鹰的恒星育婴房，里面有著名的“创生之柱”——正在孕育恒星的高大气体柱。' },
@@ -169,14 +183,14 @@ const GALAXY: DeepObject[] = [
     funFact: { en: "It contains 'Mystic Mountain', a pillar of gas photographed by Hubble that looks like a fairy-tale castle.",
       zh: '里面有哈勃望远镜拍到的“神秘山”，那根气体柱看起来就像童话里的城堡。' },
     wiki: 'Carina Nebula' },
-  { key: 'dp_lagoon_nebula', scale: 'galaxy', kind: 'nebula', name: { en: 'Lagoon Nebula', zh: '礁湖星云' }, emoji: '🏝️',
+  { key: 'dp_lagoon_nebula', messier: 8, scale: 'galaxy', kind: 'nebula', name: { en: 'Lagoon Nebula', zh: '礁湖星云' }, emoji: '🏝️',
     l: 5.96, b: -1.17, distLy: 4_100, sizeLy: 110,
     desc: { en: 'A pink cloud of star-making gas in Sagittarius, cut by a dark lane like a lagoon. You can spot it with binoculars.',
       zh: '人马座中一片粉红色的造星云气，中间有一条暗带，好像一片潟湖，用双筒望远镜就能看到。' },
     funFact: { en: 'It has tiny tornado-like twisters of gas, stirred up by hot young stars.',
       zh: '里面有像小龙卷风一样旋转的气体，是被炽热的年轻恒星搅起来的。' },
     wiki: 'Lagoon Nebula' },
-  { key: 'dp_crab_nebula', scale: 'galaxy', kind: 'remnant', name: { en: 'Crab Nebula', zh: '蟹状星云' }, emoji: '🦀',
+  { key: 'dp_crab_nebula', messier: 1, scale: 'galaxy', kind: 'remnant', name: { en: 'Crab Nebula', zh: '蟹状星云' }, emoji: '🦀',
     l: 184.55, b: -5.78, distLy: 6_500, sizeLy: 11, rank: 2,
     desc: { en: 'The leftover cloud of a star that exploded in 1054. Chinese astronomers saw it shine in the daytime sky for weeks!',
       zh: '1054年一颗恒星爆炸后留下的云团。中国古代天文学家记录下它曾在白天的天空中亮了好几个星期！' },
@@ -190,7 +204,7 @@ const GALAXY: DeepObject[] = [
     funFact: { en: 'It is one of the closest nebulae of its kind, and shows what our own Sun may become in about 5 billion years.',
       zh: '它是离我们最近的这类星云之一，展示了大约50亿年后太阳可能变成的样子。' },
     wiki: 'Helix Nebula' },
-  { key: 'dp_ring_nebula', scale: 'galaxy', kind: 'nebula', name: { en: 'Ring Nebula', zh: '指环星云' }, emoji: '💍',
+  { key: 'dp_ring_nebula', messier: 57, scale: 'galaxy', kind: 'nebula', name: { en: 'Ring Nebula', zh: '指环星云' }, emoji: '💍',
     l: 63.17, b: 13.98, distLy: 2_570, sizeLy: 1,
     desc: { en: 'A smoke ring of glowing gas around a tiny, hot white dwarf star in the constellation Lyra.',
       zh: '天琴座里一圈发光的“烟圈”，正中间是一颗又小又热的白矮星。' },
@@ -239,7 +253,7 @@ const GALAXY: DeepObject[] = [
     funFact: { en: 'Its blast wave is still racing outward at about 5,000 km every second.',
       zh: '它的冲击波至今还以每秒约5000千米的速度向外冲。' },
     wiki: 'Cassiopeia A' },
-  { key: 'dp_pleiades', scale: 'galaxy', kind: 'starcluster', name: { en: 'Pleiades (Seven Sisters)', zh: '昴星团（七姐妹）' }, emoji: '✨',
+  { key: 'dp_pleiades', messier: 45, scale: 'galaxy', kind: 'starcluster', name: { en: 'Pleiades (Seven Sisters)', zh: '昴星团（七姐妹）' }, emoji: '✨',
     l: 166.46, b: -23.61, distLy: 444, rank: 2,
     desc: { en: 'A sparkling cluster of hot, blue young stars. Most people can see six or seven of them with their eyes alone.',
       zh: '一群闪亮的炽热蓝色年轻恒星，大多数人用肉眼能看到其中六七颗。' },
@@ -253,7 +267,7 @@ const GALAXY: DeepObject[] = [
     funFact: { en: 'Bright orange Aldebaran seems to sit in it but is not a member: it is less than half as far away.',
       zh: '明亮的橙色毕宿五看起来在星团里，其实它不是成员，离我们还不到星团的一半远。' },
     wiki: 'Hyades (star cluster)' },
-  { key: 'dp_beehive_cluster', scale: 'galaxy', kind: 'starcluster', name: { en: 'Beehive Cluster', zh: '蜂巢星团（鬼星团）' }, emoji: '🐝',
+  { key: 'dp_beehive_cluster', messier: 44, scale: 'galaxy', kind: 'starcluster', name: { en: 'Beehive Cluster', zh: '蜂巢星团（鬼星团）' }, emoji: '🐝',
     l: 205.95, b: 32.43, distLy: 577,
     desc: { en: 'A swarm of about 1,000 stars in Cancer. To the eye it is a fuzzy patch; in binoculars it looks like buzzing bees.',
       zh: '巨蟹座里大约1000颗恒星组成的星团，肉眼看是一小团模糊的光，用双筒望远镜看就像一群嗡嗡飞的蜜蜂。' },
@@ -274,7 +288,7 @@ const GALAXY: DeepObject[] = [
     funFact: { en: 'Its middle is so crowded that the night sky of a planet there would blaze with thousands of bright stars.',
       zh: '它的中心挤得非常密，如果在那里的行星上看夜空，会有成千上万颗亮星。' },
     wiki: '47 Tucanae' },
-  { key: 'dp_m13', scale: 'galaxy', kind: 'globular', name: { en: 'Hercules Globular Cluster (M13)', zh: '武仙座球状星团（M13）' }, emoji: '🔮',
+  { key: 'dp_m13', messier: 13, scale: 'galaxy', kind: 'globular', name: { en: 'Hercules Globular Cluster (M13)', zh: '武仙座球状星团（M13）' }, emoji: '🔮',
     l: 59.01, b: 40.91, distLy: 22_200, sizeLy: 145,
     desc: { en: 'A great ball of several hundred thousand stars in Hercules, one of the finest globular clusters in northern skies.',
       zh: '武仙座里由几十万颗恒星组成的大球，是北半球天空中最漂亮的球状星团之一。' },
@@ -302,27 +316,6 @@ const GALAXY: DeepObject[] = [
     funFact: { en: 'Rigel is usually the brightest star in Orion, even brighter than Betelgeuse.',
       zh: '参宿七通常是猎户座里最亮的星，比参宿四还亮。' },
     wiki: 'Rigel' },
-  { key: 'dp_sirius', scale: 'galaxy', kind: 'star', name: { en: 'Sirius', zh: '天狼星' }, emoji: '🐕',
-    l: 227.23, b: -8.89, distLy: 8.6, rank: 2,
-    desc: { en: 'The brightest star in the night sky, also called the Dog Star. It has a tiny white dwarf partner, Sirius B.',
-      zh: '夜空中最亮的恒星，西方人叫它“狗星”。它有一个小小的白矮星伙伴——天狼星B。' },
-    funFact: { en: 'Ancient Egyptians watched for Sirius rising at dawn to know that the Nile flood was coming.',
-      zh: '古埃及人看到天狼星在黎明前升起，就知道尼罗河快要泛滥了。' },
-    wiki: 'Sirius' },
-  { key: 'dp_alpha_centauri', scale: 'galaxy', kind: 'star', name: { en: 'Alpha Centauri', zh: '半人马座α（南门二）' }, emoji: '👯',
-    l: 315.73, b: -0.68, distLy: 4.37, rank: 2,
-    desc: { en: 'The closest star system to the Sun: two Sun-like stars dancing around each other, with little Proxima nearby.',
-      zh: '离太阳最近的恒星系统：两颗像太阳一样的恒星互相绕着跳舞，旁边还有小小的比邻星。' },
-    funFact: { en: 'Its light takes about 4.4 years to reach us. A car driving nonstop would need over 40 million years!',
-      zh: '它的光要走约4.4年才能到达地球；一辆汽车不停地开，要开4000多万年！' },
-    wiki: 'Alpha Centauri' },
-  { key: 'dp_proxima_centauri', scale: 'galaxy', kind: 'star', name: { en: 'Proxima Centauri', zh: '比邻星' }, emoji: '👋',
-    l: 313.94, b: -1.93, distLy: 4.24,
-    desc: { en: 'A small red dwarf and the nearest star to the Sun. It has at least one rocky planet, Proxima b.',
-      zh: '一颗小小的红矮星，也是离太阳最近的恒星。它至少有一颗岩石行星——比邻星b。' },
-    funFact: { en: 'Even though it is our closest neighbour, Proxima is so dim that you need a telescope to see it.',
-      zh: '虽然比邻星是我们最近的邻居，但它太暗了，要用望远镜才能看到。' },
-    wiki: 'Proxima Centauri' },
   { key: 'dp_polaris', scale: 'galaxy', kind: 'star', name: { en: 'Polaris (North Star)', zh: '北极星（勾陈一）' }, emoji: '🧭',
     l: 123.28, b: 26.46, distLy: 433, rank: 2,
     desc: { en: "It sits almost exactly above Earth's North Pole, so it seems to stay still while the other stars circle around it.",
@@ -330,13 +323,6 @@ const GALAXY: DeepObject[] = [
     funFact: { en: 'It is really three stars, and in about 12,000 years Vega will take over as the North Star.',
       zh: '它其实是三颗星组成的，大约1.2万年后，织女星会接替它成为北极星。' },
     wiki: 'Polaris' },
-  { key: 'dp_vega', scale: 'galaxy', kind: 'star', name: { en: 'Vega', zh: '织女星' }, emoji: '🎵',
-    l: 67.45, b: 19.24, distLy: 25,
-    desc: { en: 'A bright blue-white star in Lyra. In Chinese legend it is the Weaver Girl, who meets the Cowherd once a year.',
-      zh: '天琴座里一颗明亮的蓝白色恒星。在中国传说里，它是织女，每年七夕和牛郎相会一次。' },
-    funFact: { en: 'Vega spins so fast that it bulges at its middle, and it is surrounded by a disc of dust.',
-      zh: '织女星自转得飞快，腰部都鼓了出来，周围还环绕着一圈尘埃盘。' },
-    wiki: 'Vega' },
   { key: 'dp_eta_carinae', scale: 'galaxy', kind: 'star', name: { en: 'Eta Carinae', zh: '船底座η' }, emoji: '🎆',
     l: 287.6, b: -0.63, distLy: 7_500,
     desc: { en: 'A pair of giant stars, one over 100 times heavier than the Sun, wrapped in a glowing cloud it threw off in a huge outburst.',
@@ -376,14 +362,14 @@ const GROUP: DeepObject[] = [
     funFact: { en: "On a dark night it looks like a milky band across the sky. That's how it got its name!",
       zh: '在黑暗的夜晚，它像一条横跨天空的乳白色光带，所以西方人叫它“牛奶路”，中国古人叫它“银河”。' },
     wiki: 'Milky Way' },
-  { key: 'dp_m31', scale: 'group', kind: 'galaxy', name: { en: 'Andromeda Galaxy', zh: '仙女座星系' }, emoji: '🌌',
+  { key: 'dp_m31', messier: 31, scale: 'group', kind: 'galaxy', name: { en: 'Andromeda Galaxy', zh: '仙女座星系' }, emoji: '🌌',
     l: 121.17, b: -21.57, distLy: 2.5e6, sizeLy: 152_000, morph: 'spiral', rank: 3,
     desc: { en: 'The biggest galaxy in the Local Group, with about a trillion stars. It is one of the farthest things you can see with your eyes alone.',
       zh: '本星系群里最大的星系，拥有约1万亿颗恒星，是你用肉眼能看到的最遥远的天体之一。' },
     funFact: { en: 'The light you see from Andromeda tonight left it 2.5 million years ago, when the earliest humans walked the Earth.',
       zh: '你今晚看到的仙女座星系的光，是250万年前出发的，那时地球上刚刚出现最早的人类。' },
     wiki: 'Andromeda Galaxy' },
-  { key: 'dp_m33', scale: 'group', kind: 'galaxy', name: { en: 'Triangulum Galaxy', zh: '三角座星系' }, emoji: '🌀',
+  { key: 'dp_m33', messier: 33, scale: 'group', kind: 'galaxy', name: { en: 'Triangulum Galaxy', zh: '三角座星系' }, emoji: '🌀',
     l: 133.61, b: -31.33, distLy: 2.73e6, sizeLy: 61_100, morph: 'spiral', rank: 3,
     desc: { en: 'The third-largest galaxy in the Local Group: a loose, fluffy spiral full of glowing star-forming clouds.',
       zh: '本星系群里第三大的星系，是一个松散蓬松的旋涡星系，到处都是发光的造星云。' },
@@ -404,12 +390,12 @@ const GROUP: DeepObject[] = [
     funFact: { en: 'A bridge of gas and stars, the Magellanic Bridge, joins it to the Large Magellanic Cloud.',
       zh: '一条由气体和恒星组成的“麦哲伦桥”把它和大麦哲伦云连在一起。' },
     wiki: 'Small Magellanic Cloud' },
-  { key: 'dp_m32', scale: 'group', kind: 'dwarf', name: { en: 'Messier 32', zh: '梅西耶32' }, emoji: '⚪',
+  { key: 'dp_m32', messier: 32, scale: 'group', kind: 'dwarf', name: { en: 'Messier 32', zh: '梅西耶32' }, emoji: '⚪',
     l: 121.15, b: -21.98, distLy: 2.49e6, sizeLy: 6_500, morph: 'elliptical',
     desc: { en: 'A small, round galaxy hugging Andromeda. It may be the core left over from a bigger galaxy that Andromeda tore apart.',
       zh: '一个紧贴着仙女座星系的小圆星系，可能是一个被仙女座撕碎的大星系剩下的核心。' },
     wiki: 'Messier 32' },
-  { key: 'dp_m110', scale: 'group', kind: 'dwarf', name: { en: 'Messier 110', zh: '梅西耶110' }, emoji: '⚪',
+  { key: 'dp_m110', messier: 110, scale: 'group', kind: 'dwarf', name: { en: 'Messier 110', zh: '梅西耶110' }, emoji: '⚪',
     l: 120.72, b: -21.14, distLy: 2.69e6, sizeLy: 17_000, morph: 'elliptical',
     desc: { en: 'A dwarf elliptical galaxy orbiting Andromeda, with a few young stars still forming in its dusty middle.',
       zh: '一个绕着仙女座星系转的矮椭圆星系，在它多尘的中心还有少量新恒星在诞生。' },
@@ -557,7 +543,7 @@ const LANIAKEA: DeepObject[] = [
     funFact: { en: 'Its biggest galaxy, M87, is a giant ball of over a trillion stars with a famous black hole at its heart.',
       zh: '它最大的星系M87是一个由上万亿颗恒星组成的大球，中心有一个著名的黑洞。' },
     wiki: 'Virgo Cluster' },
-  { key: 'dp_m87_black_hole', scale: 'laniakea', kind: 'blackhole', name: { en: 'M87* Black Hole', zh: 'M87黑洞' }, emoji: '⚫',
+  { key: 'dp_m87_black_hole', messier: 87, scale: 'laniakea', kind: 'blackhole', name: { en: 'M87* Black Hole', zh: 'M87黑洞' }, emoji: '⚫',
     l: 283.78, b: 74.49, distLy: 53.5e6, rank: 2,
     desc: { en: 'A monster black hole 6.5 billion times heavier than the Sun, in the galaxy M87. It shoots out a jet 5,000 light-years long.',
       zh: 'M87星系中心的巨型黑洞，比太阳重65亿倍，喷出一道长达5000光年的喷流。' },
@@ -629,21 +615,21 @@ const LANIAKEA: DeepObject[] = [
     funFact: { en: 'It is about 200 million light-years across but holds only a handful of lonely galaxies.',
       zh: '它直径约2亿光年，里面却只有寥寥几个孤零零的星系。' },
     wiki: 'Local Void' },
-  { key: 'dp_sombrero_galaxy', scale: 'laniakea', kind: 'galaxy', name: { en: 'Sombrero Galaxy', zh: '草帽星系' }, emoji: '👒',
+  { key: 'dp_sombrero_galaxy', messier: 104, scale: 'laniakea', kind: 'galaxy', name: { en: 'Sombrero Galaxy', zh: '草帽星系' }, emoji: '👒',
     l: 298.46, b: 51.15, distLy: 31.1e6, sizeLy: 49_000, morph: 'spiral',
     desc: { en: 'A galaxy that looks like a Mexican sombrero hat: a bright bulge with a dark lane of dust around its rim.',
       zh: '一个看起来像墨西哥草帽的星系：明亮的核球外面围着一圈黑暗的尘埃带。' },
     funFact: { en: 'It has about 2,000 globular clusters, ten times more than the Milky Way.',
       zh: '它有大约2000个球状星团，是银河系的十倍。' },
     wiki: 'Sombrero Galaxy' },
-  { key: 'dp_whirlpool_galaxy', scale: 'laniakea', kind: 'galaxy', name: { en: 'Whirlpool Galaxy', zh: '涡状星系' }, emoji: '🌀',
+  { key: 'dp_whirlpool_galaxy', messier: 51, scale: 'laniakea', kind: 'galaxy', name: { en: 'Whirlpool Galaxy', zh: '涡状星系' }, emoji: '🌀',
     l: 104.85, b: 68.56, distLy: 23e6, sizeLy: 76_900, morph: 'spiral',
     desc: { en: 'A grand spiral galaxy with beautiful curving arms, tugging on a smaller companion galaxy at the end of one arm.',
       zh: '一个有着优美弯曲旋臂的旋涡星系，一条旋臂的末端拉着一个小伙伴星系。' },
     funFact: { en: 'In 1845 Lord Rosse spotted its spiral shape. It was the first galaxy ever seen to be a spiral.',
       zh: '1845年，罗斯伯爵在它身上看出了旋涡形状，它是人类第一个看出旋涡结构的星系。' },
     wiki: 'Whirlpool Galaxy' },
-  { key: 'dp_pinwheel_galaxy', scale: 'laniakea', kind: 'galaxy', name: { en: 'Pinwheel Galaxy', zh: '风车星系' }, emoji: '🎡',
+  { key: 'dp_pinwheel_galaxy', messier: 101, scale: 'laniakea', kind: 'galaxy', name: { en: 'Pinwheel Galaxy', zh: '风车星系' }, emoji: '🎡',
     l: 102.04, b: 59.77, distLy: 20.9e6, sizeLy: 170_000, morph: 'spiral',
     desc: { en: 'A huge spiral galaxy we see face-on, nearly twice as wide as the Milky Way, with lopsided pinwheel arms.',
       zh: '一个正对着我们的巨大旋涡星系，宽度接近银河系的两倍，旋臂像风车一样，还有点歪。' },
@@ -829,4 +815,7 @@ const UNIVERSE: DeepObject[] = [
     wiki: 'Cosmic microwave background' },
 ];
 
-export const DEEP_OBJECTS: DeepObject[] = [...GALAXY, ...GROUP, ...LANIAKEA, ...UNIVERSE];
+export const DEEP_OBJECTS: DeepObject[] = [...NEARBY_STARS, ...GALAXY, ...GROUP, ...LANIAKEA, ...UNIVERSE, ...MESSIER_EXTRA];
+
+/** All 110 Messier objects, in catalogue order. */
+export const MESSIER: DeepObject[] = DEEP_OBJECTS.filter(o => o.messier).sort((a, b) => a.messier! - b.messier!);

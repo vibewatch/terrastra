@@ -8,7 +8,9 @@ import { motion } from '../lib/classroom.ts';
 import * as THREE from 'three';
 import { textW, underUI } from '../ui/occluders.ts';
 import { DEEP_OBJECTS, type DeepObject, type DeepScale, type DeepKind } from '../../shared/data/cosmos.ts';
-import { galVec, NCP_GAL } from '../../shared/lib/sky.ts';
+import { galVec, NCP_GAL, eqToGal } from '../../shared/lib/sky.ts';
+import { starColor, starClass } from '../../shared/data/nearby-stars.ts';
+import { buildMilkyWay, MILKY_WAY_SPACE } from '../lib/milkyway.ts';
 import type { Vec3 } from '../../shared/lib/orbits.ts';
 import { tr } from '../../shared/data/types.ts';
 import { lang, t } from '../lib/i18n.ts';
@@ -41,6 +43,8 @@ export interface LevelDef {
   defLy: number; el: number;
 }
 export const LEVELS: Record<DeepScale, LevelDef> = {
+  // The Sun's neighbourhood: 1 unit = 1 ly. In past the Oort Cloud's edge is the Solar System; out past ~400 ly, the Milky Way.
+  stars: { unit: 1, downLy: 1.2, upLy: 420, defLy: 58, el: 0.5 },
   galaxy: { unit: 1e3, downLy: 260, upLy: 3.4e5, defLy: 1.25e5, el: 0.9 },
   group: { unit: 2e4, downLy: 2.3e5, upLy: 1.1e7, defLy: 6.2e6, el: 0.42 },
   laniakea: { unit: 1e6, downLy: 7e6, upLy: 1.6e9, defLy: 8.5e8, el: 0.5 },
@@ -178,6 +182,8 @@ interface LevelRT {
   events?: Transients;
   /** Sprites whose brightness wanders (quasars): material, seed. */
   flicker: [THREE.SpriteMaterial, number][];
+  /** A sky sphere (the Milky Way's glow) kept centred on the camera. */
+  sky?: THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>;
 }
 
 export interface DeepEvents {
@@ -188,6 +194,7 @@ export interface DeepEvents {
 }
 
 const HOME_KEY: Record<DeepScale, RegExp> = {
+  stars: /^$/,
   galaxy: /^$/,
   group: /milky_way|milkyway/,
   laniakea: /local_group/,
@@ -214,10 +221,67 @@ export class DeepStage {
   /** Each nebula's soft marker glow (dimmed while its model shows). */
   private tweenAz: { from: number; to: number; t: number } | null = null;
 
+  /** While the Messier list is open its objects are labelled first. */
+  boostMessier = false;
+  /** The light-year meter: a dashed line between two objects (or `'home'`) of one level. */
+  readonly meterLabel = document.createElement('span');
+  private meas: { L: LevelRT; a: string; b: string; line: THREE.Line<THREE.BufferGeometry, THREE.LineDashedMaterial> } | null = null;
+
   constructor(root: HTMLElement, readonly quality: Quality, public ev: DeepEvents) {
     this.layer = document.createElement('div');
     this.layer.className = 'deep-labels';
+    this.meterLabel.className = 'meter-label';
+    this.meterLabel.dataset.testid = 'deep-meter-label';
+    this.meterLabel.hidden = true;
+    this.layer.append(this.meterLabel);
     root.append(this.layer);
+  }
+
+  /** Draws the light-year meter on the active level (null removes it). */
+  setMeasure(pair: [string, string] | null): void {
+    if (this.meas) {
+      this.meas.L.scene.remove(this.meas.line);
+      this.meas.line.geometry.dispose();
+      this.meas.line.material.dispose();
+      this.meas = null;
+    }
+    this.meterLabel.hidden = true;
+    if (!pair || pair[0] === pair[1]) return;
+    const L = this.current;
+    const geo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
+    const line = new THREE.Line(geo, new THREE.LineDashedMaterial({ color: 0xfbbf24, transparent: true, opacity: 0.95, depthTest: false, depthWrite: false, dashSize: 1, gapSize: 0.6 }));
+    line.frustumCulled = false;
+    line.renderOrder = 50;
+    L.scene.add(line);
+    this.meas = { L, a: pair[0], b: pair[1], line };
+  }
+
+  /** Keeps the meter line on its two (turning) ends and its label over the visible middle. */
+  private updateMeasure(L: LevelRT): void {
+    const m = this.meas;
+    if (!m || m.L !== L) { this.meterLabel.hidden = true; return; }
+    const at = (k: string) => (k === 'home' ? L.home : L.objs.find(x => x.o.key === k)?.pos);
+    const p0 = at(m.a), p1 = at(m.b);
+    if (!p0 || !p1) { this.meterLabel.hidden = true; return; }
+    const pos = m.line.geometry.attributes.position as THREE.BufferAttribute;
+    pos.setXYZ(0, p0.x, p0.y, p0.z);
+    pos.setXYZ(1, p1.x, p1.y, p1.z);
+    pos.needsUpdate = true;
+    m.line.computeLineDistances();
+    const span = Math.max(1e-4, Math.min(p0.distanceTo(p1), L.dist * 0.8));
+    m.line.material.dashSize = span / 24;
+    m.line.material.gapSize = span / 40;
+    const W = this.screen.w, H = this.screen.h, q = new THREE.Vector3(), N = 64;
+    let lo = -1, hi = -1;
+    for (let i = 0; i <= N; i++) {
+      q.copy(p0).lerp(p1, i / N).project(this.camera);
+      if (q.z < 1 && q.z > -1 && Math.abs(q.x) < 0.9 && Math.abs(q.y) < 0.9) { if (lo < 0) lo = i; hi = i; }
+    }
+    const show = lo >= 0 && Boolean(this.meterLabel.textContent);
+    this.meterLabel.hidden = !show;
+    if (!show) return;
+    q.copy(p0).lerp(p1, (lo + hi) / 2 / N).project(this.camera);
+    this.meterLabel.style.transform = `translate(${((q.x + 1) / 2 * W).toFixed(1)}px, ${((1 - q.y) / 2 * H).toFixed(1)}px) translate(-50%, -130%)`;
   }
 
   /** How far the Milky Way has turned (rad about +y): camera angles in galactic coordinates are relative to it. */
@@ -249,7 +313,8 @@ export class DeepStage {
       target: new THREE.Vector3(), dist: LEVELS[id].defLy / LEVELS[id].unit, tween: null, pts: [], fades: [], w: 0, root: new THREE.Group(), spin: 0, angle: 0, spinners: [], texts: [], flicker: [] };
     L.scene.add(L.root);
     this.levels.set(id, L);
-    if (id === 'galaxy') this.buildGalaxy(L);
+    if (id === 'stars') this.buildStars(L);
+    else if (id === 'galaxy') this.buildGalaxy(L);
     else if (id === 'group') this.buildGroup(L);
     else if (id === 'laniakea') this.buildLaniakea(L);
     else this.buildUniverse(L);
@@ -346,6 +411,69 @@ export class DeepStage {
     const out = new Float32Array(c.n * 3);
     for (let i = 0; i < c.n; i++) { out[i * 3] = c.pos[i * 3] * k; out[i * 3 + 1] = c.pos[i * 3 + 2] * k; out[i * 3 + 2] = -c.pos[i * 3 + 1] * k; }
     return out;
+  }
+
+  /**
+   * The Sun's neighbourhood, Sun at the centre, 1 unit = 1 light-year: the real nearest stars in their colours (sized
+   * roughly by brightness), each on a stalk down to the galactic plane like a 3D star chart, distance rings, faint
+   * field stars around and the Milky Way's glow behind, as it looks from here.
+   */
+  private buildStars(L: LevelRT): void {
+    const r = rng(23), glow = new THREE.CanvasTexture(glowCanvas());
+    L.home.set(0, 0, 0);
+    L.defTarget.set(0, 0, 0);
+    // the Sun, and the Oort Cloud: a faint swarm of comets out to ~1.6 ly
+    this.sprite(L, glow, 1.1, L.home, '#fff1d8', 0.95);
+    const no = Math.round(1400 * this.n), op = new Float32Array(no * 3), oc = new Float32Array(no * 3), os = new Float32Array(no);
+    for (let i = 0; i < no; i++) {
+      const v = new THREE.Vector3(gauss(r), gauss(r), gauss(r)).normalize().multiplyScalar(0.25 + 1.35 * Math.cbrt(r()));
+      op.set([v.x, v.y, v.z], i * 3);
+      oc.set([0.32, 0.42, 0.55], i * 3);
+      os[i] = 0.02;
+    }
+    maxPx(this.points(L, op, oc, os, no), 2.5);
+    this.text(L, () => t('oortCloud'), new THREE.Vector3(0, 1.9, 0), 0.32);
+    // the named stars: a glow whose size follows the kind of star, a stalk to the plane and a little foot ring
+    const stalk: number[] = [], feet: number[] = [];
+    for (const o of DEEP_OBJECTS) {
+      if (o.scale !== 'stars') continue;
+      const at = scenePos(o.l, o.b, o.distLy, 'stars'), k = starClass(o.spec ?? 'G');
+      const size = { red_dwarf: 0.55, brown_dwarf: 0.4, white_dwarf: 0.45, orange_dwarf: 0.8, yellow_dwarf: 1, white_star: 1.4, blue_star: 1.8, giant: 2.2 }[k];
+      this.sprite(L, glow, size, at, starColor(o.spec ?? 'G'), 0.9);
+      stalk.push(at.x, at.y, at.z, at.x, 0, at.z);
+      const rr = 0.35;
+      for (let i = 0; i < 12; i++) {
+        const a0 = (i / 12) * TAU, a1 = ((i + 1) / 12) * TAU;
+        feet.push(at.x + Math.cos(a0) * rr, 0, at.z + Math.sin(a0) * rr, at.x + Math.cos(a1) * rr, 0, at.z + Math.sin(a1) * rr);
+      }
+    }
+    for (const [arr, op2] of [[stalk, 0.28], [feet, 0.32]] as const) {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(arr, 3));
+      L.root.add(new THREE.LineSegments(g, this.fadeMat(L, new THREE.LineBasicMaterial({ color: '#9ad8ff', transparent: true, opacity: op2, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false }))));
+    }
+    this.distanceRings(L, [10, 20, 30, 40, 50, 60, 70], [1.6, 70], d => 0.4 + d * 0.022);
+    // which way the Galactic Centre is (l = 0: +x)
+    const arrow = [72, 0, 0, 84, 0, 0, 84, 0, 0, 81, 0, 1.4, 84, 0, 0, 81, 0, -1.4];
+    const ag = new THREE.BufferGeometry();
+    ag.setAttribute('position', new THREE.Float32BufferAttribute(arrow, 3));
+    L.root.add(new THREE.LineSegments(ag, this.fadeMat(L, new THREE.LineBasicMaterial({ color: '#ffd59a', transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false }))));
+    this.text(L, () => t('towardGC'), new THREE.Vector3(80, 2.2, 0), 1.8);
+    // field stars: the thousands of unnamed neighbours (mostly dim red dwarfs), thinning out with distance
+    const nf = Math.round(5000 * this.n), fp = new Float32Array(nf * 3), fc = new Float32Array(nf * 3), fs = new Float32Array(nf);
+    for (let i = 0; i < nf; i++) {
+      const v = new THREE.Vector3(gauss(r), gauss(r), gauss(r)).normalize().multiplyScalar(16 + 380 * Math.pow(r(), 0.75));
+      v.y *= 0.75;
+      fp.set([v.x, v.y, v.z], i * 3);
+      const u = r(), f = 0.35 + r() * 0.5;
+      const cc = u < 0.7 ? [1, 0.7, 0.45] : u < 0.85 ? [1, 0.85, 0.65] : u < 0.95 ? [1, 0.96, 0.88] : [0.8, 0.88, 1];
+      fc.set([cc[0] * f, cc[1] * f, cc[2] * f], i * 3);
+      fs[i] = 0.35 + r() * 0.5;
+    }
+    maxPx(gain(this.points(L, fp, fc, fs, nf, { TWINKLE: '' }), 0.8), 3);
+    L.sky = buildMilkyWay((x, y, z, out) => { const g = eqToGal([x, y, z]); return out.set(g[0], g[2], -g[1]); }, 3000);
+    L.sky.renderOrder = -1001;
+    L.scene.add(L.sky);
   }
 
   private buildGalaxy(L: LevelRT): void {
@@ -664,8 +792,11 @@ export class DeepStage {
     });
   }
 
-  /** Distance rings (light-years) round the level's centre in the galactic plane, like a radar scope, with tags and spokes. */
-  private distanceRings(L: LevelRT, ly: number[], spokes: [number, number], h: number): void {
+  /**
+   * Distance rings (light-years) round the level's centre in the galactic plane, like a radar scope, with tags and
+   * spokes. `h`: tag height (scene units), or a function of the ring's radius in ly (tags that grow with their ring).
+   */
+  private distanceRings(L: LevelRT, ly: number[], spokes: [number, number], h: number | ((ly: number) => number)): void {
     const seg = 160, mat = this.fadeMat(L, new THREE.LineBasicMaterial({ color: '#7fd6ff', transparent: true, opacity: 0.2, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false }));
     const tick = this.fadeMat(L, new THREE.LineBasicMaterial({ color: '#7fd6ff', transparent: true, opacity: 0.08, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false }));
     const pts: number[] = [], rings: number[] = [];
@@ -680,8 +811,8 @@ export class DeepStage {
         const a = (i / 72) * Math.PI * 2, t = Rmax * (i % 6 === 0 ? 0.02 : 0.008);
         pts.push(Math.cos(a) * (R - t), 0, Math.sin(a) * (R - t), Math.cos(a) * R, 0, Math.sin(a) * R);
       }
-      const a = -Math.PI * 0.62;
-      this.text(L, () => fmtLy(d, lang()), new THREE.Vector3(Math.cos(a) * R, h * 0.36, Math.sin(a) * R), h);
+      const a = -Math.PI * 0.62, th = typeof h === 'number' ? h : h(d);
+      this.text(L, () => fmtLy(d, lang()), new THREE.Vector3(Math.cos(a) * R, th * 0.36, Math.sin(a) * R), th);
     }
     for (let i = 0; i < 12; i++) {
       const a = (i / 12) * Math.PI * 2;
@@ -912,7 +1043,7 @@ export class DeepStage {
     const p = new Float32Array(n * 3), c = new Float32Array(n * 3), s = new Float32Array(n), col = new THREE.Color();
     L.objs.forEach((x, i) => {
       p.set([x.pos.x, x.pos.y, x.pos.z], i * 3);
-      col.set(kindColor(x.o.kind));
+      col.set(x.o.spec ? starColor(x.o.spec) : kindColor(x.o.kind));
       c.set([col.r, col.g, col.b], i * 3);
       s[i] = x.o.kind === 'cmb' || x.o.kind === 'void' ? 0 : 5 + x.rank * 2;
     });
@@ -970,7 +1101,7 @@ export class DeepStage {
       const x = L.objs.find(v => v.o === o);
       if (!x) return;
       const R = this.showModel(L, o, x.pos);
-      const want = R ? R * MODEL_VIEW
+      const want = R ? R * MODEL_VIEW : L.id === 'stars' ? 7.5
         : Math.max(L.def.downLy * 1.4, Math.min(L.def.defLy * 0.4, (o.sizeLy ?? L.def.defLy * 0.05) * 3.2 * (L.id === 'group' ? GROUP_EX : 1))) / L.def.unit;
       this.tweenTo(L, x.pos, o.kind === 'cmb' ? L.def.defLy / L.def.unit : want, R ? 2200 : 1500);
     }
@@ -1160,6 +1291,7 @@ export class DeepStage {
       m.uniforms.uTime.value = this.time;
     }
     for (const [m, base] of L.fades) m.opacity = base * w * bg;
+    if (L.sky) { L.sky.position.copy(cam.position); L.sky.material.uniforms.uI.value = MILKY_WAY_SPACE * w; }
     if (L.cmb) L.cmb.uniforms.uFade.value = w * 0.9 * (md ? 1 - 0.7 * md.a : 1);
     if (L.pulse) (L.pulse.material as THREE.SpriteMaterial).opacity = w * (0.45 + 0.25 * Math.sin(this.time * 1.7));
     for (const [m, k] of L.flicker) {
@@ -1189,9 +1321,10 @@ export class DeepStage {
   labels(id: DeepScale | null): void {
     for (const L of this.levels.values()) L.labels.hidden = L.id !== id;
     this.placed = [];
-    if (!id) return;
+    if (!id) { this.meterLabel.hidden = true; return; }
     const L = this.levels.get(id)!;
     this.render0(L);
+    this.updateMeasure(L);
     const W = this.screen.w, H = this.screen.h;
     const p = new THREE.Vector3();
     const boxes: [number, number, number][] = [];
@@ -1220,7 +1353,9 @@ export class DeepStage {
       return true;
     };
     L.homeLabel.hidden = !show(L.homeLabel, L.home, 'home', true);
-    const order = [...L.objs].sort((a, b) => (b.o === this.sel ? 1 : 0) - (a.o === this.sel ? 1 : 0) || b.rank - a.rank || a.pos.distanceTo(L.target) - b.pos.distanceTo(L.target));
+    const meas = this.meas?.L === L ? [this.meas.a, this.meas.b] : [];
+    const rank = (x: ObjRT) => x.rank + (this.boostMessier && x.o.messier ? 4 : 0) + (meas.includes(x.o.key) ? 8 : 0);
+    const order = [...L.objs].sort((a, b) => (b.o === this.sel ? 1 : 0) - (a.o === this.sel ? 1 : 0) || rank(b) - rank(a) || a.pos.distanceTo(L.target) - b.pos.distanceTo(L.target));
     for (const x of order) {
       x.label.hidden = !show(x.label, x.pos, x.o, x.o === this.sel);
       x.label.classList.toggle('on', x.o === this.sel);
@@ -1238,7 +1373,7 @@ export class DeepStage {
 
   relabel(): void {
     const l = lang();
-    const HOME: Record<DeepScale, string> = { galaxy: 'youAreHere', group: 'sc_galaxy', laniakea: 'sc_group', universe: 'sc_laniakea' };
+    const HOME: Record<DeepScale, string> = { stars: 'youAreHere', galaxy: 'youAreHere', group: 'sc_galaxy', laniakea: 'sc_group', universe: 'sc_laniakea' };
     for (const L of this.levels.values()) {
       L.homeLabel.textContent = t(HOME[L.id]);
       for (const x of L.objs) x.label.querySelector('span')!.textContent = tr(x.o.name, l);
@@ -1317,8 +1452,10 @@ export function deepThumb(o: DeepObject, mw: () => HTMLCanvasElement, W = 720, H
       break;
     }
     case 'star': {
-      const c = /betelgeuse|antares|uy_scuti|vy_|proxima|red/i.test(o.key + o.wiki) ? '#ff9a5c' : /rigel|vega|sirius|eta/i.test(o.key) ? '#bcd4ff' : '#fff1c4';
-      blob(cx, cy, H * 0.9, c, 0.9); blob(cx, cy, H * 0.3, '#ffffff', 1);
+      const c = o.spec ? starColor(o.spec) : /betelgeuse|antares|uy_scuti|vy_|proxima|red/i.test(o.key + o.wiki) ? '#ff9a5c' : /rigel|vega|sirius|eta/i.test(o.key) ? '#bcd4ff' : '#fff1c4';
+      // bigger, brighter stars get a bigger glow (a red dwarf is a small ember next to Sirius)
+      const k = o.spec ? { red_dwarf: 0.62, brown_dwarf: 0.5, white_dwarf: 0.55, orange_dwarf: 0.8, yellow_dwarf: 0.9, white_star: 1, blue_star: 1, giant: 1.1 }[starClass(o.spec)] : 1;
+      blob(cx, cy, H * 0.9 * k, c, 0.9); blob(cx, cy, H * 0.3 * k, '#ffffff', 1);
       ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.moveTo(cx - H * 0.6, cy); ctx.lineTo(cx + H * 0.6, cy); ctx.moveTo(cx, cy - H * 0.45); ctx.lineTo(cx, cy + H * 0.45); ctx.stroke();
       break;

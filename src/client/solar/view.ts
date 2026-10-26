@@ -13,7 +13,6 @@ import { textW, underUI } from '../ui/occluders.ts';
 import { BODIES, BODY, type BodyId, type SolarBody, type SolarFeature } from '../../shared/data/solar.ts';
 import { SOLAR_FEATURES } from '../../shared/data/solar-features.ts';
 import { daysJ2000, displayMoonDist, displayOrbit, displayRadius, keplerPosition, poleOf, relativePosition, subSolarLon, type Vec3 } from '../../shared/lib/orbits.ts';
-import { drawRadii, interiorOf } from '../../shared/data/solar-interiors.ts';
 import { latLonToVec, vecToLatLon } from '../../shared/lib/geo.ts';
 import { tr } from '../../shared/data/types.ts';
 import { lang } from '../lib/i18n.ts';
@@ -22,7 +21,7 @@ import type { PaintReply, PaintRequest } from './solar.worker.ts';
 import { SCALES, type DeepObject, type DeepScale, type ScaleId } from '../../shared/data/cosmos.ts';
 import { eclToGal, eqToEcl, galToEcl } from '../../shared/lib/sky.ts';
 import { buildStarField, SPACE_BG } from '../lib/starfield.ts';
-import { DeepStage } from './deep.ts';
+import { DeepStage, LEVELS } from './deep.ts';
 import { SiteLayer, helioAU } from './sites.ts';
 import { SolarFX, FLOW_BODIES, COMET_NAME, FLARE_GLSL } from './fx.ts';
 import { ConstellationLayer, type Disc } from './constellations.ts';
@@ -60,8 +59,6 @@ const eclToThree = (v: Vec3, out = new THREE.Vector3()) => out.set(v[0], v[2], -
 const wrapPi = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 const helioOrbit = (s: SolarSite, ms: number) => displayOrbit(helioAU(s, ms));
 const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
-/** Cutaway wedge frame relative to the camera: its open corner faces the viewer, its edge leaning slightly away. */
-const CUT_Q = new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.2, -Math.PI / 4, 0, 'XYZ'));
 
 export type SolarSelection = { kind: 'body'; id: BodyId } | { kind: 'feature'; f: SolarFeature } | { kind: 'site'; s: SolarSite } | { kind: 'cst'; c: Constellation };
 
@@ -134,14 +131,11 @@ void main() {
   #include <colorspace_fragment>
 }`;
 const SUN_VS = /* glsl */ `
-#include <clipping_planes_pars_vertex>
 varying vec2 vUv; varying vec3 vN; varying vec3 vW; varying vec3 vP;
 void main() {
   vUv = uv; vP = position; vN = normalize(mat3(modelMatrix) * normal);
   vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz;
-  vec4 mvPosition = viewMatrix * w;
-  gl_Position = projectionMatrix * mvPosition;
-  #include <clipping_planes_vertex>
+  gl_Position = projectionMatrix * viewMatrix * w;
 }`;
 /**
  * The photosphere: the painted map (sunspots, faculae, mottling) under limb darkening, live convection on top, and
@@ -151,7 +145,6 @@ void main() {
 const SUN_FS = /* glsl */ `
 uniform sampler2D uMap; uniform float uTime; uniform vec4 uFlare;
 varying vec2 vUv; varying vec3 vN; varying vec3 vW; varying vec3 vP;
-#include <clipping_planes_pars_fragment>
 float h3(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
 float n1(float x) { float i = floor(x), f = fract(x); return mix(h3(vec3(i, 0.3, 0.7)), h3(vec3(i + 1.0, 0.3, 0.7)), f * f * (3.0 - 2.0 * f)); }
 ${FLARE_GLSL}
@@ -170,7 +163,6 @@ float cells(vec3 p, float t) {
 }
 #endif
 void main() {
-  #include <clipping_planes_fragment>
   vec3 n = normalize(vP);
   float mu = clamp(dot(normalize(vN), normalize(cameraPosition - vW)), 0.0, 1.0);
   vec3 c = texture2D(uMap, vUv).rgb;
@@ -239,8 +231,6 @@ export class SolarView {
   private cometLabel = document.createElement('span');
   /** Stick figures of the constellations on the sky sphere (toggle with `.visible`). */
   cst!: ConstellationLayer;
-  /** Interior cutaway: a 90° wedge clipped out of one world, its faces painted with the layers inside. */
-  private cut: { id: BodyId; group: THREE.Group; planes: THREE.Plane[]; hidden: THREE.Object3D[] } | null = null;
   /** Distance meter: a dashed line between two worlds and a label at its middle (text set by the UI). */
   private meter: { a: BodyId; b: BodyId; line: THREE.Line<THREE.BufferGeometry, THREE.LineDashedMaterial> } | null = null;
   readonly meterLabel = document.createElement('span');
@@ -279,7 +269,6 @@ export class SolarView {
     this.adapt = new AdaptiveResolution(quality.dprMin, Math.min(devicePixelRatio || 1, quality.dprMax));
     this.renderer.setClearColor(SPACE_BG);
     this.renderer.autoClear = false;
-    this.renderer.localClippingEnabled = true;
     this.veilScene.add(this.veil);
     const cv = this.renderer.domElement;
     cv.className = 'solar-canvas';
@@ -327,7 +316,7 @@ export class SolarView {
       tilt.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), pole);
       let mat: BodyRT['mat'];
       if (b.id === 'sun') {
-        mat = new THREE.ShaderMaterial({ uniforms: this.sunU, vertexShader: SUN_VS, fragmentShader: SUN_FS, defines: this.quality.tier === 'low' ? {} : { GRAN: 1 }, clipping: true });
+        mat = new THREE.ShaderMaterial({ uniforms: this.sunU, vertexShader: SUN_VS, fragmentShader: SUN_FS, defines: this.quality.tier === 'low' ? {} : { GRAN: 1 } });
         this.addSunGlow(node, R);
       } else {
         mat = new THREE.MeshStandardMaterial({ color: 0x8a8a8a, roughness: 1, metalness: 0 });
@@ -707,7 +696,7 @@ export class SolarView {
     const iF = SCALES.indexOf(from), iT = SCALES.indexOf(to);
     how ??= Math.abs(iF - iT) === 1 ? (iT < iF ? 'up' : 'down') : 'jump';
     if (to === 'solar') {
-      if (from === 'galaxy' || how === 'down') this.setAngles(this.anglesVec(this.deep.az - (from === 'galaxy' ? this.deep.galSpin : 0), this.deep.el, galToEcl, eclToGal, true));
+      if (from === 'galaxy' || from === 'stars' || how === 'down') this.setAngles(this.anglesVec(this.deep.az - (from === 'galaxy' ? this.deep.galSpin : 0), this.deep.el, galToEcl, eclToGal, true));
       this.selFeature = null;
       this.focusId = 'sun';
       const rt = this.rts.get('sun')!;
@@ -719,8 +708,11 @@ export class SolarView {
         const off = this.anglesVec(this.az, this.el, eclToGal, galToEcl, false);
         this.deep.az = Math.atan2(off.x, off.z) + (to === 'galaxy' ? this.deep.galSpin : 0);
         this.deep.el = Math.asin(Math.max(-1, Math.min(1, off.y)));
+      } else if (from === 'stars' || to === 'stars') {
+        // the Milky Way level turns, the nearby stars keep still in galactic coordinates: keep looking the same way
+        this.deep.az += (to === 'galaxy' ? 1 : from === 'galaxy' ? -1 : 0) * this.deep.galSpin;
       }
-      this.deep.enter(to as DeepScale, how, from === 'solar' ? 600 : this.deep.distLy);
+      this.deep.enter(to as DeepScale, how, from === 'solar' ? LEVELS[to as DeepScale].downLy * 1.6 : this.deep.distLy);
     }
     this.xf = { from, to, t: 0, dur: this.quality.tier === 'low' ? 700 : 1100 };
     this.scale = to;
@@ -768,7 +760,6 @@ export class SolarView {
   }
 
   private focus(id: BodyId, dist?: number, el?: number, toLocal: THREE.Vector3 | null = null): void {
-    if (this.cut && this.cut.id !== id) this.setInterior(null);
     const prev = this.rts.get(this.focusId)!, rt = this.rts.get(id)!;
     const fromPos = this.tween ? this.camera.position.clone().sub(this.offset()) : prev.pos.clone();
     const toDist = dist ?? (id === 'sun' ? rt.R * 4.5 : id === 'earth' ? rt.R * 12 : rt.R * 4.2);
@@ -803,71 +794,6 @@ export class SolarView {
   setSpeed(s: number): void { this.speed = s; }
   get selSite(): SolarSite | null { return this.sites.sel; }
   resetTime(): void { this.simMs = Date.now(); this.updateBodies(0); }
-
-  /** The world shown cut open, if any. */
-  get interiorId(): BodyId | null { return this.cut?.id ?? null; }
-
-  /** Cuts a wedge out of a world to show its layers (null closes it). Returns false if its inside is not known. */
-  setInterior(id: BodyId | null): boolean {
-    if (this.cut) {
-      const c = this.cut, rt = this.rts.get(c.id)!;
-      rt.node.remove(c.group);
-      const mats = new Set<THREE.Material>();
-      c.group.traverse(o => { if (o instanceof THREE.Mesh) { o.geometry.dispose(); mats.add(o.material as THREE.Material); } });
-      for (const m of mats) m.dispose();
-      for (const o of c.hidden) o.visible = true;
-      rt.mat.clippingPlanes = null;
-      rt.mat.clipIntersection = false;
-      rt.mat.needsUpdate = true;
-      this.cut = null;
-    }
-    const layers = id ? interiorOf(id) : null;
-    if (!id || !layers) return false;
-    const rt = this.rts.get(id)!, R = rt.R, radii = drawRadii(layers);
-    const group = new THREE.Group();
-    const col = new THREE.Color();
-    radii.forEach((r1, i) => {
-      const r0 = i ? radii[i - 1] : 0;
-      const geo = new THREE.RingGeometry(r0 * R, r1 * R, 72, 2, -Math.PI / 2, Math.PI);
-      const pos = geo.attributes.position, rgb = new Float32Array(pos.count * 3);
-      col.set(layers[i].color);
-      for (let k = 0; k < pos.count; k++) {
-        // darker toward each layer's inner edge, so neighbouring layers read as separate bands
-        const f = r1 - r0 < 1e-6 ? 1 : 0.68 + 0.32 * ((Math.hypot(pos.getX(k), pos.getY(k)) / R - r0) / (r1 - r0));
-        rgb[k * 3] = col.r * f; rgb[k * 3 + 1] = col.g * f; rgb[k * 3 + 2] = col.b * f;
-      }
-      geo.setAttribute('color', new THREE.BufferAttribute(rgb, 3));
-      const mat = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide });
-      // one face on each of the two cutting planes (x = 0 and z = 0 of the wedge frame)
-      group.add(new THREE.Mesh(geo, mat), new THREE.Mesh(geo.clone().rotateY(-Math.PI / 2), mat));
-    });
-    group.name = 'interior';
-    rt.node.add(group);
-    // Everything else wrapped around the world (glow, clouds, storms, aurora, corona) would cover the cut.
-    const keep = new Set<THREE.Object3D | null>([rt.tilt, rt.spin, rt.mesh, rt.rings, group]);
-    const hidden: THREE.Object3D[] = [];
-    for (const parent of [rt.node, rt.tilt, rt.spin]) {
-      for (const o of parent.children) if (!keep.has(o) && !(o instanceof THREE.Line) && o.visible) { o.visible = false; hidden.push(o); }
-    }
-    const planes = [new THREE.Plane(), new THREE.Plane()];
-    rt.mat.clippingPlanes = planes;
-    rt.mat.clipIntersection = true;
-    rt.mat.needsUpdate = true;
-    this.cut = { id, group, planes, hidden };
-    this.updateCut();
-    if (this.focusId !== id || this.dist > rt.R * 8) this.focus(id, rt.R * (id === 'earth' ? 5.4 : 3.6));
-    return true;
-  }
-
-  private updateCut(): void {
-    const c = this.cut;
-    if (!c) return;
-    const rt = this.rts.get(c.id)!, q = c.group.quaternion.copy(this.camera.quaternion).multiply(CUT_Q), n = new THREE.Vector3();
-    // three.js clips where every plane's signed distance is negative: here x > 0 and z > 0 of the wedge frame
-    c.planes[0].setFromNormalAndCoplanarPoint(n.set(-1, 0, 0).applyQuaternion(q), rt.pos);
-    c.planes[1].setFromNormalAndCoplanarPoint(n.set(0, 0, -1).applyQuaternion(q), rt.pos);
-    for (const o of c.hidden) o.visible = false;
-  }
 
   /** Draws the distance meter between two worlds (null removes it). */
   setMeasure(pair: [BodyId, BodyId] | null): void {
@@ -906,16 +832,20 @@ export class SolarView {
     m.line.material.dashSize = span / 24;
     m.line.material.gapSize = span / 40;
     // label the middle of the part of the line that is on screen (the whole line rarely is when zoomed on one end)
+    // (samples crowd towards both ends: zoomed on a world, only a sliver of a long line next to it is in view)
     const W = this.sized.w, H = this.sized.h, q = new THREE.Vector3(), N = 64;
-    let lo = -1, hi = -1;
+    let lo = 2, hi = -1;
     for (let i = 0; i <= N; i++) {
-      q.copy(p0).lerp(p1, i / N).project(this.camera);
-      if (q.z < 1 && q.z > -1 && Math.abs(q.x) < 0.9 && Math.abs(q.y) < 0.9) { if (lo < 0) lo = i; hi = i; }
+      const u = i / N, e = 0.5 * u ** 4;
+      for (const t of [u, e, 1 - e]) {
+        q.copy(p0).lerp(p1, t).project(this.camera);
+        if (q.z < 1 && q.z > -1 && Math.abs(q.x) < 0.9 && Math.abs(q.y) < 0.9) { lo = Math.min(lo, t); hi = Math.max(hi, t); }
+      }
     }
-    const show = lo >= 0 && Boolean(this.meterLabel.textContent);
+    const show = hi >= 0 && Boolean(this.meterLabel.textContent);
     this.meterLabel.hidden = !show;
     if (!show) return;
-    q.copy(p0).lerp(p1, (lo + hi) / 2 / N).project(this.camera);
+    q.copy(p0).lerp(p1, (lo + hi) / 2).project(this.camera);
     this.meterLabel.style.transform = `translate(${((q.x + 1) / 2 * W).toFixed(1)}px, ${((1 - q.y) / 2 * H).toFixed(1)}px) translate(-50%, -130%)`;
   }
 
@@ -944,7 +874,7 @@ export class SolarView {
       const now = performance.now();
       this.over.v = (now - this.over.t < 800 ? this.over.v : 0) + Math.log(f);
       this.over.t = now;
-      if (this.over.v > 0.4) { this.over.v = 0; this.goScale('galaxy', 'up'); }
+      if (this.over.v > 0.4) { this.over.v = 0; this.goScale(SCALES[SCALES.indexOf('solar') - 1], 'up'); }
     }
   }
 
@@ -1110,7 +1040,6 @@ export class SolarView {
       this.updateBodies(wdt / 1000);
       this.updateCamera(dt);
       this.camera.updateMatrixWorld();
-      this.updateCut();
       this.updateMeter();
       this.cst.update(this.camera, this.sized.w, this.sized.h, this.discs());
       if (!motion.still) this.sunU.uTime.value = now / 1000;
@@ -1240,7 +1169,7 @@ export class SolarView {
     const list = featuresOf(this.focusId);
     const want = new Set<string>();
     const cam = this.camera.position;
-    if (list.length && this.dist < rt.R * 7 && !this.tween && this.cut?.id !== this.focusId) {
+    if (list.length && this.dist < rt.R * 7 && !this.tween) {
       const max = W < 700 ? 8 : 14;
       rt.spin.updateWorldMatrix(true, false);
       const toCam = cam.clone().sub(rt.pos);
