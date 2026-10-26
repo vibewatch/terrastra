@@ -1638,6 +1638,294 @@ function paintCharon(w: number): BodyMaps {
 
 // ---------------------------------------------------------------- entry points
 
+// ---------------------------------------------------------------- small moons, Saturn's and Uranus's moons, distant dwarfs
+
+const kmDeg = (radiusKm: number) => (radiusKm * TAU) / 360;
+
+/** Shared start for the airless worlds: two noise fields, a height field and an albedo field around 1. */
+function rocky(w: number, seed: number, hAmp = 0.4, aAmp = 0.2) {
+  const c = canvas(w), n = c.n;
+  const n1 = fbm(w, { f: 3, oct: 10, seed, gain: 0.55 }), n2 = fbm(w, { f: 1.3, oct: 5, seed: seed + 1, cap: 256 });
+  const hg = new Float32Array(n), al = new Float32Array(n);
+  for (let i = 0; i < n; i++) { hg[i] = (n1[i] + n2[i]) * hAmp; al[i] = 1 + (n1[i] + n2[i]) * aAmp; }
+  return { c, n, n1, n2, hg, al };
+}
+
+/** Angular distance (deg) of every pixel from (lat, lon). */
+function distFrom(w: number, lat: number, lon: number): F32 {
+  const g = grid(w), out = new Float32Array(g.n), s0 = Math.sin(lat * D2R), c0 = Math.cos(lat * D2R), sl0 = Math.sin(lon * D2R), cl0 = Math.cos(lon * D2R);
+  for (let y = 0; y < g.h; y++) {
+    const row = y * w, a = g.sl[y] * s0, b = g.cl[y] * c0;
+    for (let x = 0; x < w; x++) out[row + x] = Math.acos(clamp(a + b * (g.co[x] * cl0 + g.so[x] * sl0), -1, 1)) * R2D;
+  }
+  return out;
+}
+
+/** Points along the great circle 90° from a pole (lat, lon), from angle t0 to t1 (deg). */
+function greatCircle(lat: number, lon: number, t0: number, t1: number, step = 2): [number, number][] {
+  const p = [Math.cos(lat * D2R) * Math.cos(lon * D2R), Math.cos(lat * D2R) * Math.sin(lon * D2R), Math.sin(lat * D2R)];
+  const u = Math.abs(p[2]) > 0.9 ? [1, 0, 0] : [-p[1], p[0], 0], ul = Math.hypot(u[0], u[1], u[2]);
+  const U = u.map(x => x / ul), V = [p[1] * U[2] - p[2] * U[1], p[2] * U[0] - p[0] * U[2], p[0] * U[1] - p[1] * U[0]];
+  const pts: [number, number][] = [];
+  for (let t = t0; t <= t1; t += step) {
+    const ct = Math.cos(t * D2R), st = Math.sin(t * D2R), q = [U[0] * ct + V[0] * st, U[1] * ct + V[1] * st, U[2] * ct + V[2] * st];
+    pts.push([Math.asin(clamp(q[2], -1, 1)) * R2D, Math.atan2(q[1], q[0]) * R2D]);
+  }
+  return pts;
+}
+
+/** A family of roughly parallel grooves or wisps: n arcs scattered in a lat/lon box. */
+function lineSet(seed: number, k: number, box: [number, number, number, number], bearing: [number, number], len: [number, number], r: number, curve = 0): Blob[] {
+  const rnd = mulberry32(seed), out: Blob[] = [];
+  const [la0, la1, lo0, lo1] = box;
+  for (let i = 0; i < k; i++) {
+    const pts = arc(la0 + rnd() * (la1 - la0), lo0 + rnd() * (lo1 - lo0), bearing[0] + rnd() * (bearing[1] - bearing[0]), len[0] + rnd() * (len[1] - len[0]), curve * (rnd() - 0.5) * 2, Math.max(0.5, r));
+    out.push(...path(pts, r * (0.6 + rnd() * 0.6), 0.5 + rnd() * 0.5, true, 0.5));
+  }
+  return out;
+}
+
+function paintPhobos(w: number): BodyMaps {
+  const { c, n, n1, n2, hg, al } = rocky(w, 501, 0.5, 0.12);
+  // the grooves: chains of pits running roughly parallel to the orbit, crossing everywhere but the trailing side
+  const gr = new Float32Array(n);
+  stamp(w, gr, lineSet(502, 34, [-60, 60, -170, 60], [62, 108], [40, 110], 0.8, 0.4));
+  const stk = distFrom(w, 1, -49);
+  for (let i = 0; i < n; i++) { hg[i] -= gr[i] * 0.22; al[i] -= gr[i] * 0.07; }
+  stampCraters(w, hg, al, genCraters(w, { seed: 503, cover: 0.2, rMin: 0.8, rMax: 9, dk: 0.16, fp: 12 }), { rim: 0.05, floor: -0.05, fresh: 0.15, ray: 0.1, halo: 0.5 });
+  const K = kmDeg(11.08);
+  stampCraters(w, hg, al, named(K, [
+    [1, -49, 9, { d: 0.9, rim: 0.2, fl: 0.25, f: 0.2 }], [-11, -54, 2, { d: 0.3 }],       // Stickney, Limtoc inside it
+    [-80, -150, 5.4, { d: 0.6 }], [-60, -5, 2.5, {}], [37, 22, 1.8, {}], [15, 150, 2, {}], // Hall, Todd, Clustril, Drunlo-ish
+  ]), { rim: 0.05, floor: -0.05, fresh: 0.25, ray: 0.2 });
+  // the "blue" unit: brighter, bluer material sprayed around Stickney
+  const blue = new Float32Array(n);
+  for (let i = 0; i < n; i++) blue[i] = (1 - sstep(18, 50, stk[i] + n2[i] * 25)) * 0.8;
+  for (let i = 0; i < n; i++) al[i] *= 1 + blue[i] * 0.18 + n1[i] * 0.05;
+  tint(c, al, [108, 98, 90], [118, 118, 122], blue, 0.4, 1.6);
+  bakeRelief(c, hg, 0.8);
+  return finish(c, hg, 100);
+}
+
+function paintDeimos(w: number): BodyMaps {
+  const { c, n, n1, n2, hg, al } = rocky(w, 511, 0.35, 0.08);
+  // a thick blanket of dust smooths everything: soft, shallow craters and bright streaks down the slopes
+  stampCraters(w, hg, al, genCraters(w, { seed: 512, cover: 0.12, rMin: 1, rMax: 8, dk: 0.07, fp: 14 }), { rim: 0.02, floor: -0.02, fresh: 0.1, ray: 0, halo: 0.3 });
+  stampCraters(w, hg, al, named(kmDeg(6.27), [[22, -3.5, 1.9, { d: 0.25, f: 0.2 }], [12.5, -1, 1, { d: 0.15, f: 0.3 }], [-30, 120, 3, { d: 0.3 }]]), // Voltaire, Swift
+    { rim: 0.02, floor: -0.03, fresh: 0.2, ray: 0 });
+  const st = new Float32Array(n);
+  stamp(w, st, lineSet(513, 14, [-50, 50, -180, 180], [-20, 20], [8, 20], 2.2));
+  for (let i = 0; i < n; i++) al[i] += st[i] * 0.22 * (0.6 + n2[i]);
+  for (let i = 0; i < n; i++) hg[i] = hg[i] * 0.8 + n1[i] * 0.05;
+  tint(c, al, [132, 120, 108], undefined, null, 0.4, 1.6);
+  bakeRelief(c, hg, 0.6);
+  return finish(c, hg, 100);
+}
+
+function paintMimas(w: number): BodyMaps {
+  const { c, hg, al } = rocky(w, 521, 0.35, 0.12);
+  stampCraters(w, hg, al, genCraters(w, { seed: 522, cover: 0.32, rMin: 0.35, rMax: 9, dk: 0.15, fp: 11 }), { rim: 0.05, floor: -0.05, fresh: 0.2, ray: 0.1, halo: 0.5 });
+  stampCraters(w, hg, al, named(kmDeg(198.2), [
+    [-1.4, -111.8, 139, { d: 0.9, rim: 0.25, fl: 0.35, pk: 0.75 }],                     // Herschel: the "Death Star" crater
+    [-55, 165, 60, {}], [42, 72, 50, {}], [-12, 40, 45, {}], [60, -40, 40, {}],
+  ]), { rim: 0.06, floor: -0.05, fresh: 0.2, ray: 0.2 });
+  tint(c, al, [196, 196, 194], undefined, null, 0.5, 1.5);
+  bakeRelief(c, hg, 0.7);
+  return finish(c, hg, 100);
+}
+
+function paintTethys(w: number): BodyMaps {
+  const { c, n, n2, hg, al } = rocky(w, 531, 0.3, 0.1);
+  stampCraters(w, hg, al, genCraters(w, { seed: 532, cover: 0.26, rMin: 0.3, rMax: 7, dk: 0.12, fp: 12 }), { rim: 0.04, floor: -0.04, fresh: 0.2, ray: 0.1, halo: 0.5 });
+  const K = kmDeg(531.1);
+  stampCraters(w, hg, al, named(K, [
+    [32.8, -128.9, 445, { d: 0.12, rim: 0.12, fl: 0.7, pk: 0.4 }],                       // Odysseus: huge but flattened by time
+    [-10, 111, 207, { d: 0.12 }], [-58, 168, 255, { d: 0.14 }],                           // Penelope, Melanthius
+  ]), { rim: 0.05, floor: -0.04, fresh: 0.2, ray: 0.2 });
+  // Ithaca Chasma: a canyon three-quarters of the way round, on the great circle 90° from Odysseus
+  const ch = new Float32Array(n), fl = new Float32Array(n);
+  const gc = greatCircle(32.8, -128.9, 20, 290, 1.5);
+  stamp(w, ch, path(gc, 4.5, 1, true, 0.4));
+  stamp(w, fl, path(gc, 7.5, 1, true, 0.4));
+  for (let i = 0; i < n; i++) { hg[i] += fl[i] * 0.08 - ch[i] * (0.32 + n2[i] * 0.2); al[i] -= ch[i] * 0.05; }
+  tint(c, al, [214, 212, 208], undefined, null, 0.5, 1.4);
+  bakeRelief(c, hg, 0.7);
+  return finish(c, hg, 100);
+}
+
+/** Dione and Rhea: bright cratered ice with a darker trailing side laced by bright wispy cliffs. */
+function wispy(w: number, seed: number, base: RGB, wispBox: [number, number, number, number], rows: Named[], radiusKm: number): BodyMaps {
+  const { c, n, n1, n2, hg, al } = rocky(w, seed, 0.3, 0.1);
+  const trail = distFrom(w, 0, 90);
+  const lead = (lat: number, lon: number) => 0.45 + 0.55 * sstep(60, 120, Math.acos(clamp(Math.cos(lat * D2R) * Math.cos((lon - 90) * D2R), -1, 1)) * R2D);
+  stampCraters(w, hg, al, genCraters(w, { seed: seed + 1, cover: 0.28, rMin: 0.3, rMax: 7, dk: 0.12, fp: 12, keep: lead }), { rim: 0.04, floor: -0.04, fresh: 0.25, ray: 0.12, halo: 0.5 });
+  stampCraters(w, hg, al, named(kmDeg(radiusKm), rows), { rim: 0.05, floor: -0.04, fresh: 0.3, ray: 0.45 });
+  const wi = new Float32Array(n);
+  stamp(w, wi, lineSet(seed + 2, 22, wispBox, [150, 210], [25, 70], 0.9, 0.6));
+  for (let i = 0; i < n; i++) {
+    const dark = 1 - sstep(40, 95, trail[i] + n2[i] * 30);
+    al[i] *= 1 - dark * 0.28;
+    al[i] += wi[i] * (0.45 + n1[i]) * 0.9;
+    hg[i] -= wi[i] * 0.12;
+  }
+  tint(c, al, base, undefined, null, 0.4, 1.7);
+  bakeRelief(c, hg, 0.7);
+  return finish(c, hg, 100);
+}
+
+const paintDione = (w: number) => wispy(w, 541, [204, 202, 198], [-60, 60, 30, 150], [
+  [-57, -145, 350, { d: 0.12, fl: 0.6 }], [25, -47, 155, {}], [-23, -15, 120, {}],          // Evander, Aeneas, Dido
+  [49, -76, 40, { f: 1.2, ray: 14 }],                                                        // Creusa: a fresh rayed crater
+], 561.4);
+const paintRhea = (w: number) => wispy(w, 551, [206, 203, 199], [-55, 55, 35, 145], [
+  [34, -151, 360, { d: 0.12, fl: 0.5, rings: [1.6] }], [10, -179, 480, { d: 0.1, fl: 0.6 }], // Tirawa, Mamaldi
+  [-14, -112, 48, { f: 1.4, ray: 28 }],                                                      // Inktomi, the "Splat"
+], 763.8);
+
+function paintIapetus(w: number): BodyMaps {
+  const { c, n, n1, n2, hg, al } = rocky(w, 561, 0.35, 0.08);
+  const g = grid(w), apex = distFrom(w, 0, -90);
+  stampCraters(w, hg, al, genCraters(w, { seed: 562, cover: 0.27, rMin: 0.3, rMax: 8, dk: 0.13, fp: 12 }), { rim: 0.05, floor: -0.05, fresh: 0.2, ray: 0.05, halo: 0.5 });
+  stampCraters(w, hg, al, named(kmDeg(734.5), [
+    [17, -28, 580, { d: 0.14, fl: 0.6, rings: [1.5] }], [-43, 96, 504, { d: 0.12, fl: 0.6 }], [-48, 135, 445, { d: 0.12, fl: 0.6 }], // Turgis, Engelier, Gerin
+    [-10, -150, 380, { d: 0.12 }], [40, -100, 300, { d: 0.12 }],
+  ]), { rim: 0.05, floor: -0.05, fresh: 0.2, ray: 0.2 });
+  // the equatorial ridge, up to 20 km tall, running along the middle of the dark side
+  const rg = new Float32Array(n);
+  stamp(w, rg, path(arc(0.5, -175, 90, 150, 0.01, 1), 1.3, 1, true, 0.4));
+  // Cassini Regio: dark, reddish dust coating the leading side; the poles and trailing side stay bright
+  const dark = new Float32Array(n);
+  for (let y = 0; y < g.h; y++) {
+    const row = y * w, la = Math.abs(g.lat[y]);
+    for (let x = 0; x < w; x++) { const i = row + x; dark[i] = 1 - sstep(62, 78, apex[i] + la * 0.35 + n2[i] * 22 + n1[i] * 8); }
+  }
+  for (let i = 0; i < n; i++) { hg[i] += rg[i] * 0.6; al[i] = mix(al[i], al[i] * 0.22, dark[i]); }
+  tint(c, al, [222, 214, 200], [255, 190, 140], dark, 0.12, 1.4);
+  bakeRelief(c, hg, 0.7);
+  return finish(c, hg, 100);
+}
+
+function paintMiranda(w: number): BodyMaps {
+  const { c, n, n1, n2, hg, al } = rocky(w, 571, 0.35, 0.1);
+  // coronae: oval "racetracks" of parallel bright and dark ridges set in old cratered ground
+  const cor: [number, number, number][] = [[-66.9, -34.3, 30], [-29.1, 73.7, 38], [-24.4, -102.9, 38]]; // Inverness, Arden, Elsinore
+  const ds = cor.map(([la, lo]) => distFrom(w, la, lo));
+  const inC = (lat: number, lon: number) => {
+    let m = 1;
+    cor.forEach(([la, lo, r]) => { const d = Math.acos(clamp(Math.sin(la * D2R) * Math.sin(lat * D2R) + Math.cos(la * D2R) * Math.cos(lat * D2R) * Math.cos((lon - lo) * D2R), -1, 1)) * R2D; if (d < r) m = 0.15; });
+    return m;
+  };
+  stampCraters(w, hg, al, genCraters(w, { seed: 572, cover: 0.25, rMin: 0.4, rMax: 6, dk: 0.12, fp: 12, keep: inC }), { rim: 0.04, floor: -0.04, fresh: 0.2, ray: 0.05, halo: 0.5 });
+  for (let i = 0; i < n; i++) {
+    for (let k = 0; k < cor.length; k++) {
+      const r = cor[k][2], rel = (ds[k][i] + n2[i] * 6) / r;
+      if (rel >= 1.05) continue;
+      const m = 1 - sstep(0.9, 1.05, rel), band = Math.sin(rel * TAU * 5 + n1[i] * 3);
+      hg[i] = mix(hg[i], band * 0.18 + n1[i] * 0.1, m);
+      al[i] = mix(al[i], 1 + band * 0.22 + (k === 0 ? 0.1 : -0.05), m);
+    }
+  }
+  // Inverness's bright chevron, and Verona Rupes: the tallest known cliff in the Solar System (~20 km)
+  const chev = new Float32Array(n), cl = new Float32Array(n);
+  stamp(w, chev, [...path([[-50, -50], [-62, -34], [-50, -18]], 2.2, 1, true, 0.4)]);
+  stamp(w, cl, path([[-8, -14], [-18.3, -11.7], [-30, -9]], 1.2, 1, true, 0.4));
+  for (let i = 0; i < n; i++) { al[i] += chev[i] * 0.5 + cl[i] * 0.35; hg[i] += cl[i] * 0.5; }
+  tint(c, al, [174, 174, 172], undefined, null, 0.4, 1.7);
+  bakeRelief(c, hg, 0.8);
+  return finish(c, hg, 100);
+}
+
+function paintAriel(w: number): BodyMaps {
+  const { c, n, n2, hg, al } = rocky(w, 581, 0.3, 0.1);
+  stampCraters(w, hg, al, genCraters(w, { seed: 582, cover: 0.13, rMin: 0.3, rMax: 4, dk: 0.12, fp: 10, rays: 0.02 }), { rim: 0.04, floor: -0.04, fresh: 0.3, ray: 0.3, halo: 0.5 });
+  stampCraters(w, hg, al, named(kmDeg(578.9), [[-68.7, -81, 78, {}], [-15.1, -64.2, 45, { f: 1, ray: 10 }]]), { rim: 0.05, floor: -0.04, fresh: 0.3, ray: 0.3 }); // Yangoor, Laica-ish
+  // chasmata: broad flat-floored rift valleys criss-crossing the surface, their floors smoothed by icy flows
+  const wall = new Float32Array(n), floor = new Float32Array(n);
+  const rifts: [number, number, number, number, number][] = [[-10, -150, 100, 160, 0.1], [-35, -120, 80, 120, -0.1], [5, -60, 115, 140, 0.05], [-50, 0, 75, 100, 0.08], [-20, 60, 95, 120, -0.06]]; // Kachina, Kewpie, Brownie…
+  for (const [la, lo, br, len, cu] of rifts) {
+    stamp(w, wall, path(arc(la, lo, br, len, cu, 1), 3.2, 1, true, 0.45));
+    stamp(w, floor, path(arc(la, lo, br, len, cu, 1), 2, 1, false, 0.45));
+  }
+  for (let i = 0; i < n; i++) { hg[i] = mix(hg[i] - wall[i] * 0.25, -0.3 + n2[i] * 0.05, floor[i]); al[i] += floor[i] * 0.12; }
+  tint(c, al, [190, 188, 184], undefined, null, 0.4, 1.7);
+  bakeRelief(c, hg, 0.7);
+  return finish(c, hg, 100);
+}
+
+function paintUmbriel(w: number): BodyMaps {
+  const { c, n, hg, al } = rocky(w, 591, 0.3, 0.06);
+  stampCraters(w, hg, al, genCraters(w, { seed: 592, cover: 0.32, rMin: 0.3, rMax: 7, dk: 0.12, fp: 14 }), { rim: 0.04, floor: -0.04, fresh: 0.05, ray: 0, halo: 0.3 });
+  stampCraters(w, hg, al, named(kmDeg(584.7), [[-7.9, -86.4, 131, { fl: 0.6 }], [-4.7, -48.4, 98, { pk: 0.7 }], [-1.8, -28.3, 72, { pk: 0.7 }]]), // Wunda, Vuver, Skynd
+    { rim: 0.05, floor: -0.04, fresh: 0.1, ray: 0 });
+  // Wunda's bright ring (the "fluorescent Cheerio") and the bright central peaks of Vuver and Skynd
+  const br = new Float32Array(n), hole = new Float32Array(n);
+  stamp(w, br, [{ lat: -7.9, lon: -86.4, a: 5.6, e: 0.3 }, { lat: -4.7, lon: -48.4, a: 1, g: true }, { lat: -1.8, lon: -28.3, a: 0.8, g: true }]);
+  stamp(w, hole, [{ lat: -7.9, lon: -86.4, a: 3.6, e: 0.3 }]);
+  for (let i = 0; i < n; i++) al[i] += Math.max(0, br[i] - hole[i]) * 1.6;
+  tint(c, al, [98, 97, 95], undefined, null, 0.5, 3);
+  bakeRelief(c, hg, 0.6);
+  return finish(c, hg, 100);
+}
+
+function paintTitania(w: number): BodyMaps {
+  const { c, n, hg, al } = rocky(w, 601, 0.3, 0.1);
+  stampCraters(w, hg, al, genCraters(w, { seed: 602, cover: 0.2, rMin: 0.3, rMax: 6, dk: 0.12, fp: 11, rays: 0.012 }), { rim: 0.04, floor: -0.04, fresh: 0.3, ray: 0.3, halo: 0.5 });
+  stampCraters(w, hg, al, named(kmDeg(788.4), [[-15.8, -72.9, 326, { d: 0.12, fl: 0.6, pk: 0.5 }], [-26, 20, 120, {}], [-40, -20, 100, {}]]), // Gertrude, …
+    { rim: 0.05, floor: -0.04, fresh: 0.3, ray: 0.3 });
+  // Messina Chasmata: faults up to 1500 km long, twin cliffs around a sunken floor
+  const ch = new Float32Array(n), ri = new Float32Array(n);
+  for (const [la, lo, br, len] of [[-33, -25, 35, 100], [-28, -35, 40, 70], [-10, 20, 30, 50]] as const) {
+    stamp(w, ch, path(arc(la, lo, br, len, 0.05, 1), 1.4, 1, true, 0.4));
+    stamp(w, ri, path(arc(la, lo, br, len, 0.05, 1), 3, 1, true, 0.4));
+  }
+  for (let i = 0; i < n; i++) { hg[i] += ri[i] * 0.06 - ch[i] * 0.35; al[i] += ch[i] * 0.1; }
+  tint(c, al, [162, 156, 150], undefined, null, 0.4, 1.8);
+  bakeRelief(c, hg, 0.7);
+  return finish(c, hg, 100);
+}
+
+function paintOberon(w: number): BodyMaps {
+  const { c, n, n2, hg, al } = rocky(w, 611, 0.35, 0.1);
+  stampCraters(w, hg, al, genCraters(w, { seed: 612, cover: 0.3, rMin: 0.3, rMax: 7, dk: 0.13, fp: 11, rays: 0.01 }), { rim: 0.05, floor: -0.05, fresh: 0.3, ray: 0.3, halo: 0.5 });
+  // big craters floored with dark material: Hamlet, Othello, Macbeth, Falstaff
+  stampCraters(w, hg, al, named(kmDeg(761.4), [
+    [-46.1, 44.4, 206, { fill: 0.55, fl: 0.5 }], [-66, 42.9, 114, { fill: 0.55 }], [-58.4, 112.5, 203, { fill: 0.6, fl: 0.5 }], [-22.1, 19, 124, { fill: 0.5 }],
+    [-30, -60, 140, { f: 1, ray: 8 }],
+  ]), { rim: 0.06, floor: -0.05, fresh: 0.3, ray: 0.3 });
+  // Mommur Chasma, and a slightly redder trailing side
+  const ch = new Float32Array(n), trail = distFrom(w, 0, 90);
+  stamp(w, ch, path(arc(-16, 10, 70, 45, 0.05, 1), 1.5, 1, true, 0.4));
+  const red = new Float32Array(n);
+  for (let i = 0; i < n; i++) { hg[i] -= ch[i] * 0.3; red[i] = (1 - sstep(50, 110, trail[i] + n2[i] * 25)) * 0.6; }
+  tint(c, al, [150, 140, 132], [160, 132, 112], red, 0.3, 1.8);
+  bakeRelief(c, hg, 0.7);
+  return finish(c, hg, 100);
+}
+
+/** Eris and Makemake: smooth frost-covered worlds; colours from their spectra (Eris nearly white, Makemake reddish). */
+function frosty(w: number, seed: number, base: RGB, spot: RGB, spotAmt: number): BodyMaps {
+  const c = canvas(w), n = c.n;
+  const n1 = fbm(w, { f: 2.5, oct: 8, seed, gain: 0.5 }), n2 = fbm(w, { f: 1.2, oct: 5, seed: seed + 1, cap: 256 });
+  const hg = new Float32Array(n), al = new Float32Array(n), t = new Float32Array(n);
+  for (let i = 0; i < n; i++) { hg[i] = n1[i] * 0.15 + n2[i] * 0.2; al[i] = 1 + n1[i] * 0.06 + n2[i] * 0.08; t[i] = sstep(0.05, 0.35, n2[i] + n1[i] * 0.3) * spotAmt; }
+  tint(c, al, base, spot, t, 0.5, 1.3);
+  return finish(c, hg, 60);
+}
+const paintEris = (w: number) => frosty(w, 621, [236, 234, 230], [196, 192, 186], 0.4);
+const paintMakemake = (w: number) => frosty(w, 631, [214, 182, 152], [168, 116, 86], 0.7);
+
+function paintHaumea(w: number): BodyMaps {
+  const c = canvas(w), n = c.n;
+  const n1 = fbm(w, { f: 2.5, oct: 8, seed: 641, gain: 0.5 }), n2 = fbm(w, { f: 1.2, oct: 5, seed: 642, cap: 256 });
+  // crystalline water ice all over, and the "Dark Red Spot" seen in its light curve
+  const sp = new Float32Array(n);
+  stamp(w, sp, [{ lat: 5, lon: 30, a: 28, b: 18, e: 0.8 }]);
+  const hg = new Float32Array(n), al = new Float32Array(n), t = new Float32Array(n);
+  for (let i = 0; i < n; i++) { hg[i] = n1[i] * 0.12 + n2[i] * 0.15; al[i] = 1 + n1[i] * 0.05 + n2[i] * 0.06; t[i] = clamp(sp[i] * (0.8 + n2[i] * 1.5), 0, 1) * 0.75; }
+  tint(c, al, [232, 233, 236], [150, 98, 88], t, 0.5, 1.3);
+  return finish(c, hg, 60);
+}
+
 function paintPlain(w: number): BodyMaps {
   const c = canvas(w);
   c.R.fill(128); c.G.fill(128); c.B.fill(128);
@@ -1665,6 +1953,21 @@ const PAINTERS: Partial<Record<BodyId, (w: number) => BodyMaps>> = {
   mercury: paintMercury,
   ceres: paintCeres,
   callisto: paintCallisto,
+  phobos: paintPhobos,
+  deimos: paintDeimos,
+  mimas: paintMimas,
+  tethys: paintTethys,
+  dione: paintDione,
+  rhea: paintRhea,
+  iapetus: paintIapetus,
+  miranda: paintMiranda,
+  ariel: paintAriel,
+  umbriel: paintUmbriel,
+  titania: paintTitania,
+  oberon: paintOberon,
+  haumea: paintHaumea,
+  makemake: paintMakemake,
+  eris: paintEris,
 };
 
 export function paintBody(id: BodyId, w: number): BodyMaps {
@@ -1700,6 +2003,14 @@ export function paintRings(id: BodyId, w: number): Uint8ClampedArray {
       }
       const j = x * 4;
       out[j] = col[0]; out[j + 1] = col[1]; out[j + 2] = col[2]; out[j + 3] = clamp(al, 0, 1) * 255;
+    }
+  } else if (id === 'haumea') {
+    // one narrow ring (~70 km wide) at 2287 km, discovered in a 2017 stellar occultation
+    const r0 = 2.86, r1 = 3.0;
+    for (let x = 0; x < w; x++) {
+      const r = r0 + ((x + 0.5) / w) * (r1 - r0), al = 0.5 * Math.exp(-(((r - 2.93) / 0.03) ** 2));
+      const j = x * 4;
+      out[j] = 200; out[j + 1] = 196; out[j + 2] = 190; out[j + 3] = al * 255;
     }
   } else if (id === 'uranus') {
     const r0 = 1.64, r1 = 2.0, rings = [[1.637, 0.25], [1.652, 0.25], [1.666, 0.3], [1.75, 0.35], [1.786, 0.35], [1.834, 0.3], [1.863, 0.35], [1.9, 0.4], [1.958, 0.25], [1.992, 0.6]];

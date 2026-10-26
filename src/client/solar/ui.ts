@@ -58,13 +58,17 @@ export interface SolarHost {
   onScale?: (s: ScaleId) => void;
   /** Open the sky-events theatre. */
   openSky?: () => void;
+  /** The distance meter opened or closed (its button lives in the shared toolbar). */
+  onMeter?: (on: boolean) => void;
 }
 
-const DOCK: BodyId[] = ['sun', 'mercury', 'venus', 'earth', 'mars', 'ceres', 'jupiter', 'saturn', 'uranus', 'neptune', 'pluto'];
+const DOCK: BodyId[] = ['sun', 'mercury', 'venus', 'earth', 'mars', 'ceres', 'jupiter', 'saturn', 'uranus', 'neptune', 'pluto', 'haumea', 'makemake', 'eris'];
 const SPEED_KEYS = ['spPause', 'spReal', 'spHour', 'spDay', 'spMonth', 'spYear'];
-const DOT: Partial<Record<BodyId, string>> = { mercury: '#a8a29e', ceres: '#8b857d', moon: '#c9c5bd', io: '#e8d36a', europa: '#d9cbb0', ganymede: '#a39a8c', callisto: '#6f665c', enceladus: '#eef4f8', triton: '#d8c8c0', charon: '#a99f97' };
+const DOT: Partial<Record<BodyId, string>> = { mercury: '#a8a29e', ceres: '#8b857d', moon: '#c9c5bd', io: '#e8d36a', europa: '#d9cbb0', ganymede: '#a39a8c', callisto: '#6f665c', enceladus: '#eef4f8', triton: '#d8c8c0', charon: '#a99f97',
+  phobos: '#7a6e64', deimos: '#9a8c7c', mimas: '#d4d2cc', tethys: '#e6e4de', dione: '#d8d6d0', rhea: '#cfccc4', iapetus: '#9a8f80',
+  miranda: '#bdbab4', ariel: '#c9c6c0', umbriel: '#6e6a66', titania: '#b5aca2', oberon: '#a29488', haumea: '#e8e8ec', makemake: '#d6b08c', eris: '#eeeeee' };
 /** Dock icon sizes: a rough size ladder (not to scale) so the worlds stay recognisable without their names. */
-const DOT_PX: Partial<Record<BodyId, number>> = { sun: 20, jupiter: 18, saturn: 15, uranus: 13, neptune: 13, earth: 12, venus: 12, mars: 10, mercury: 8, ceres: 6, pluto: 6 };
+const DOT_PX: Partial<Record<BodyId, number>> = { sun: 20, jupiter: 18, saturn: 15, uranus: 13, neptune: 13, earth: 12, venus: 12, mars: 10, mercury: 8, ceres: 6, pluto: 6, haumea: 6, makemake: 5, eris: 6 };
 const dotColor = (b: SolarBody) => DOT[b.id] ?? b.glow ?? '#9ca3af';
 const EMPTY = { en: '', zh: '' };
 
@@ -93,7 +97,10 @@ export class SolarUI {
   readonly el: HTMLElement;
   private infoMain = h('div', { class: 'info-main', 'aria-live': 'polite' });
   private info = h('aside', { class: 'info solar-info hidden', 'data-occludes': true, 'data-testid': 'solar-info' }, this.infoMain);
-  private dock = h('div', { class: 'solar-dock', role: 'toolbar', 'aria-label': t('dockLabel') });
+  /** The chips scroll on phones; the tools at the end of the dock stay put. */
+  private dock = h('div', { class: 'dock-list' });
+  private dockTools = h('div', { class: 'dock-tools' });
+  private dockBar = h('div', { class: 'solar-dock', role: 'toolbar', 'aria-label': t('dockLabel') }, this.dock, this.dockTools);
   private dateEl = h('span', { class: 'solar-date', 'data-testid': 'solar-date' });
   private speedEl = h('span', { class: 'solar-speed', 'data-testid': 'solar-speed' });
   private playBtn = h('button', { class: 'icon-btn', 'data-testid': 'solar-play' });
@@ -101,7 +108,6 @@ export class SolarUI {
   private orbitsBtn = h('button', { class: 'icon-btn cst-toggle', 'data-testid': 'solar-orbits', 'data-i18n-tip': 'orbitsToggle', title: t('orbitsToggle'), html: icon('planet', 15) });
   private namesBtn = h('button', { class: 'icon-btn cst-toggle', 'data-testid': 'solar-names', 'data-i18n-tip': 'namesToggle', title: t('namesToggle'), html: icon('tag', 15) });
   private hint = h('p', { class: 'solar-hint' });
-  private meterBtn = h('button', { class: 'icon-btn cst-toggle', 'data-testid': 'solar-measure', 'data-i18n-tip': 'meter', title: t('meter'), 'aria-pressed': 'false', html: icon('ruler', 15) });
   private meterA = new Select({ testid: 'meter-a', label: t('meterFrom'), className: 'meter-sel', value: 'earth', options: [], onChange: () => this.applyMeter() });
   private meterB = new Select({ testid: 'meter-b', label: t('meterTo'), className: 'meter-sel', value: 'mars', options: [], onChange: () => this.applyMeter() });
   private meterOut = h('dl', { class: 'meter-out', 'data-testid': 'meter-out', 'aria-live': 'polite' });
@@ -114,10 +120,10 @@ export class SolarUI {
       h('button', { class: 'icon-btn', 'data-testid': 'meter-close', 'aria-label': t('close'), html: icon('close', 14), onclick: () => this.setMeter(false) })),
     this.meterOut,
     h('p', { class: 'meter-note', 'data-i18n': 'meterNote' }, t('meterNote')));
-  /** Telemetry in the HUD corner: target, coordinates/field of view, range. */
   private messierBtn = h('button', { class: 'icon-btn cst-toggle', 'data-testid': 'solar-messier', 'data-i18n-tip': 'messier', title: t('messier'), 'aria-pressed': 'false', html: icon('telescope', 15) });
   private messierEl = h('div', { class: 'solar-messier hidden', role: 'group', 'data-testid': 'messier-panel', 'data-occludes': true });
   private mFilter: MessierGroup | 'all' = 'all';
+  /** Telemetry in the HUD corner: target, coordinates/field of view, range. */
   private readout = h('dl', { class: 'hud-readout', 'data-occludes': true, 'aria-hidden': 'true' });
   private sel: Sel | null = null;
   private speedIdx = 2;
@@ -148,11 +154,9 @@ export class SolarUI {
           h('button', { class: 'icon-btn', 'data-testid': 'solar-now', 'data-i18n-tip': 'now', title: t('now'), html: icon('reset', 15), onclick: () => { this.view.resetTime(); this.renderDate(this.view.simMs); } }),
           this.cstBtn,
           this.orbitsBtn,
-          this.namesBtn,
-          this.meterBtn,
-          this.messierBtn),
-        this.meterEl,
-        this.dock),
+          this.namesBtn),
+        this.dockBar),
+      this.meterEl,
       this.messierEl,
       this.hint,
       h('div', { class: 'hud-frame', 'aria-hidden': 'true' },
@@ -171,8 +175,8 @@ export class SolarUI {
     this.cstBtn.onclick = () => { sfx.tap(); this.setCst(!this.view.cst.visible); };
     this.orbitsBtn.onclick = () => { sfx.tap(); this.setOption('orbits', !this.view.orbits); };
     this.namesBtn.onclick = () => { sfx.tap(); this.setOption('names', !this.view.names); };
-    this.meterBtn.onclick = () => { sfx.tap(); this.setMeter(this.meterEl.classList.contains('hidden')); };
     this.messierBtn.onclick = () => { sfx.tap(); this.setMessier(this.messierEl.classList.contains('hidden')); };
+    this.dockTools.append(this.messierBtn);
     this.fillMeter();
     this.setCst(Boolean(load('cst', true)));
     this.setOption('orbits', load('solarOrbits', true));
@@ -232,16 +236,20 @@ export class SolarUI {
     note.textContent = t(note.dataset.i18n);
   }
 
+  /** The toolbar's ruler button. */
+  toggleMeter(): void { this.setMeter(this.meterEl.classList.contains('hidden')); }
+
   private setMeter(on: boolean): void {
     this.meterEl.classList.toggle('hidden', !on);
-    this.meterBtn.classList.toggle('on', on);
-    this.meterBtn.setAttribute('aria-pressed', String(on));
+    this.host.onMeter?.(on);
     if (on) {
       this.setMessier(false);
       this.fillMeter();
       // measure from Earth (or us) to whatever is picked
       const cur = this.sel ? this.bodyOf(this.sel) ?? (this.sel.kind === 'deep' ? this.sel.o.key : null) : null;
       if (cur && cur !== this.meterA.value) this.meterB.value = cur;
+      // phones: the sheet and the card share the bottom of the screen, so the card makes way
+      if (cur && matchMedia('(max-width: 760px)').matches) this.showCard(null);
     }
     this.applyMeter();
   }
@@ -348,6 +356,9 @@ export class SolarUI {
   private scaleChanged(s: ScaleId): void {
     this.el.classList.toggle('deep', s !== 'solar');
     this.el.dataset.scale = s;
+    // Out in deep space the clock means nothing, so its bar goes and the names toggle joins the dock's tools.
+    if (s === 'solar') this.orbitsBtn.after(this.namesBtn);
+    else this.dockTools.prepend(this.namesBtn);
     this.showHint();
     this.renderDock();
     if (!this.meterEl.classList.contains('hidden')) { this.fillMeter(); this.applyMeter(); }
@@ -496,7 +507,7 @@ export class SolarUI {
     this.view.relabel();
     for (const el of this.el.querySelectorAll<HTMLElement>('[data-i18n]')) el.textContent = t(el.dataset.i18n!);
     for (const el of this.el.querySelectorAll<HTMLElement>('[data-i18n-tip]')) el.title = t(el.dataset.i18nTip!);
-    this.dock.setAttribute('aria-label', t('dockLabel'));
+    this.dockBar.setAttribute('aria-label', t('dockLabel'));
     this.el.querySelector('.solar-time')?.setAttribute('aria-label', t('timeSpeed'));
     this.view.root.querySelector('canvas')?.setAttribute('aria-label', t('solarLabel'));
     this.renderDock();

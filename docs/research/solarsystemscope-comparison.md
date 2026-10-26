@@ -13,7 +13,8 @@
 | Textured planets and moons | ✅ already had | Procedural painted surfaces with named features |
 | Planet info, encyclopedia | ✅ already had | Body cards, features, Wikipedia reader |
 | Search | ✅ already had | Global search (`space-index.ts`) |
-| Constellations | ✅ already had | Line overlay with a card per constellation |
+| Constellations | ✅ all 88 | Line overlay with a card per constellation; lines and stars from d3-celestial (BSD-3) and Hipparcos |
+| Moons and dwarf planets | ✅ 21 moons, 5 dwarf planets | Added Phobos, Deimos, five more of Saturn's moons, Uranus's five big moons, and Haumea (stretched, with its ring), Makemake and Eris |
 | Milky Way and beyond | ✅ already had (more than SSS) | Galaxy → Local Group → Laniakea → universe ladder, 3D nebulae and galaxies |
 | Space missions | ✅ already had | Mission sites with 3D models |
 | Eclipses and sky events | ✅ already had (more than SSS) | Sky theatre |
@@ -31,7 +32,7 @@
 
 ### Distance meter
 
-The ruler button on the time bar opens a meter between any two bodies. It shows the true centre-to-centre distance, the distance in AU, how long light takes, and how long a car at 100 km/h would take. It updates live as time runs. A dashed amber line joins the two worlds on the map, labelled where it's on screen. The note under the meter explains that the line is drawn on the shrunken map while the numbers are real.
+The ruler in the top-right toolbar (shown only in space, in the slot the Earth view uses for the flat map) opens a meter sheet under it, between any two bodies. It shows the true centre-to-centre distance, the distance in AU, how long light takes, and how long a car at 100 km/h would take. It updates live as time runs. A dashed amber line joins the two worlds on the map, labelled where it's on screen. The note under the meter explains that the line is drawn on the shrunken map while the numbers are real.
 
 - Maths: `helioKm` / `distanceKm` in `src/shared/lib/orbits.ts`.
 - UI: `SolarUI` meter panel (`src/client/solar/ui.ts`), `SolarView.setMeasure`.
@@ -54,7 +55,7 @@ It lines up exactly with the catalogue stars and the galaxy model, and the space
 - Distance rings every 10 ly, an arrow toward the galactic centre, and the Oort Cloud around the Sun.
 - Thousands of faint field stars, with the Milky Way glow behind them.
 
-**Messier explorer** (`src/shared/data/messier.ts`). The telescope button opens a side sheet listing all 110 objects, with filters for galaxies, nebulae, star clusters and globular clusters.
+**Messier explorer** (`src/shared/data/messier.ts`). The telescope button at the end of the bottom dock opens a side sheet listing all 110 objects, with filters for galaxies, nebulae, star clusters and globular clusters.
 - 16 objects that already had cards are tagged with their number. The other 94 come from a compact table of J2000 RA/Dec, distance and size. Their descriptions are templated by type and constellation in English and Chinese.
 - Each object goes on the scale its distance puts it on: inside the Milky Way, in the Local Group, or out in Laniakea.
 - Picking one flies there, and its card shows the Messier number.
@@ -72,7 +73,7 @@ These are covered by `tests/unit/cosmos.test.ts` and the e2e test "deep space: n
 
 ### Display options
 
-Two toggles sit next to the constellation button on the time bar:
+Two toggles sit next to the constellation button on the time bar (out in deep space, where there is no clock, the time bar goes and the names toggle moves to the end of the dock beside the Messier button, so there is never an extra row):
 
 - **Orbit lines** (`solar-orbits`) hides the orbits of the planets, the moons and Comet Encke.
 - **Names** (`solar-names`) hides the names of worlds. Features, landing sites and deep-space objects keep their dots so they can still be tapped, and whatever is selected keeps its name. It works on every level; the distance meter's reading always shows.

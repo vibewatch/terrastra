@@ -154,7 +154,7 @@ async function boot(): Promise<void> {
   // Background music follows the level the user is looking at.
   const tune = () => music.setLevel(inSky ? 'sky' : inSolar ? (scaleNow === 'stars' ? 'galaxy' : scaleNow) : 'earth');
   const loadSolarMod = lazy(() => import('./solar/ui.ts'));
-  const loadSolar = async () => solar ??= new (await loadSolarMod()).SolarUI(app, { quality, earthCanvas: () => earthCv, exit: leaveSolar, onScale: s => { rail.set(s); scaleNow = s; tune(); }, openSky: () => void openSky() });
+  const loadSolar = async () => solar ??= new (await loadSolarMod()).SolarUI(app, { quality, earthCanvas: () => earthCv, exit: leaveSolar, onScale: s => { rail.set(s); scaleNow = s; tune(); }, openSky: () => void openSky(), onMeter: on => shell.setMeterOpen(on) });
   const routeOf = (o: { focus?: string; scale?: ScaleId }) => {
     const head = Object.keys(SCALE_ROUTES).find(k => SCALE_ROUTES[k] === (o.scale ?? 'solar'))!;
     return head + (o.focus && o.focus !== 'overview' ? '/' + o.focus : '');
@@ -428,6 +428,7 @@ async function boot(): Promise<void> {
       solar?.zoom(inward); return true;
     },
     toggleMap: () => { if (inMap) closeMap(); else void openMap(); },
+    toggleMeter: () => solar?.toggleMeter(),
     toGlobe: () => closeMap(false),
     onSelect: it => { if (it && inMap) flatMap?.focus(it); },
     escape: () => { if (!inMap) return false; closeMap(); return true; },

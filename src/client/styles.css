@@ -980,7 +980,11 @@ body:has(.info:not(.hidden)) .bl { display: none; }
 .solar-bottom { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 8px; z-index: 6; max-width: calc(100vw - 176px); }
 .solar-dock, .solar-time { display: flex; align-items: center; gap: 3px; padding: 5px; background: var(--panel); backdrop-filter: blur(20px) saturate(140%);
   border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); max-width: 100%; }
-.solar-dock { overflow-x: auto; scrollbar-width: none; }
+.solar-dock .dock-list { display: flex; align-items: center; gap: 3px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+/* Tools at the end of the dock (Messier list; names out in deep space): never scroll away. */
+.dock-tools { display: flex; align-items: center; gap: 2px; flex: none; padding-left: 5px; margin-left: 2px; border-left: 1px solid var(--line); }
+.dock-tools .icon-btn { width: 38px; height: 38px; border-color: transparent; background: transparent; }
+.dock-tools .icon-btn:hover { background: var(--hover); color: var(--text); }
 .solar-chip { display: inline-flex; align-items: center; justify-content: center; gap: 7px; width: 38px; height: 38px; padding: 0; border: 0; border-radius: 10px; background: transparent; color: var(--text-2); font-size: .82rem; font-weight: 500; white-space: nowrap; flex: none; }
 .solar-chip:hover { background: var(--hover); color: var(--text); }
 .solar-chip.on { background: var(--text); color: #09090b; }
@@ -1044,8 +1048,8 @@ body:has(.info:not(.hidden)) .bl { display: none; }
 .dl-label.flip { flex-direction: row-reverse; padding: 2px 0 2px 6px; translate: calc(-100% + 7px) 0; }
 .dl-label.home.flip { padding: 4px 22px 4px 10px; translate: calc(-100% + 11px) -11px; }
 .dl-label.home.flip::before { left: auto; right: 6px; }
-/* Out in deep space the clock means nothing: only the meter and the Messier list stay. */
-.solar-ui.deep .solar-time > :not([data-testid=solar-measure]):not([data-testid=solar-messier]):not([data-testid=solar-names]) { display: none; }
+/* Out in deep space the clock means nothing: its bar goes (the names toggle moves to the dock). */
+.solar-ui.deep .solar-time { display: none; }
 
 /* ---- scale rail: universe … Earth ---- */
 .sr-universe { --sc: #f0abfc; --d: 9px; } .sr-laniakea { --sc: #c4b5fd; --d: 8px; } .sr-group { --sc: #a5b4fc; --d: 7px; }
@@ -1088,10 +1092,11 @@ body:has(.info:not(.hidden)) .bl { display: none; }
             .solar-bottom { left: 8px; right: 8px; bottom: 8px; transform: none; max-width: none; align-items: stretch; }
   /* Comfortable touch targets: the dock scrolls (with fading edges as a cue) rather than shrinking the chips. */
   .solar-dock .solar-chip { flex: 0 0 44px; width: 44px; height: 44px; scroll-snap-align: center; }
-  .solar-dock { justify-content: safe center; gap: 2px; scroll-snap-type: x proximity; overscroll-behavior-x: contain; }
-  .solar-dock.more-l { mask-image: linear-gradient(90deg, transparent, #000 28px); }
-  .solar-dock.more-r { mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); }
-  .solar-dock.more-l.more-r { mask-image: linear-gradient(90deg, transparent, #000 28px, #000 calc(100% - 28px), transparent); }
+  .dock-tools .icon-btn { width: 44px; height: 44px; }
+  .solar-dock .dock-list { flex: 1 1 auto; justify-content: safe center; gap: 2px; scroll-snap-type: x proximity; overscroll-behavior-x: contain; }
+  .dock-list.more-l { mask-image: linear-gradient(90deg, transparent, #000 28px); }
+  .dock-list.more-r { mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); }
+  .dock-list.more-l.more-r { mask-image: linear-gradient(90deg, transparent, #000 28px, #000 calc(100% - 28px), transparent); }
   .solar-time { justify-content: center; }
   /* Phones pinch to zoom; help sits above the dock instead of on it. */
   body.solar .br { display: none; }
@@ -1100,7 +1105,7 @@ body:has(.info:not(.hidden)) .bl { display: none; }
   /* Only this level's root and the current step fit next to the toolbar (the scale rail covers going up). */
             .solar-info { max-height: 58vh; }
   .solar-info.expanded { height: auto; }
-  body:has(.solar-info:not(.hidden)) .solar-bottom, body:has(.solar-info:not(.hidden)) .solar-hint, body:has(.solar-info:not(.hidden)) .solar-messier { display: none; }
+  body:has(.solar-info:not(.hidden)) .solar-bottom, body:has(.solar-info:not(.hidden)) .solar-hint, body:has(.solar-info:not(.hidden)) .solar-messier, body:has(.solar-info:not(.hidden)) .solar-meter { display: none; }
   .sb-label { font-size: 11.5px; }
           }
 /* ---- Sci-fi HUD theme for the space views (scoped to .solar-ui / body.solar); a light echo on the globe ---- */
@@ -1117,7 +1122,8 @@ body:has(.info:not(.hidden)) .bl { display: none; }
 .solar-ui .cst-toggle { color: var(--hud-dim); border-radius: 2px; }
 .solar-ui .cst-toggle.on { color: var(--hud-hi); background: rgba(103, 232, 249, .12); box-shadow: inset 0 0 0 1px var(--hud-line); }
 /* ---- distance meter ---- */
-.solar-meter { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; width: min(420px, 100%); border-radius: 3px; border: 1px solid var(--hud-line);
+/* A sheet under the toolbar's ruler (the Messier list's slot; only one is open at a time). */
+.solar-meter { position: absolute; top: 84px; right: 20px; z-index: 6; display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; width: 420px; max-width: calc(100vw - 40px); border-radius: 3px; border: 1px solid var(--hud-line);
   background: var(--hud-corners), var(--hud-panel); box-shadow: 0 14px 40px rgba(0, 0, 0, 0.5); }
 .solar-meter.hidden { display: none; }
 .meter-row { display: flex; align-items: center; gap: 6px; }
@@ -1158,6 +1164,9 @@ body:has(.info:not(.hidden)) .bl { display: none; }
 .messier-note { margin: 0; color: var(--faint); font-size: .68rem; line-height: 1.35; }
 @media (max-width: 760px) {
   .solar-messier { top: auto; left: 8px; right: 8px; width: auto; bottom: calc(var(--space-dock, 96px) + 28px); max-height: 38vh; min-height: 0; }
+  .solar-meter { top: auto; left: 8px; right: 8px; width: auto; max-width: none; bottom: calc(var(--space-dock, 96px) + 28px); }
+  /* a sheet above the dock: the hint and the help button make way */
+  body:has(.solar-messier:not(.hidden), .solar-meter:not(.hidden)) :is(.solar-hint, .bl) { display: none; }
   .messier-note { display: none; }
 }
 /* Constellation names: faint sky lettering under the planet labels */

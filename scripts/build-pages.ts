@@ -291,6 +291,7 @@ ${credit(T('NASA Visible Earth · GEBCO', 'NASA 可见地球 · GEBCO'), T('Land
 ${credit(T('Wikipedia', '维基百科'), T('Longer articles in the in-app reader, loaded live from Wikipedia.', '应用内阅读器中的长篇文章，实时从维基百科加载。'), 'CC BY-SA 4.0', 'https://www.wikipedia.org/')}
 ${credit(T('Radio Browser', 'Radio Browser 电台目录'), T('The live radio stations on the globe: a free, community-run directory. Streams come straight from each station.', '地球上的直播电台：一个免费、社区维护的电台目录。声音直接来自各个电台。'), 'Public domain', 'https://www.radio-browser.info/')}
 ${credit(T('Meeus · JPL · Espenak', 'Meeus · JPL · Espenak'), T('Positions of the Sun, Moon and planets, eclipses and ΔT (Astronomical Algorithms; JPL Keplerian elements).', '太阳、月球和行星的位置，日月食与 ΔT（《天文算法》、JPL 开普勒根数）。'), 'Published algorithms')}
+${credit(T('d3-celestial · Hipparcos', 'd3-celestial · 依巴谷星表'), T('Stick figures for the 88 constellations and the positions and brightness of their stars.', '88 个星座的连线图形，以及其中恒星的位置与亮度。'), 'BSD-3-Clause © 2015 Olaf Frohn · ESA', 'https://github.com/ofrohn/d3-celestial')}
 ${credit(T('Geist · Chakra Petch', 'Geist · Chakra Petch'), T('Typefaces for reading, data and display.', '正文、数据与标题字体。'), 'SIL OFL 1.1')}
 </div>
 <div class="actions"><a class="btn sig" href="/">${icon('globe', 16)}${bi(T('Open the globe', '打开地球'))}</a><a class="btn ghost" href="/encyclopedia/">${icon('book', 16)}${bi(T('Browse the encyclopedia', '浏览百科'))}</a></div>`, { current: 'about' });

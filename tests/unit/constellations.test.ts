@@ -7,9 +7,9 @@ const ZODIAC = ['ari', 'tau', 'gem', 'cnc', 'leo', 'vir', 'lib', 'sco', 'sgr', '
 const OTHERS = ['ori', 'uma', 'umi', 'cas', 'cyg', 'lyr', 'aql', 'cma', 'cmi', 'per', 'and', 'peg', 'boo', 'aur', 'cru', 'cen', 'car', 'crb', 'her', 'dra', 'cep', 'lup', 'eri', 'crv', 'hya', 'oph'];
 
 describe('constellations data', () => {
-  it('has unique ids and covers the zodiac and the classic figures', () => {
+  it('has all 88 IAU constellations with unique ids, including the zodiac and the classic figures', () => {
     const ids = CONSTELLATIONS.map((c) => c.id);
-    expect(ids.length).toBeGreaterThanOrEqual(36);
+    expect(ids.length).toBe(88);
     expect(new Set(ids).size).toBe(ids.length);
     for (const id of [...ZODIAC, ...OTHERS]) expect(ids).toContain(id);
   });

@@ -50,6 +50,8 @@ interface ShellHooks {
   toHome?: () => void;
   /** Flat world map on/off. */
   toggleMap?: () => void;
+  /** In space: the distance meter on/off. */
+  toggleMeter?: () => void;
   /** Something needs the 3D globe itself (a ride): leave the flat map. */
   toGlobe?: () => void;
   /** The selected item changed (null = none). */
@@ -100,9 +102,11 @@ export class Shell {
         tool('btn-search', 'search', 'searchKbd', () => this.openSearch()),
         tool('btn-photo', 'camera', 'photo', this.hooks.openPhoto),
         this.mapBtn = tool('btn-map', 'map', 'flatMap', () => this.hooks.toggleMap?.(), 'earth-only'),
+        this.meterBtn = tool('btn-measure', 'ruler', 'meter', () => this.hooks.toggleMeter?.(), 'space-only'),
         h('span', { class: 'tools-sep', 'aria-hidden': 'true' }),
         tool('btn-hub', 'collection', 'hub', () => this.toggleHub(), 'tool-hub'),
         tool('btn-menu', 'sliders', 'settings', () => this.toggleMenu())));
+    this.setMeterOpen(false);
     const bottomLeft = h('div', { class: 'bl', 'data-occludes': true }, this.hints,
       h('button', { class: 'round-btn help', id: 'btn-help', 'aria-label': t('help'), 'data-i18n-aria': 'help', 'aria-expanded': 'false', html: icon('help', 19), onclick: () => this.toggleHints() }));
     const zoom = (inward: boolean) => { if (!this.hooks.zoom?.(inward)) this.globe.zoomBy(inward ? 1.6 : 1 / 1.6); };
@@ -261,6 +265,12 @@ export class Shell {
   }
 
   private mapBtn: HTMLButtonElement | null = null;
+  private meterBtn: HTMLButtonElement | null = null;
+  /** Marks the toolbar's ruler as on while the space distance meter is open. */
+  setMeterOpen(on: boolean): void {
+    this.meterBtn?.setAttribute('aria-pressed', String(on));
+    this.meterBtn?.classList.toggle('active', on);
+  }
   /** Marks the toolbar's map button as on (the map is showing) or off. */
   setMapOpen(on: boolean): void {
     const b = this.mapBtn;

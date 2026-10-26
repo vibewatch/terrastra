@@ -323,7 +323,9 @@ export class SolarView {
         mat = new THREE.MeshStandardMaterial({ color: 0x8a8a8a, roughness: 1, metalness: 0 });
       }
       const mesh = new THREE.Mesh(this.geoLo, mat);
-      mesh.scale.setScalar(R);
+      // mesh x turns onto lon 0 (spin +z) below, so the long axis of a lumpy body points at its parent
+      if (b.shape) mesh.scale.set(R * b.shape[0], R * b.shape[1], R * b.shape[2]);
+      else mesh.scale.setScalar(R);
       mesh.rotation.y = -Math.PI / 2; // SphereGeometry's u = 0 seam onto lon −180 (−Z), as on the globe
       spin.add(mesh);
       tilt.add(spin);
@@ -355,7 +357,8 @@ export class SolarView {
       label.dataset.testid = 'sb-' + b.id;
       label.onclick = () => this.select(b.id);
       this.labelsEl.append(label);
-      const rt: BodyRT = { b, R, node, tilt, spin, mesh, mat, atmo, rings, orbit: null, pole, spinA: 0, pos: node.position, label, lo: null, hi: null };
+      // rt.R bounds the body (zoom limits, picking): the long semi-axis for lumpy ones
+      const rt: BodyRT = { b, R: R * Math.max(1, ...(b.shape ?? [])), node, tilt, spin, mesh, mat, atmo, rings, orbit: null, pole, spinA: 0, pos: node.position, label, lo: null, hi: null };
       this.rts.set(b.id, rt);
       rt.orbit = this.buildOrbit(rt, d);
     }

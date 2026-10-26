@@ -95,7 +95,7 @@ test('narrow phone: dock chips stay comfortably tappable and scroll @mobile', as
   await page.goto('/?lowfx=1&notut#milkyway');
   await expect(page.locator('[data-testid^="dc-"]').first()).toBeVisible({ timeout: 90_000 });
   const m = await page.evaluate(() => {
-    const d = document.querySelector('.solar-dock') as HTMLElement;
+    const d = document.querySelector('.solar-dock .dock-list') as HTMLElement;
     const b = d.querySelector('button')!.getBoundingClientRect();
     return { w: b.width, h: b.height, scroll: d.scrollWidth > d.clientWidth, cue: d.classList.contains('more-r') };
   });

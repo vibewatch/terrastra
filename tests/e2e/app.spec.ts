@@ -531,12 +531,12 @@ test('solar: distance meter @mobile', async ({ page }, info) => {
   await openApp(page, '/?lowfx=1&notut#solar/jupiter');
   await expect(page.getByTestId('solar-name')).toHaveText('Jupiter', { timeout: 30_000 });
 
-  // The meter measures from Earth to the picked body, live with the clock.
-  // (phones hide the bottom bar while a card is open)
-  if (mobile) await page.getByTestId('solar-info-close').click();
-  await page.getByTestId('solar-measure').click();
-  if (mobile) await pickOption(page, 'meter-b', 'jupiter');
+  // The meter (the toolbar's ruler) measures from Earth to the picked body, live with the clock.
+  // (phones: its sheet takes the card's place)
+  await page.getByTestId('btn-measure').click();
+  await expect(page.getByTestId('btn-measure')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByTestId('meter-b')).toHaveAttribute('data-value', 'jupiter');
+  if (mobile) await expect(page.getByTestId('solar-info')).toBeHidden();
   await expect(page.getByTestId('meter-out')).toContainText('km');
   await expect(page.getByTestId('meter-label')).toBeVisible();
   await pickOption(page, 'meter-b', 'moon');
@@ -548,6 +548,7 @@ test('solar: distance meter @mobile', async ({ page }, info) => {
   await shot(page, `${info.project.name}_37_solar_meter`);
   await page.getByTestId('meter-close').click();
   await expect(page.getByTestId('meter-label')).toBeHidden();
+  await expect(page.getByTestId('btn-measure')).toHaveAttribute('aria-pressed', 'false');
 
   expect(errors).toEqual([]);
 });
@@ -602,11 +603,10 @@ test('deep space: nearby stars, Messier list and light-year meter @mobile', asyn
   await expect(page.getByTestId('solar-info')).toContainText('White star');
   await expect(page.getByTestId('rail-stars')).toHaveClass(/on/);
 
-  // light-year meter: from us to the picked star (phones hide the bottom bar while a card is open)
-  if (mobile) await page.getByTestId('solar-info-close').click();
-  await page.getByTestId('solar-measure').click();
+  // light-year meter: from us to the picked star; out here the clock bar is gone (no extra row)
+  await expect(page.locator('.solar-time')).toBeHidden();
+  await page.getByTestId('btn-measure').click();
   await expect(page.getByTestId('meter-a')).toHaveAttribute('data-value', 'home');
-  if (mobile) await pickOption(page, 'meter-b', 'dp_sirius');
   await expect(page.getByTestId('meter-b')).toHaveAttribute('data-value', 'dp_sirius');
   await expect(page.getByTestId('meter-out')).toContainText('8.6 light-years');
   await expect(page.getByTestId('deep-meter-label')).toBeVisible();
@@ -615,8 +615,9 @@ test('deep space: nearby stars, Messier list and light-year meter @mobile', asyn
   await page.waitForTimeout(1200);
   await shot(page, `${info.project.name}_38_ly_meter`);
 
-  // the Messier list replaces the meter, filters by type and flies to the pick on its own scale
+  // the Messier list (at the end of the dock) replaces the meter, filters by type and flies to the pick on its own scale
   await page.getByTestId('solar-messier').click();
+  await expect(page.getByTestId('btn-measure')).toHaveAttribute('aria-pressed', 'false');
   await expect(page.getByTestId('solar-meter')).toBeHidden();
   await expect(page.getByTestId('messier-count')).toHaveText('110');
   await page.getByTestId('mf-globular').click();
