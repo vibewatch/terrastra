@@ -507,6 +507,44 @@ test('solar system: zoom out from Earth, visit Mars and a feature, land back on 
   expect(errors).toEqual([]);
 });
 
+test('solar: interior cutaway and distance meter @mobile', async ({ page }, info) => {
+  const errors: string[] = [];
+  page.on('pageerror', e => errors.push(e.message));
+  await openApp(page, '/?lowfx=1&notut#solar/jupiter');
+  await expect(page.getByTestId('solar-name')).toHaveText('Jupiter', { timeout: 30_000 });
+  const inside = page.getByTestId('solar-interior');
+  await inside.click();
+  await expect(inside).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('solar-layers').locator('li')).toHaveCount(4);
+  await expect(page.getByTestId('solar-layers').locator('li').first()).toContainText(/atmosphere/i);
+  await expect(page.getByTestId('layer-0')).toContainText(/core/i);
+  await expect.poll(() => page.evaluate(() => (window as any).__pp.solar().view.tween), { timeout: 30_000 }).toBeNull();
+  await page.waitForTimeout(800);
+  await shot(page, `${info.project.name}_36_solar_interior`);
+  await inside.click();
+  await expect(page.getByTestId('solar-layers')).toHaveCount(0);
+
+  // The meter measures from Earth to the picked body, live with the clock.
+  // (phones hide the bottom bar while a card is open)
+  const mobile = info.project.name === 'mobile';
+  if (mobile) await page.getByTestId('solar-info-close').click();
+  await page.getByTestId('solar-measure').click();
+  if (mobile) await pickOption(page, 'meter-b', 'jupiter');
+  await expect(page.getByTestId('meter-b')).toHaveAttribute('data-value', 'jupiter');
+  await expect(page.getByTestId('meter-out')).toContainText('km');
+  await expect(page.getByTestId('meter-label')).toBeVisible();
+  await pickOption(page, 'meter-b', 'moon');
+  await expect(page.getByTestId('meter-out')).toContainText(/(3[5-9]\d|40\d),\d{3} km/);
+  await pickOption(page, 'meter-b', 'mars');
+  await page.getByTestId('meter-swap').click();
+  await expect(page.getByTestId('meter-a')).toHaveAttribute('data-value', 'mars');
+  await page.waitForTimeout(1500);
+  await shot(page, `${info.project.name}_37_solar_meter`);
+  await page.getByTestId('meter-close').click();
+  await expect(page.getByTestId('meter-label')).toBeHidden();
+  expect(errors).toEqual([]);
+});
+
 const level = async (page: Page, l: string) => { await page.getByTestId('level-switch').click(); await page.getByTestId('rail-' + l).click(); };
 
 test('scale ladder: rail climbs from Earth to the universe and back @mobile', async ({ page }, info) => {

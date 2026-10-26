@@ -3,6 +3,7 @@
 | Area | Document | What it covers |
 |---|---|---|
 | Research | [Exploration report](research/exploration-report.md) | Reference product (myearthtoy.com): routes, screens, data flows, edge cases, coverage |
+| Research | [Solar System Scope comparison](research/solarsystemscope-comparison.md) | Feature parity with solarsystemscope.com, what we added (interior cutaway, distance meter), roadmap |
 | Product | [PRD](product/prd.md) | Goals, users, features F1–F15, non-goals, success metrics |
 | Product | [Spec](product/spec.md) | Behaviour and constants per feature, API contract, static pages |
 | Product | [Acceptance criteria](product/acceptance-criteria.md) | Given/When/Then, each mapped to an automated test |

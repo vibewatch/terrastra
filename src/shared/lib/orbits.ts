@@ -78,6 +78,23 @@ export function relativePosition(id: BodyId, d: number): Vec3 {
   return [u[0] * c + v[0] * s, u[1] * c + v[1] * s, u[2] * c + v[2] * s];
 }
 
+export const LIGHT_KMS = 299_792.458;
+
+/** True heliocentric ecliptic position in km (moons: their planet's position plus the moon's offset). */
+export function helioKm(id: BodyId, d: number): Vec3 {
+  const b = BODY[id];
+  if (b.kepler) { const p = keplerPosition(b.kepler, d); return [p[0] * AU_KM, p[1] * AU_KM, p[2] * AU_KM]; }
+  if (!b.parent) return [0, 0, 0];
+  const par = helioKm(b.parent, d), m = relativePosition(id, d);
+  return [par[0] + m[0], par[1] + m[1], par[2] + m[2]];
+}
+
+/** Centre-to-centre distance between two bodies (km) on day `d` since J2000. */
+export function distanceKm(a: BodyId, b: BodyId, d: number): number {
+  const p = helioKm(a, d), q = helioKm(b, d);
+  return Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
+}
+
 /** Sub-solar longitude on Earth (deg, east-positive) for a UTC time, with the equation of time. */
 export function subSolarLon(ms: number): number {
   const dt = new Date(ms);

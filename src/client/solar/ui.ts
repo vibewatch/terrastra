@@ -6,13 +6,15 @@
 import { classroom } from '../lib/classroom.ts';
 import { h, toast } from '../ui/dom.ts';
 import { icon } from '../ui/icons.ts';
+import { Select } from '../ui/select.ts';
 import { t, lang, onLang, fmtNum } from '../lib/i18n.ts';
 import { sfx } from '../lib/sfx.ts';
 import { tr, type Lang } from '../../shared/data/types.ts';
 import { BODIES, BODY, type BodyId, type SolarBody } from '../../shared/data/solar.ts';
 import { BODY_TEXT } from '../../shared/data/solar-text.ts';
 import { SOLAR_FEATURES } from '../../shared/data/solar-features.ts';
-import { AU_KM, daysJ2000, relativePosition } from '../../shared/lib/orbits.ts';
+import { AU_KM, LIGHT_KMS, daysJ2000, distanceKm, relativePosition } from '../../shared/lib/orbits.ts';
+import { interiorOf } from '../../shared/data/solar-interiors.ts';
 import type { Quality } from '../globe/quality.ts';
 import type { Reader, Readable } from '../ui/reader.ts';
 import { SolarView, SPEEDS, featuresOf, type SolarSelection } from './view.ts';
@@ -85,6 +87,19 @@ export class SolarUI {
   private playBtn = h('button', { class: 'icon-btn', 'data-testid': 'solar-play' });
   private cstBtn = h('button', { class: 'icon-btn cst-toggle', 'data-testid': 'solar-cst', 'data-i18n-tip': 'cst_toggle', title: t('cst_toggle'), html: icon('sparkle', 15) });
   private hint = h('p', { class: 'solar-hint' });
+  private meterBtn = h('button', { class: 'icon-btn cst-toggle', 'data-testid': 'solar-measure', 'data-i18n-tip': 'meter', title: t('meter'), 'aria-pressed': 'false', html: icon('ruler', 15) });
+  private meterA = new Select({ testid: 'meter-a', label: t('meterFrom'), className: 'meter-sel', value: 'earth', options: [], onChange: () => this.applyMeter() });
+  private meterB = new Select({ testid: 'meter-b', label: t('meterTo'), className: 'meter-sel', value: 'mars', options: [], onChange: () => this.applyMeter() });
+  private meterOut = h('dl', { class: 'meter-out', 'data-testid': 'meter-out', 'aria-live': 'polite' });
+  private meterEl = h('div', { class: 'solar-meter hidden', role: 'group', 'data-testid': 'solar-meter', 'data-occludes': true },
+    h('div', { class: 'meter-row' },
+      this.meterA.el,
+      h('button', { class: 'icon-btn meter-swap', 'data-testid': 'meter-swap', 'data-i18n-tip': 'meterSwap', title: t('meterSwap'), html: icon('shuffle', 14),
+        onclick: () => { sfx.tap(); [this.meterA.value, this.meterB.value] = [this.meterB.value, this.meterA.value]; this.applyMeter(); } }),
+      this.meterB.el,
+      h('button', { class: 'icon-btn', 'data-testid': 'meter-close', 'aria-label': t('close'), html: icon('close', 14), onclick: () => this.setMeter(false) })),
+    this.meterOut,
+    h('p', { class: 'meter-note', 'data-i18n': 'meterNote' }, t('meterNote')));
   /** Telemetry in the HUD corner: target, coordinates/field of view, range. */
   private readout = h('dl', { class: 'hud-readout', 'data-occludes': true, 'aria-hidden': 'true' });
   private sel: Sel | null = null;
@@ -114,7 +129,9 @@ export class SolarUI {
           h('button', { class: 'icon-btn', 'data-testid': 'solar-faster', 'data-i18n-tip': 'faster', title: t('faster'), html: icon('chevron', 15), onclick: () => this.setSpeed(Math.min(SPEEDS.length - 1, this.speedIdx + 1)) }),
           this.dateEl,
           h('button', { class: 'icon-btn', 'data-testid': 'solar-now', 'data-i18n-tip': 'now', title: t('now'), html: icon('reset', 15), onclick: () => { this.view.resetTime(); this.renderDate(this.view.simMs); } }),
-          this.cstBtn),
+          this.cstBtn,
+          this.meterBtn),
+        this.meterEl,
         this.dock),
       this.hint,
       h('div', { class: 'hud-frame', 'aria-hidden': 'true' },
@@ -131,6 +148,8 @@ export class SolarUI {
     window.setInterval(() => { if (this.view.isActive && !document.hidden) this.renderReadout(); }, 250);
     this.playBtn.onclick = () => this.setSpeed(this.speedIdx === 0 ? 2 : 0);
     this.cstBtn.onclick = () => { sfx.tap(); this.setCst(!this.view.cst.visible); };
+    this.meterBtn.onclick = () => { sfx.tap(); this.setMeter(this.meterEl.classList.contains('hidden')); };
+    this.fillMeter();
     this.setCst(localStorage.getItem('pp.cst') !== '0');
     this.renderDock();
     this.setSpeed(2);
@@ -150,6 +169,55 @@ export class SolarUI {
     this.cstBtn.classList.toggle('on', on);
     try { localStorage.setItem('pp.cst', on ? '1' : '0'); } catch { /* private mode */ }
     if (!on && this.sel?.kind === 'cst') this.showCard(null);
+  }
+
+  // ---------- distance meter ----------
+  private fillMeter(): void {
+    const l = lang(), opts = BODIES.map(x => ({ value: x.id, label: `${x.emoji} ${tr(x.name, l)}` }));
+    for (const [sel, key] of [[this.meterA, 'meterFrom'], [this.meterB, 'meterTo']] as const) {
+      sel.setOptions(opts);
+      sel.el.querySelectorAll('[aria-label]').forEach(e => e.setAttribute('aria-label', t(key)));
+    }
+    this.meterEl.setAttribute('aria-label', t('meter'));
+  }
+
+  private setMeter(on: boolean): void {
+    this.meterEl.classList.toggle('hidden', !on);
+    this.meterBtn.classList.toggle('on', on);
+    this.meterBtn.setAttribute('aria-pressed', String(on));
+    if (on) {
+      // measure from Earth to whatever is picked (or Mars)
+      const cur = this.sel ? this.bodyOf(this.sel) : null;
+      if (cur && cur !== this.meterA.value) this.meterB.value = cur;
+    }
+    this.applyMeter();
+  }
+
+  private applyMeter(): void {
+    const on = !this.meterEl.classList.contains('hidden');
+    this.view.setMeasure(on ? [this.meterA.value as BodyId, this.meterB.value as BodyId] : null);
+    this.renderMeter();
+  }
+
+  /** Live numbers: true distance, AU, light travel time and how long a car would take. */
+  private renderMeter(): void {
+    if (this.meterEl.classList.contains('hidden')) { this.view.meterLabel.textContent = ''; return; }
+    const l = lang(), a = this.meterA.value as BodyId, b = this.meterB.value as BodyId;
+    const km = a === b ? 0 : distanceKm(a, b, daysJ2000(this.view.simMs));
+    const sec = km / LIGHT_KMS, carH = km / 100;
+    const light = sec < 90 ? t('secondsN', { n: fmtNum(+sec.toFixed(sec < 10 ? 2 : 0)) }) : sec < 5400 ? t('minutesN', { n: fmtNum(+(sec / 60).toFixed(1)) }) : t('hoursN', { n: +(sec / 3600).toFixed(1) });
+    const rows: [string, string][] = [
+      [t('meterDist'), fmtKm(km, l)],
+      [t('meterAU'), (km / AU_KM).toFixed(km / AU_KM < 0.1 ? 4 : 2) + ' AU'],
+      [t('meterLight'), light],
+      [t('meterCar'), fmtDur(carH)],
+    ];
+    const sig = rows.flat().join('|');
+    if (this.meterOut.dataset.sig !== sig) {
+      this.meterOut.dataset.sig = sig;
+      this.meterOut.replaceChildren(...rows.map(([k, v]) => h('div', {}, h('dt', {}, k), h('dd', {}, v))));
+    }
+    this.view.meterLabel.textContent = a === b ? '' : fmtKm(km, l);
   }
 
   private bodyOf(s: Sel): BodyId | null {
@@ -257,6 +325,7 @@ export class SolarUI {
     // Phones: the clock or the year, not both, so the time bar stays on one line.
     if (SPEEDS[this.speedIdx] <= 3600) { opts.hour = '2-digit'; opts.minute = '2-digit'; if (matchMedia('(max-width: 520px)').matches) delete opts.year; }
     this.dateEl.textContent = new Intl.DateTimeFormat(l === 'zh' ? 'zh-CN' : 'en', opts).format(new Date(ms));
+    this.renderMeter();
   }
 
   private renderDock(): void {
@@ -310,6 +379,7 @@ export class SolarUI {
     this.view.root.querySelector('canvas')?.setAttribute('aria-label', t('solarLabel'));
     this.renderDock();
     this.syncDock();
+    this.fillMeter();
     this.setSpeed(this.speedIdx);
     if (this.sel) this.renderCard();
     this.reader?.relang();
@@ -318,6 +388,8 @@ export class SolarUI {
   // ---------- card ----------
   private showCard(sel: Sel | null): void {
     this.sel = sel;
+    // the cutaway belongs to its world's card
+    if (this.view.interiorId && !(sel?.kind === 'body' && sel.id === this.view.interiorId)) this.view.setInterior(null);
     this.syncDock();
     const base = '#' + SCALE_HASH[this.view.scale];
     if (!sel) {
@@ -327,6 +399,11 @@ export class SolarUI {
       return;
     }
     if (sel.kind !== 'scale') sfx.pop();
+    const picked = this.bodyOf(sel);
+    if (picked && !this.meterEl.classList.contains('hidden') && picked !== this.meterA.value && picked !== this.meterB.value) {
+      this.meterB.value = picked;
+      this.applyMeter();
+    }
     const key = sel.kind === 'body' ? sel.id : sel.kind === 'feature' ? sel.f.key : sel.kind === 'site' ? sel.s.key : sel.kind === 'deep' ? sel.o.key : '';
     history.replaceState(null, '', key ? base + '/' + key : base);
     this.renderCard();
@@ -441,6 +518,8 @@ export class SolarUI {
     const moons = s.kind === 'body' ? BODIES.filter(b => b.parent === s.id && b.kind === 'moon') : [];
     const sites = s.kind === 'body' ? sitesOf(s.id) : [];
     const hasMore = extra.length > 0 || Boolean(it.funFact?.en);
+    const layers = s.kind === 'body' ? interiorOf(s.id) : null;
+    const inside = Boolean(layers) && this.view.interiorId === body.id;
     this.drawHero();
     this.infoMain.replaceChildren(
       h('div', { class: 'info-hero solar-hero' },
@@ -453,6 +532,9 @@ export class SolarUI {
         h('h2', { 'data-testid': 'solar-name' }, tr(it.name, l)),
         h('p', { class: 'desc' }, tr(it.desc, l)),
         key.length ? h('dl', { class: 'stats-row' }, ...key.map(([k, v]) => stat(k, v))) : null,
+        layers ? h('button', { class: 'pill pill-sm interior-btn' + (inside ? ' on' : ''), 'data-testid': 'solar-interior', 'aria-pressed': String(inside), html: icon('contrast', 14),
+          onclick: () => { sfx.tap(); this.view.setInterior(inside ? null : body.id); this.renderCard(); } }, h('span', {}, t(inside ? 'interiorClose' : 'interiorOpen'))) : null,
+        layers && inside ? this.layerList(body.id, layers) : null,
         hasMore ? h('details', { class: 'more' },
           h('summary', { html: icon('chevron', 14) }, h('span', {}, t('moreDetails'))),
           it.funFact?.en ? h('p', { class: 'fun' }, h('b', {}, t('funFact')), ' ', tr(it.funFact, l)) : null,
@@ -475,6 +557,23 @@ export class SolarUI {
           s.kind === 'body' && s.id === 'earth' ? h('button', { class: 'cta cta-sm', 'data-testid': 'solar-enter-earth', html: icon('globe', 16), onclick: () => this.backToEarth() }, h('span', {}, t('enterEarth'))) : null,
           h('button', { class: 'read-more', 'data-testid': 'solar-read-more', 'aria-expanded': String(this.readerOpen), onclick: () => { sfx.tap(); void this.toggleReader(); } },
             h('span', {}, this.readerOpen ? t('readerClose') : t('readMore')), h('span', { html: icon('book', 14) })))));
+  }
+
+  /** The layers of a world shown cut open, from the surface down to the centre. */
+  private layerList(id: BodyId, layers: NonNullable<ReturnType<typeof interiorOf>>): HTMLElement {
+    const l = lang(), R = BODY[id].radiusKm;
+    const sig = (x: number) => Number(x.toPrecision(x >= 1000 ? 3 : 2));
+    const items = layers.map((ly, i) => {
+      const km = sig((ly.r - (i ? layers[i - 1].r : 0)) * R);
+      return h('li', { 'data-testid': 'layer-' + i },
+        h('i', { class: 'layer-swatch', style: `--c:${ly.color}` }),
+        h('span', { class: 'layer-name' }, tr(ly.name, l) + (ly.maybe ? ' ' + t('layerMaybe') : '')),
+        h('span', { class: 'layer-meta' }, `${t('ls_' + ly.state)} · ${fmtNum(km)}${l === 'zh' ? ' 公里' : ' km'}`));
+    }).reverse();
+    return h('div', { class: 'solar-list solar-layers', 'data-testid': 'solar-layers' },
+      h('h3', {}, t('interiorTitle')),
+      h('ol', { class: 'layer-list' }, ...items),
+      h('p', { class: 'meter-note' }, t('interiorNote')));
   }
 
   private readBtn(): HTMLElement {
