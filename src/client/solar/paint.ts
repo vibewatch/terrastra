@@ -1926,6 +1926,103 @@ function paintHaumea(w: number): BodyMaps {
   return finish(c, hg, 60);
 }
 
+function paintAmalthea(w: number): BodyMaps {
+  const { c, n, n2, hg, al } = rocky(w, 651, 0.5, 0.15);
+  stampCraters(w, hg, al, genCraters(w, { seed: 652, cover: 0.24, rMin: 0.8, rMax: 12, dk: 0.2, fp: 12 }), { rim: 0.05, floor: -0.05, fresh: 0.1, ray: 0, halo: 0.4 });
+  stampCraters(w, hg, al, named(kmDeg(83.4), [[30, -30, 89, { d: 0.9, fl: 0.3 }], [-80, -90, 75, { d: 0.8 }]]), // Pan, Gaea
+    { rim: 0.06, floor: -0.05, fresh: 0.1, ray: 0 });
+  // the deep red of sulphur-stained dust, with greenish-bright patches on the slopes of ridges (Ida and Lyctos Faculae)
+  const fa = new Float32Array(n);
+  stamp(w, fa, [{ lat: 5, lon: 100, a: 9, b: 6, e: 0.7 }, { lat: -15, lon: 125, a: 6, e: 0.7 }]);
+  for (let i = 0; i < n; i++) { fa[i] = clamp(fa[i] * (0.8 + n2[i] * 1.5), 0, 1); al[i] *= 1 + fa[i] * 0.9; }
+  tint(c, al, [150, 76, 54], [176, 170, 140], fa, 0.4, 2);
+  bakeRelief(c, hg, 0.8);
+  return finish(c, hg, 100);
+}
+
+function paintHyperion(w: number): BodyMaps {
+  const { c, n, n1, hg, al } = rocky(w, 661, 0.25, 0.08);
+  // saturated with deep, sharp-rimmed pits: a porous body where impacts compress rather than blast out material
+  const hc = new Float32Array(n);
+  stampCraters(w, hc, al, genCraters(w, { seed: 662, cover: 0.9, rMin: 0.8, rMax: 20, dk: 0.35, fp: 30 }), { rim: 0.1, floor: -0.08, fresh: 0, ray: 0, halo: 0.2 });
+  stampCraters(w, hc, al, named(kmDeg(133.6), [[3, -171, 120, { d: 1.1 }], [71, -132, 40, {}], [61, 177, 45, {}], [36, 164, 40, {}]], 0.3), // Meri, Helios, Jarilo, Bahloo
+    { rim: 0.1, floor: -0.08, fresh: 0, ray: 0 });
+  const ri = new Float32Array(n);   // Bond-Lassell Dorsum
+  stamp(w, ri, path(arc(48, -143.5, 95, 40, 0.1, 1), 2.5, 1, true, 0.4));
+  // dark reddish material pooled in the deepest quarter of the pits
+  const smp: number[] = [];
+  for (let i = 0; i < n; i += 61) smp.push(hc[i]);
+  smp.sort((a, b) => a - b);
+  const q0 = smp[Math.floor(smp.length * 0.25)], q1 = smp[Math.floor(smp.length * 0.06)];
+  const t = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    hg[i] += hc[i] + ri[i] * 0.3;
+    t[i] = sstep(q0, q1, hc[i] + n1[i] * 0.03);
+    al[i] *= 1 - 0.45 * t[i];
+  }
+  tint(c, al, [200, 188, 168], [118, 84, 60], t, 0.3, 1.6);
+  bakeRelief(c, hg, 0.9);
+  return finish(c, hg, 100);
+}
+
+function paintPhoebe(w: number): BodyMaps {
+  const { c, n, n2, hg, al } = rocky(w, 671, 0.35, 0.1);
+  stampCraters(w, hg, al, genCraters(w, { seed: 672, cover: 0.3, rMin: 0.6, rMax: 14, dk: 0.2, fp: 8, rays: 0.02 }), { rim: 0.05, floor: -0.05, fresh: 0.5, ray: 0.3, halo: 0.6 });
+  // Jason and other Argonauts; fresh walls expose clean ice under the dark coating
+  stampCraters(w, hg, al, named(kmDeg(106.4), [
+    [16.2, 42.3, 101, { d: 0.8, fl: 0.35, f: 0.15 }], [31.6, 22.9, 38, { f: 0.4 }], [-31.3, 28.9, 23, { f: 0.6 }], [7.9, 5.5, 30, {}], [-27.2, 66.7, 22, { f: 0.7 }],
+  ]), { rim: 0.06, floor: -0.05, fresh: 0.6, ray: 0.3 });
+  for (let i = 0; i < n; i++) al[i] *= 1 + n2[i] * 0.1;
+  tint(c, al, [86, 82, 78], undefined, null, 0.5, 3);
+  bakeRelief(c, hg, 0.8);
+  return finish(c, hg, 100);
+}
+
+function paintProteus(w: number): BodyMaps {
+  const { c, n, hg, al } = rocky(w, 681, 0.45, 0.1);
+  stampCraters(w, hg, al, genCraters(w, { seed: 682, cover: 0.28, rMin: 0.6, rMax: 14, dk: 0.18, fp: 12 }), { rim: 0.05, floor: -0.05, fresh: 0.15, ray: 0, halo: 0.5 });
+  stampCraters(w, hg, al, named(kmDeg(210), [[-10, -10, 255, { d: 0.6, fl: 0.45 }], [20, 120, 90, {}], [-40, -140, 70, {}]]), // Pharos
+    { rim: 0.06, floor: -0.05, fresh: 0.1, ray: 0 });
+  const gr = new Float32Array(n);   // linear grooves and scarps
+  stamp(w, gr, lineSet(683, 10, [-50, 50, 30, 200], [20, 60], [30, 70], 1.2, 0.3));
+  for (let i = 0; i < n; i++) hg[i] -= gr[i] * 0.2;
+  tint(c, al, [112, 108, 104], undefined, null, 0.4, 1.8);
+  bakeRelief(c, hg, 0.8);
+  return finish(c, hg, 100);
+}
+
+function paintNereid(w: number): BodyMaps {
+  // only ever seen as a few pixels by Voyager 2: a generic grey, cratered body of its brightness
+  const { c, hg, al } = rocky(w, 691, 0.35, 0.1);
+  stampCraters(w, hg, al, genCraters(w, { seed: 692, cover: 0.25, rMin: 0.6, rMax: 12, dk: 0.16, fp: 12 }), { rim: 0.05, floor: -0.05, fresh: 0.2, ray: 0.1, halo: 0.5 });
+  tint(c, al, [164, 160, 154], undefined, null, 0.4, 1.6);
+  bakeRelief(c, hg, 0.7);
+  return finish(c, hg, 100);
+}
+
+function paintNix(w: number): BodyMaps {
+  const { c, n, n2, hg, al } = rocky(w, 701, 0.3, 0.08);
+  stampCraters(w, hg, al, genCraters(w, { seed: 702, cover: 0.12, rMin: 1, rMax: 12, dk: 0.15, fp: 12 }), { rim: 0.04, floor: -0.04, fresh: 0.2, ray: 0, halo: 0.4 });
+  stampCraters(w, hg, al, named(kmDeg(18.5), [[10, 40, 15, { d: 0.6 }]]), { rim: 0.05, floor: -0.05, fresh: 0.1, ray: 0 });
+  // the reddish patch New Horizons saw around one large crater
+  const red = distFrom(w, 10, 40), t = new Float32Array(n);
+  for (let i = 0; i < n; i++) t[i] = (1 - sstep(10, 60, red[i] + n2[i] * 35)) * 0.55;
+  tint(c, al, [200, 198, 194], [182, 132, 108], t, 0.5, 1.4);
+  bakeRelief(c, hg, 0.7);
+  return finish(c, hg, 100);
+}
+
+function paintHydra(w: number): BodyMaps {
+  const { c, n, n1, hg, al } = rocky(w, 711, 0.3, 0.06);
+  stampCraters(w, hg, al, genCraters(w, { seed: 712, cover: 0.12, rMin: 1, rMax: 14, dk: 0.15, fp: 12 }), { rim: 0.04, floor: -0.04, fresh: 0.2, ray: 0, halo: 0.4 });
+  // nearly pure water ice; a dark-floored crater near one end
+  stampCraters(w, hg, al, named(kmDeg(19), [[-20, 10, 8, { fill: 0.8 }]]), { rim: 0.05, floor: -0.05, fresh: 0.1, ray: 0 });
+  for (let i = 0; i < n; i++) al[i] *= 1 + n1[i] * 0.05;
+  tint(c, al, [228, 228, 230], undefined, null, 0.4, 1.2);
+  bakeRelief(c, hg, 0.7);
+  return finish(c, hg, 100);
+}
+
 function paintPlain(w: number): BodyMaps {
   const c = canvas(w);
   c.R.fill(128); c.G.fill(128); c.B.fill(128);
@@ -1965,6 +2062,13 @@ const PAINTERS: Partial<Record<BodyId, (w: number) => BodyMaps>> = {
   umbriel: paintUmbriel,
   titania: paintTitania,
   oberon: paintOberon,
+  amalthea: paintAmalthea,
+  hyperion: paintHyperion,
+  phoebe: paintPhoebe,
+  proteus: paintProteus,
+  nereid: paintNereid,
+  nix: paintNix,
+  hydra: paintHydra,
   haumea: paintHaumea,
   makemake: paintMakemake,
   eris: paintEris,

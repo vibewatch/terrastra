@@ -213,4 +213,32 @@ export const BODY_TEXT: Record<BodyId, { desc: I18n; funFact: I18n }> = {
     funFact: { en: 'Finding Eris in 2005 started the debate that led to Pluto being called a dwarf planet in 2006 — its name means "discord"!',
       zh: '2005 年阋神星的发现引发了一场大讨论，最终让冥王星在 2006 年被重新归为矮行星——它的名字就是“纷争女神”的意思！' },
   },
+  amalthea: {
+    desc: { en: 'Amalthea is a small, potato-shaped moon that races around Jupiter in just under 12 hours, closer in than Io. It is dark and very red, probably coated with sulphur dust blasted off Io\'s volcanoes.', zh: '木卫五是一颗土豆形状的小卫星，在木卫一的内侧绕木星飞奔，不到 12 小时就转一圈。它又暗又红，表面可能落满了从木卫一火山喷出来的硫磺尘埃。' },
+    funFact: { en: 'It is the reddest object in the Solar System, and it gives off a little more heat than it gets from the Sun — Jupiter\'s warmth, light reflected off Jupiter and radiation all heat it up.', zh: '它是太阳系里最红的天体。它散发的热量比从太阳那里得到的还多一点——木星的热量、木星反射的阳光和辐射都在给它“加热”。' },
+  },
+  hyperion: {
+    desc: { en: 'Hyperion is a lumpy moon of Saturn that looks like a giant sponge. Its ice is so full of holes that almost half of it is empty space, so meteorites punch deep pits instead of blasting material away.', zh: '土卫七是土星的一颗形状不规则的卫星，看起来像一块巨大的海绵。它的冰里布满孔洞，差不多一半是空的，所以陨石砸上去会戳出深坑，而不是把物质炸飞。' },
+    funFact: { en: 'It tumbles chaotically: Titan\'s tugs keep changing its spin, so nobody can say which way it will be facing a few months from now!', zh: '它的自转是“混沌”的：土卫六的引力不断改变它的转动，所以没人能预测几个月后它会朝向哪一边！' },
+  },
+  phoebe: {
+    desc: { en: 'Phoebe is a dark moon far out from Saturn that goes round backwards. It is probably a captured visitor from the outer Solar System, an icy body coated in dark dust.', zh: '土卫九是一颗离土星很远、倒着绕行的暗色卫星。它很可能是从太阳系外围被土星“捕获”的来客：一个裹着黑色尘埃的冰质天体。' },
+    funFact: { en: 'Dust knocked off Phoebe forms a giant, almost invisible ring around Saturn — about 200 times as wide as the planet. Iapetus sweeps up this dust, which is why one side of it is dark.', zh: '从土卫九撞下来的尘埃在土星周围形成了一个几乎看不见的巨大环，宽度约是土星的 200 倍。土卫八“扫”到这些尘埃，所以它有一半是黑的。' },
+  },
+  proteus: {
+    desc: { en: 'Proteus is Neptune\'s second-largest moon, a dark, boxy world about 420 km across. Even though it is bigger than Mimas, it was only found in 1989 because it is so dark and so close to Neptune\'s glare.', zh: '海卫八是海王星第二大的卫星，一个约 420 公里宽、又暗又方的天体。它比土卫一还大，却直到 1989 年才被发现，因为它太暗，又紧贴着明亮的海王星。' },
+    funFact: { en: 'It is about as big as a body can get without its own gravity pulling it into a ball.', zh: '它差不多是一个天体在不被自身引力“捏”成球形的前提下能达到的最大尺寸。' },
+  },
+  nereid: {
+    desc: { en: 'Nereid is a moon of Neptune on the most stretched-out orbit of any known moon. Over its 360-day year its distance from Neptune changes from about 1.4 million to 9.7 million km.', zh: '海卫二是海王星的一颗卫星，它的轨道是已知所有卫星里最扁长的。在它 360 天的一“年”里，它离海王星的距离会从约 140 万公里变化到约 970 万公里。' },
+    funFact: { en: 'Its wild orbit suggests that when Neptune captured Triton, Triton\'s gravity flung Nereid out of place.', zh: '它这条“疯狂”的轨道说明：海王星捕获海卫一的时候，海卫一的引力可能把海卫二甩了出去。' },
+  },
+  nix: {
+    desc: { en: 'Nix is one of Pluto\'s small moons, an icy body shaped like a jelly bean about 50 km long. New Horizons saw a reddish patch around one of its craters.', zh: '冥卫二是冥王星的小卫星之一，一个约 50 公里长、像软糖豆一样的冰质天体。“新视野号”在它的一个陨石坑周围看到了一块偏红的区域。' },
+    funFact: { en: 'It is named after Nyx, the Greek goddess of night — the spelling was changed because an asteroid already had the name Nyx.', zh: '它以希腊神话中的夜之女神倪克斯命名，因为已经有一颗小行星叫 Nyx，所以把拼写改成了 Nix。' },
+  },
+  hydra: {
+    desc: { en: 'Hydra is Pluto\'s outermost moon, a small chunk of very clean, bright water ice about 51 km long. It spins round in about 10 hours but takes 38 days to circle Pluto.', zh: '冥卫三是冥王星最外侧的卫星，一块约 51 公里长、非常干净明亮的水冰。它大约 10 小时自转一圈，绕冥王星一圈却要 38 天。' },
+    funFact: { en: 'Its surface reflects more light than almost anything else in the Pluto system — as bright as fresh snow.', zh: '它表面的反光几乎是整个冥王星系统中最强的，像新雪一样亮。' },
+  },
 };

@@ -7,10 +7,10 @@ import type { I18n } from './types.ts';
 
 export type BodyId =
   | 'sun' | 'mercury' | 'venus' | 'earth' | 'moon' | 'mars' | 'phobos' | 'deimos' | 'ceres'
-  | 'jupiter' | 'io' | 'europa' | 'ganymede' | 'callisto'
-  | 'saturn' | 'mimas' | 'enceladus' | 'tethys' | 'dione' | 'rhea' | 'titan' | 'iapetus'
+  | 'jupiter' | 'amalthea' | 'io' | 'europa' | 'ganymede' | 'callisto'
+  | 'saturn' | 'mimas' | 'enceladus' | 'tethys' | 'dione' | 'rhea' | 'titan' | 'hyperion' | 'iapetus' | 'phoebe'
   | 'uranus' | 'miranda' | 'ariel' | 'umbriel' | 'titania' | 'oberon'
-  | 'neptune' | 'triton' | 'pluto' | 'charon' | 'haumea' | 'makemake' | 'eris';
+  | 'neptune' | 'proteus' | 'triton' | 'nereid' | 'pluto' | 'charon' | 'nix' | 'hydra' | 'haumea' | 'makemake' | 'eris';
 
 export type BodyKind = 'star' | 'planet' | 'dwarf' | 'moon';
 
@@ -20,8 +20,17 @@ export interface Kepler {
   L: [number, number]; peri: [number, number]; node: [number, number];
 }
 
-/** Moons: circular orbit in the parent's equatorial plane. */
-export interface MoonOrbit { aKm: number; periodD: number; L0: number }
+/**
+ * Moons: an orbit in the parent's equatorial plane (or near the ecliptic for distant moons whose Laplace plane is
+ * the planet's orbit). L0 is the mean longitude at J2000; a negative period means retrograde.
+ */
+export interface MoonOrbit {
+  aKm: number; periodD: number; L0: number;
+  /** Eccentricity (default 0) and longitude of periapsis in the orbit plane (deg). */
+  e?: number; peri?: number;
+  /** Orbit lies near the ecliptic rather than the parent's equator. */
+  laplace?: boolean;
+}
 
 export interface SolarBody {
   id: BodyId;
@@ -90,6 +99,8 @@ export const BODIES: SolarBody[] = [
   { id: 'jupiter', kind: 'planet', name: { en: 'Jupiter', zh: '木星' }, emoji: '🟠', wiki: 'Jupiter', radiusKm: 69911, rotationH: 9.925, tilt: 2.22, poleLon: 247.8,
     kepler: K([5.202887, -0.00011607], [0.04838624, -0.00013253], [1.30439695, -0.00183714], [34.39644051, 3034.74612775], [14.72847983, 0.21252668], [100.47390909, 0.20469106]),
     solid: false, glow: '#e9c79a', facts: { gravity: 2.53, tempC: [-145, -145], moons: 97, yearD: 4333, dayH: 9.93 } },
+  { id: 'amalthea', kind: 'moon', parent: 'jupiter', name: { en: 'Amalthea', zh: '木卫五' }, emoji: '🟤', wiki: 'Amalthea (moon)', radiusKm: 83.4, rotationH: 11.956, tilt: 0,
+    locked: true, moon: { aKm: 181366, periodD: 0.49818, L0: 100 }, shape: [1.51, 0.755, 0.875], solid: true, facts: { gravity: 0.002, tempC: [-153, -108] } },
   { id: 'io', kind: 'moon', parent: 'jupiter', name: { en: 'Io', zh: '木卫一' }, emoji: '🌋', wiki: 'Io (moon)', radiusKm: 1821.6, rotationH: 42.46, tilt: 0,
     locked: true, moon: { aKm: 421700, periodD: 1.769, L0: 200 }, solid: true, facts: { gravity: 0.18, tempC: [-163, 1600] } },
   { id: 'europa', kind: 'moon', parent: 'jupiter', name: { en: 'Europa', zh: '木卫二' }, emoji: '🧊', wiki: 'Europa (moon)', radiusKm: 1560.8, rotationH: 85.23, tilt: 0.1,
@@ -113,8 +124,14 @@ export const BODIES: SolarBody[] = [
     locked: true, moon: { aKm: 527108, periodD: 4.518, L0: 80 }, solid: true, facts: { gravity: 0.027, tempC: [-220, -174] } },
   { id: 'titan', kind: 'moon', parent: 'saturn', name: { en: 'Titan', zh: '土卫六' }, emoji: '🟡', wiki: 'Titan (moon)', radiusKm: 2574.7, rotationH: 382.7, tilt: 0.3,
     locked: true, moon: { aKm: 1221870, periodD: 15.945, L0: 260 }, solid: true, glow: '#e8b25a', facts: { gravity: 0.14, tempC: [-179, -179] } },
+  // Hyperion tumbles chaotically (no fixed day); about 5 days per turn is typical.
+  { id: 'hyperion', kind: 'moon', parent: 'saturn', name: { en: 'Hyperion', zh: '土卫七' }, emoji: '🧽', wiki: 'Hyperion (moon)', radiusKm: 133.6, rotationH: 120, tilt: 0,
+    moon: { aKm: 1481500, periodD: 21.2767, L0: 330, e: 0.105, peri: 60 }, shape: [1.354, 0.763, 0.966], solid: true, facts: { gravity: 0.002, tempC: [-215, -158] } },
   { id: 'iapetus', kind: 'moon', parent: 'saturn', name: { en: 'Iapetus', zh: '土卫八' }, emoji: '☯️', wiki: 'Iapetus (moon)', radiusKm: 734.5, rotationH: 1903.7, tilt: 0,
     locked: true, moon: { aKm: 3560820, periodD: 79.32, L0: 170 }, solid: true, facts: { gravity: 0.023, tempC: [-183, -143] } },
+  // Far-out captured moons orbit close to the planet's orbital plane (their Laplace plane), not its equator.
+  { id: 'phoebe', kind: 'moon', parent: 'saturn', name: { en: 'Phoebe', zh: '土卫九' }, emoji: '⚫', wiki: 'Phoebe (moon)', radiusKm: 106.4, rotationH: 9.2735, tilt: 0,
+    moon: { aKm: 12929400, periodD: -550.3, L0: 40, e: 0.164, peri: 280, laplace: true }, shape: [1.03, 0.951, 1.03], solid: true, facts: { gravity: 0.0045, tempC: [-191, -161] } },
   { id: 'uranus', kind: 'planet', name: { en: 'Uranus', zh: '天王星' }, emoji: '🔵', wiki: 'Uranus', radiusKm: 25362, rotationH: -17.24, tilt: 82.28, poleLon: 257.6,
     kepler: K([19.18916464, -0.00196176], [0.04725744, -0.00004397], [0.77263783, -0.00242939], [313.23810451, 428.48202785], [170.9542763, 0.40805281], [74.01692503, 0.04240589]),
     rings: [1.65, 2.02], solid: false, glow: '#a6e3ea', facts: { gravity: 0.89, tempC: [-224, -224], moons: 29, yearD: 30687, dayH: 17.24 } },
@@ -132,13 +149,22 @@ export const BODIES: SolarBody[] = [
   { id: 'neptune', kind: 'planet', name: { en: 'Neptune', zh: '海王星' }, emoji: '🔵', wiki: 'Neptune', radiusKm: 24622, rotationH: 16.11, tilt: 28.03, poleLon: 319.2,
     kepler: K([30.06992276, 0.00026291], [0.00859048, 0.00005105], [1.77004347, 0.00035372], [-55.12002969, 218.45945325], [44.96476227, -0.32241464], [131.78422574, -0.00508664]),
     solid: false, glow: '#6f8cff', facts: { gravity: 1.14, tempC: [-214, -214], moons: 16, yearD: 60190, dayH: 16.11 } },
+  { id: 'proteus', kind: 'moon', parent: 'neptune', name: { en: 'Proteus', zh: '海卫八' }, emoji: '🎲', wiki: 'Proteus (moon)', radiusKm: 210, rotationH: 26.94, tilt: 0,
+    locked: true, moon: { aKm: 117647, periodD: 1.12231, L0: 210 }, shape: [1.01, 0.93, 0.943], solid: true, facts: { gravity: 0.007, tempC: [-222, -222] } },
   { id: 'triton', kind: 'moon', parent: 'neptune', name: { en: 'Triton', zh: '海卫一' }, emoji: '🧊', wiki: 'Triton (moon)', radiusKm: 1353.4, rotationH: -141.04, tilt: 0,
     locked: true, moon: { aKm: 354759, periodD: -5.877, L0: 90 }, solid: true, facts: { gravity: 0.08, tempC: [-235, -235] } },
+  { id: 'nereid', kind: 'moon', parent: 'neptune', name: { en: 'Nereid', zh: '海卫二' }, emoji: '☄️', wiki: 'Nereid (moon)', radiusKm: 178, rotationH: 11.594, tilt: 0,
+    moon: { aKm: 5513782, periodD: 360.13, L0: 300, e: 0.751, peri: 20, laplace: true }, solid: true, facts: { gravity: 0.007, tempC: [-222, -222] } },
   { id: 'pluto', kind: 'dwarf', name: { en: 'Pluto', zh: '冥王星' }, emoji: '🤍', wiki: 'Pluto', radiusKm: 1188.3, rotationH: 153.29, tilt: 112.82, poleLon: 137.4, locked: true,
     kepler: K([39.48211675, -0.00031596], [0.2488273, 0.0000517], [17.14001206, 0.00004818], [238.92903833, 145.20780515], [224.06891629, -0.04062942], [110.30393684, -0.01183482]),
     solid: true, glow: '#c9d6ff', facts: { gravity: 0.06, tempC: [-240, -218], moons: 5, yearD: 90560, dayH: 153.3 } },
   { id: 'charon', kind: 'moon', parent: 'pluto', name: { en: 'Charon', zh: '冥卫一' }, emoji: '🌑', wiki: 'Charon (moon)', radiusKm: 606, rotationH: 153.29, tilt: 0,
     locked: true, moon: { aKm: 19591, periodD: 6.387, L0: 0 }, solid: true, facts: { gravity: 0.03, tempC: [-220, -220] } },
+  // Nix and Hydra wobble chaotically in the shifting pull of Pluto and Charon.
+  { id: 'nix', kind: 'moon', parent: 'pluto', name: { en: 'Nix', zh: '冥卫二' }, emoji: '🌃', wiki: 'Nix (moon)', radiusKm: 18.5, rotationH: 43.9, tilt: 0,
+    moon: { aKm: 48694, periodD: 24.8546, L0: 120 }, shape: [1.346, 0.84, 0.897], solid: true, facts: { gravity: 0.0005, tempC: [-240, -220] } },
+  { id: 'hydra', kind: 'moon', parent: 'pluto', name: { en: 'Hydra', zh: '冥卫三' }, emoji: '🐍', wiki: 'Hydra (moon)', radiusKm: 19, rotationH: 10.31, tilt: 0,
+    moon: { aKm: 64738, periodD: 38.2018, L0: 250 }, shape: [1.34, 0.813, 0.95], solid: true, facts: { gravity: 0.0009, tempC: [-240, -220] } },
   // Distant dwarf planets: osculating JPL elements carried back to J2000 (mean motion only; good to a degree or two).
   // Haumea's pole is taken from Hi'iaka's orbit, which lies in the plane of its ring and equator.
   { id: 'haumea', kind: 'dwarf', name: { en: 'Haumea', zh: '妊神星' }, emoji: '🥚', wiki: 'Haumea', radiusKm: 780, rotationH: 3.9155, tilt: 126.4, poleLon: 116.8,

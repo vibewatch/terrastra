@@ -410,8 +410,12 @@ export class SolarView {
         pts.push(eclToThree(p).multiplyScalar(displayOrbit(r) / r));
       }
     } else if (b.moon && b.parent) {
-      const P = Math.abs(b.moon.periodD), dist = displayMoonDist(b.id);
-      for (let k = 0; k < 128; k++) pts.push(eclToThree(relativePosition(b.id, d + (k / 128) * P)).normalize().multiplyScalar(dist));
+      // sample evenly in eccentric anomaly so a very eccentric orbit (Nereid) stays smooth round periapsis
+      const P = Math.abs(b.moon.periodD), e = b.moon.e ?? 0;
+      for (let k = 0; k < 128; k++) {
+        const E = (k / 128) * 2 * Math.PI, p = relativePosition(b.id, d + (P * (E - e * Math.sin(E))) / (2 * Math.PI));
+        pts.push(eclToThree(p).normalize().multiplyScalar(displayMoonDist(b.id, Math.hypot(p[0], p[1], p[2]))));
+      }
     } else return null;
     const line = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts),
       new THREE.LineBasicMaterial({ color: b.kind === 'dwarf' ? 0xa78bfa : b.kind === 'moon' ? 0x94a3b8 : 0x7dd3fc, transparent: true, opacity: 0.2, depthWrite: false }));
@@ -553,7 +557,7 @@ export class SolarView {
         eclToThree(p, rt.pos).multiplyScalar(displayOrbit(r) / r);
       } else if (b.moon && b.parent) {
         const p = relativePosition(b.id, d);
-        eclToThree(p, rt.pos).normalize().multiplyScalar(displayMoonDist(b.id)).add(this.rts.get(b.parent)!.pos);
+        eclToThree(p, rt.pos).normalize().multiplyScalar(displayMoonDist(b.id, Math.hypot(p[0], p[1], p[2]))).add(this.rts.get(b.parent)!.pos);
       }
       // Spin about the pole: exact for Earth (sun over the right longitude) and tidally locked moons, else free.
       const prev = rt.spinA;

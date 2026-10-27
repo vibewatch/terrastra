@@ -66,7 +66,8 @@ const DOCK: BodyId[] = ['sun', 'mercury', 'venus', 'earth', 'mars', 'ceres', 'ju
 const SPEED_KEYS = ['spPause', 'spReal', 'spHour', 'spDay', 'spMonth', 'spYear'];
 const DOT: Partial<Record<BodyId, string>> = { mercury: '#a8a29e', ceres: '#8b857d', moon: '#c9c5bd', io: '#e8d36a', europa: '#d9cbb0', ganymede: '#a39a8c', callisto: '#6f665c', enceladus: '#eef4f8', triton: '#d8c8c0', charon: '#a99f97',
   phobos: '#7a6e64', deimos: '#9a8c7c', mimas: '#d4d2cc', tethys: '#e6e4de', dione: '#d8d6d0', rhea: '#cfccc4', iapetus: '#9a8f80',
-  miranda: '#bdbab4', ariel: '#c9c6c0', umbriel: '#6e6a66', titania: '#b5aca2', oberon: '#a29488', haumea: '#e8e8ec', makemake: '#d6b08c', eris: '#eeeeee' };
+  miranda: '#bdbab4', ariel: '#c9c6c0', umbriel: '#6e6a66', titania: '#b5aca2', oberon: '#a29488',
+  amalthea: '#9a5a44', hyperion: '#b8a68e', phoebe: '#5c5853', proteus: '#77726c', nereid: '#a8a49e', nix: '#c8c4c0', hydra: '#e2e2e2', haumea: '#e8e8ec', makemake: '#d6b08c', eris: '#eeeeee' };
 /** Dock icon sizes: a rough size ladder (not to scale) so the worlds stay recognisable without their names. */
 const DOT_PX: Partial<Record<BodyId, number>> = { sun: 20, jupiter: 18, saturn: 15, uranus: 13, neptune: 13, earth: 12, venus: 12, mars: 10, mercury: 8, ceres: 6, pluto: 6, haumea: 6, makemake: 5, eris: 6 };
 const dotColor = (b: SolarBody) => DOT[b.id] ?? b.glow ?? '#9ca3af';
@@ -638,7 +639,7 @@ export class SolarUI {
           const a = relativePosition(body.id, d), e = relativePosition('earth', d);
           extra.push([t('fromEarth'), fmtKm(Math.hypot(a[0] - e[0], a[1] - e[1], a[2] - e[2]) * AU_KM, l)]);
         }
-      } else if (body.moon) extra.push([t('fromParent', { p: pName }), fmtKm(body.moon.aKm, l)]);
+      } else if (body.moon) { const p = relativePosition(body.id, d); extra.push([t('fromParent', { p: pName }), fmtKm(Math.hypot(p[0], p[1], p[2]), l)]); }
       if (f.moons !== undefined && body.kind !== 'star') extra.push([t('moonsN'), fmtNum(f.moons)]);
       if (f.gravity !== undefined) extra.push([t('gravity'), t('xEarth', { n: f.gravity })]);
       if (f.tempC) extra.push([t('temperature'), f.tempC[0] === f.tempC[1] ? `${fmtNum(f.tempC[0])} °C` : `${fmtNum(f.tempC[0])} ~ ${fmtNum(f.tempC[1])} °C`]);

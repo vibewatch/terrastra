@@ -14,7 +14,7 @@
 | Planet info, encyclopedia | ✅ already had | Body cards, features, Wikipedia reader |
 | Search | ✅ already had | Global search (`space-index.ts`) |
 | Constellations | ✅ all 88 | Line overlay with a card per constellation; lines and stars from d3-celestial (BSD-3) and Hipparcos |
-| Moons and dwarf planets | ✅ 21 moons, 5 dwarf planets | Added Phobos, Deimos, five more of Saturn's moons, Uranus's five big moons, and Haumea (stretched, with its ring), Makemake and Eris |
+| Moons and dwarf planets | ✅ 28 moons, 5 dwarf planets | Added Phobos, Deimos, Amalthea, seven more of Saturn's moons (including Hyperion and retrograde Phoebe), Uranus's five big moons, Proteus, Nereid (eccentric orbit), Nix and Hydra, and Haumea (stretched, with its ring), Makemake and Eris |
 | Milky Way and beyond | ✅ already had (more than SSS) | Galaxy → Local Group → Laniakea → universe ladder, 3D nebulae and galaxies |
 | Space missions | ✅ already had | Mission sites with 3D models |
 | Eclipses and sky events | ✅ already had (more than SSS) | Sky theatre |

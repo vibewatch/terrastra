@@ -1,6 +1,6 @@
 /**
  * Orbital positions for the solar view. Planets use JPL's approximate Keplerian elements; the Moon uses a short
- * lunar series (so its phase is right); other moons run on circular orbits. Output is ecliptic J2000:
+ * lunar series (so its phase is right); other moons run on fixed Keplerian ellipses (mostly circles). Output is ecliptic J2000:
  * x toward the vernal equinox, z toward the north ecliptic pole. Distances in AU (planets) or km (moons).
  */
 import { BODY, type BodyId, type Kepler } from '../data/solar.ts';
@@ -62,19 +62,30 @@ export function poleOf(id: BodyId): Vec3 {
 
 /**
  * Position relative to the parent (or the Sun for planets): AU for planets/dwarfs, km for moons.
- * Circular moons orbit in the parent's equatorial plane.
+ * Other moons orbit in the parent's equatorial plane (or the ecliptic for `laplace` orbits), eccentric if `e` is set.
  */
 export function relativePosition(id: BodyId, d: number): Vec3 {
   const b = BODY[id];
   if (b.kepler) return keplerPosition(b.kepler, d);
   if (id === 'moon') return moonPosition(d);
-  if (!b.moon || !b.parent) return [0, 0, 0];
-  const ang = (b.moon.L0 + (360 / b.moon.periodD) * d) * D2R;
-  const p = poleOf(b.parent);
-  // Orthonormal basis (u, v) of the parent's equatorial plane.
+  const m = b.moon;
+  if (!m || !b.parent) return [0, 0, 0];
+  const p: Vec3 = m.laplace ? [0, 0, 1] : poleOf(b.parent);
+  // Orthonormal basis (u, v) of the orbit plane.
   const n = cross([0, 0, 1], p), u = Math.hypot(n[0], n[1], n[2]) < 1e-6 ? [1, 0, 0] as Vec3 : norm(n);
   const v = cross(p, u);
-  const r = b.moon.aKm, c = Math.cos(ang) * r, s = Math.sin(ang) * r;
+  let c: number, s: number;
+  const L = m.L0 + (360 / m.periodD) * d;
+  if (m.e) {
+    const e = m.e, w = (m.peri ?? 0) * D2R;
+    let M = (((L - (m.peri ?? 0)) % 360) + 540) % 360 - 180;
+    M *= D2R;
+    const E = solveKepler(M, e), x = m.aKm * (Math.cos(E) - e), y = m.aKm * Math.sqrt(1 - e * e) * Math.sin(E);
+    c = x * Math.cos(w) - y * Math.sin(w); s = x * Math.sin(w) + y * Math.cos(w);
+  } else {
+    const ang = L * D2R;
+    c = Math.cos(ang) * m.aKm; s = Math.sin(ang) * m.aKm;
+  }
   return [u[0] * c + v[0] * s, u[1] * c + v[1] * s, u[2] * c + v[2] * s];
 }
 
@@ -107,9 +118,9 @@ export function displayRadius(id: BodyId): number {
   if (id === 'sun') return 2.6;
   return 0.34 * Math.pow(BODY[id].radiusKm / 6371, 0.45);
 }
-/** Moon distance from its parent in display units, monotonic in the real distance. */
-export function displayMoonDist(id: BodyId): number {
+/** Moon distance from its parent in display units, monotonic in the real distance (default: the semi-major axis). */
+export function displayMoonDist(id: BodyId, rKm?: number): number {
   const b = BODY[id], p = BODY[b.parent!];
-  const rel = b.moon!.aKm / p.radiusKm;
+  const rel = (rKm ?? b.moon!.aKm) / p.radiusKm;
   return displayRadius(p.id) * (1.7 + 0.42 * Math.sqrt(rel)) + displayRadius(id) * 1.5;
 }

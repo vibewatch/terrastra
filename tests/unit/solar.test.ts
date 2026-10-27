@@ -39,7 +39,7 @@ describe('solar orbits', () => {
     for (let i = 1; i < planets.length; i++) expect(displayOrbit(planets[i].kepler!.a[0])).toBeGreaterThan(displayOrbit(planets[i - 1].kepler!.a[0]));
     expect(displayRadius('sun')).toBeLessThan(displayOrbit(BODY.mercury.kepler!.a[0]) * 0.5);
     for (const m of BODIES.filter(b => b.moon)) expect(displayMoonDist(m.id)).toBeGreaterThan(displayRadius(m.parent!) * 1.5);
-    const jov = (['io', 'europa', 'ganymede', 'callisto'] as const).map(displayMoonDist);
+    const jov = (['amalthea', 'io', 'europa', 'ganymede', 'callisto'] as const).map(id => displayMoonDist(id));
     expect([...jov].sort((a, b) => a - b)).toEqual(jov);
   });
 });
@@ -98,6 +98,12 @@ describe('distance meter', () => {
     // a moon sits next to its planet: Io's distance from Jupiter is its orbit radius
     expect(distanceKm('io', 'jupiter', d)).toBeCloseTo(BODY.io.moon!.aKm, 0);
     expect(r(helioKm('sun', d))).toBe(0);
+    // Nereid's very eccentric orbit swings between periapsis a(1−e) and apoapsis a(1+e), in the ecliptic plane
+    const aN = BODY.nereid.moon!.aKm, eN = BODY.nereid.moon!.e!;
+    const ds = Array.from({ length: 721 }, (_, k) => distanceKm('nereid', 'neptune', d + k * 0.5));
+    expect(Math.min(...ds)).toBeCloseTo(aN * (1 - eN), -4);
+    expect(Math.max(...ds)).toBeCloseTo(aN * (1 + eN), -4);
+    for (const id of ['nereid', 'phoebe'] as const) for (let k = 0; k < 20; k++) expect(Math.abs(relativePosition(id, d + k * 30)[2])).toBeLessThan(1);
     // Earth–Mars always lies between its closest and widest values
     for (let y = 0; y < 3; y += 0.1) {
       const km = distanceKm('earth', 'mars', d + y * 365.25);
