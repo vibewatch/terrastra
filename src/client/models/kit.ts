@@ -12,7 +12,6 @@ import { ICON_BUILDERS } from './icons.ts';
 import { heroBuilder, heroReady, whenHeroReady } from './heroes/index.ts';
 import { PBR_ATTR, inferPbr, useVertexPbr } from './pbr.ts';
 
-export { mat };
 const B: Record<string, Builder> = {
   // ---------- landmarks ----------
   lattice: (gp, r) => {

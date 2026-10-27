@@ -11,7 +11,7 @@ const VIEW_VERSION = 1;
 const MAX = 40;
 
 interface Cam { lat: number; lon: number; h: number }
-export interface View { route: string; cam?: Cam }
+interface View { route: string; cam?: Cam }
 export interface Bookmark extends View { label: I18n; at: number }
 
 const num = (v: string) => (/^-?\d+(\.\d+)?$/.test(v) ? Number(v) : NaN);

@@ -30,7 +30,7 @@ export function galToEq(v: Vec3): Vec3 {
   return [m[0][0] * v[0] + m[1][0] * v[1] + m[2][0] * v[2], m[0][1] * v[0] + m[1][1] * v[1] + m[2][1] * v[2], m[0][2] * v[0] + m[1][2] * v[1] + m[2][2] * v[2]];
 }
 
-export function eclToEq(v: Vec3): Vec3 {
+function eclToEq(v: Vec3): Vec3 {
   const c = Math.cos(EPS), s = Math.sin(EPS);
   return [v[0], c * v[1] - s * v[2], s * v[1] + c * v[2]];
 }

@@ -1,5 +1,5 @@
 // [name, alpha-2, lat, lon, population (millions, metro approx.), capital]
-export type City = [string, string, number, number, number, boolean];
+type City = [string, string, number, number, number, boolean];
 export const CITIES: City[] = [
   ['Tokyo','JP',35.68,139.69,37,true],['Delhi','IN',28.61,77.21,32,true],['Shanghai','CN',31.23,121.47,29,false],['São Paulo','BR',-23.55,-46.63,22,false],
   ['Mexico City','MX',19.43,-99.13,22,true],['Cairo','EG',30.04,31.24,21,true],['Mumbai','IN',19.08,72.88,21,false],['Beijing','CN',39.90,116.41,21,true],

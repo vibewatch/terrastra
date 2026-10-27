@@ -559,8 +559,8 @@ export class FlatMap {
 
   private onScreen(x: number, y: number, m = 0): boolean { return x >= -m && y >= -m && x <= this.W + m && y <= this.H + m; }
 
-  /** Whether (lat, lon) is on the drawn map (inside the equal-earth oval). */
-  private onMap(lat: number, lon: number): boolean {
+  /** Whether longitude `lon` is on the drawn map (the equal-earth oval's edge depends only on longitude). */
+  private onMap(lon: number): boolean {
     return !(this.proj === 'equalearth' && Math.abs(wrapPi(lon * D - this.v.lon0)) > Math.PI - 1e-6);
   }
 
@@ -624,10 +624,10 @@ export class FlatMap {
     const latC = Math.abs(clat) < step * 2.5 ? 0 : Math.max(-75, Math.min(75, snap(clat)));
     const fmt = (v: number, pos: string, neg: string) => (v === 0 ? '0°' : `${Math.abs(v)}°${v > 0 ? pos : neg}`);
     for (let la = -90 + step; la < 90; la += step) if (la !== latC) push(fmt(la, 'N', 'S'), 'lb-grid', la, lonC, 40, true);
-    for (let lo = -180; lo < 180; lo += step) if (this.onMap(latC, lo)) push(Math.abs(lo) === 180 ? '180°' : fmt(lo, 'E', 'W'), 'lb-grid', latC, lo, 40, true);
+    for (let lo = -180; lo < 180; lo += step) if (this.onMap(lo)) push(Math.abs(lo) === 180 ? '180°' : fmt(lo, 'E', 'W'), 'lb-grid', latC, lo, 40, true);
     const named: [string, number][] = [['equator', 0], ['tropicN', 23.436], ['tropicS', -23.436], ['arcticC', 66.564], ['antarcticC', -66.564]];
     for (const [k, la] of named) push(GRID_NAMES[k][l] ?? GRID_NAMES[k].en, 'lb-grid lb-gridname g-' + k, la, lonC + step * 0.5, 600, true);
-    if (this.onMap(0, 0)) push(GRID_NAMES.prime[l] ?? GRID_NAMES.prime.en, 'lb-grid lb-gridname g-prime', Math.max(-60, Math.min(60, clat + step * 0.5)), 0, 600, true);
+    if (this.onMap(0)) push(GRID_NAMES.prime[l] ?? GRID_NAMES.prime.en, 'lb-grid lb-gridname g-prime', Math.max(-60, Math.min(60, clat + step * 0.5)), 0, 600, true);
   }
 
   private layoutPins(z: number, avoid: readonly [number, number, number, number][]): void {
@@ -639,7 +639,7 @@ export class FlatMap {
       for (const it of CATALOGUE) {
         const isSel = sel?.key === it.key;
         if (!isSel && (it.tier > maxTier || !g.listed(it))) continue;
-        if (!this.onMap(it.lat, it.lon)) continue;
+        if (!this.onMap(it.lon)) continue;
         const [x, y] = this.toScreen(it.lat, it.lon);
         if (!this.onScreen(x, y, 16)) continue;
         cand.push({ it, x, y });

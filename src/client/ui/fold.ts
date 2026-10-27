@@ -13,9 +13,9 @@ import { invalidateUI } from './occluders.ts';
 const KEY = 'cardMini';
 const panels = new Set<HTMLElement>();
 
-export const folded = (panel: HTMLElement) => panel.classList.contains('mini');
+const folded = (panel: HTMLElement) => panel.classList.contains('mini');
 
-function setFolded(panel: HTMLElement, on: boolean): void {
+function setFolded(on: boolean): void {
   save(KEY, on);
   for (const p of panels) {
     p.classList.toggle('mini', on);
@@ -43,20 +43,20 @@ export function foldable(panel: HTMLElement): void {
   grip.addEventListener('pointerup', e => {
     const dy = e.clientY - y0;
     y0 = NaN;
-    if (Math.abs(dy) < 12) setFolded(panel, !folded(panel));
-    else if (dy > 30 && !folded(panel)) setFolded(panel, true);
-    else if (dy < -30 && folded(panel)) setFolded(panel, false);
+    if (Math.abs(dy) < 12) setFolded(!folded(panel));
+    else if (dy > 30 && !folded(panel)) setFolded(true);
+    else if (dy < -30 && folded(panel)) setFolded(false);
   });
   panel.prepend(grip);
   panel.addEventListener('click', e => {
-    if (folded(panel) && (e.target as Element).closest('.info-body')) setFolded(panel, false);
+    if (folded(panel) && (e.target as Element).closest('.info-body')) setFolded(false);
   });
 }
 
 /** The fold/unfold button that sits beside the card's close button. */
 export function foldButton(panel: HTMLElement): HTMLButtonElement {
   const b = h('button', { class: 'icon-btn info-min', 'data-testid': 'card-fold',
-    onclick: (e: Event) => { e.stopPropagation(); setFolded(panel, !folded(panel)); } }) as HTMLButtonElement;
+    onclick: (e: Event) => { e.stopPropagation(); setFolded(!folded(panel)); } }) as HTMLButtonElement;
   sync(b, panel);
   return b;
 }

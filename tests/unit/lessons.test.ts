@@ -103,8 +103,8 @@ describe('lesson geometry', () => {
       ['Antarctica', -80, 0, 10, 10, 'icecap'],
     ];
     for (const [n, la, lo, dw, de, want] of cases) expect(climateAt(la, lo, dw, de), n).toBe(want);
-    expect(biomeOf('rainforest', 0, 0, 1, 1)).toBe('rainforest');
-    expect(biomeOf('subarctic', 62, 100, 50, 50)).toBe('taiga');
+    expect(biomeOf('rainforest', 0, 0)).toBe('rainforest');
+    expect(biomeOf('subarctic', 62, 100)).toBe('taiga');
   });
 
   it('puts the overhead Sun on the tropics at the solstices and on the equator at the equinoxes', () => {

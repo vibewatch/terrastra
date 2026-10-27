@@ -338,7 +338,7 @@ const CLOUD_FRAG = `
 `;
 
 /** Procedurally baked (on the GPU, a strip per frame) drifting cloud shell, lit by the sun. */
-export class Clouds {
+class Clouds {
   readonly root: THREE.Mesh;
   private mat: THREE.ShaderMaterial;
   private rt: THREE.WebGLRenderTarget;

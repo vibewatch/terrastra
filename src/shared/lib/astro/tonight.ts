@@ -29,7 +29,7 @@ export interface EventAhead {
   here: 'up' | 'day' | 'below' | 'none';
   alt?: number;
 }
-export interface Tonight {
+interface Tonight {
   /** Start and end of the night (Sun below the horizon) and of real darkness (Sun 12° down); null where it never happens. */
   night: [number, number] | null;
   dark: [number, number] | null;

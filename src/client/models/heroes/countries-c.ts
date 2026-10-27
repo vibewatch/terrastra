@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import {
   type Builder, type V3, type MatOpts, type Paint, g, add, mat, box, cyl, cone, rod, tube, lathe, gable, tbox, prism, archPath,
-  paintFaces, shade as shade0, mix as mix0, hash3, CYL,
+  paintFaces, shadeQ as shade, mixQ as mix, qn, hash3, CYL,
 } from '../prims.ts';
 import { type HFn, island, sstep, strataSide, EARTH, onGround, scatter, pine } from '../nature.ts';
 
@@ -11,26 +11,9 @@ import { type HFn, island, sstep, strataSide, EARTH, onGround, scatter, pine } f
 // setting; front is +z, base at y=0, footprint radius ≈ 0.5.
 
 // ---- local helpers ----------------------------------------------------------------------------------------
-// Colour maths is called per painted face; quantise and memoise so hex parsing never dominates build time.
-const _cm = new Map<string, string>();
-function mix(a: string, b: string, t: number): string {
-  const q = Math.round(Math.min(1, Math.max(0, t)) * 16), k = a + b + q;
-  let v = _cm.get(k);
-  if (!v) { v = mix0(a, b, q / 16); _cm.set(k, v); }
-  return v;
-}
 /** Water ripple paint (same look as nature.ripple, but with memoised colours). */
 const rip = (c: string, x: number, z: number) =>
   Math.sin(x * 90 + Math.sin(z * 40) * 2) > 0.93 ? mix(c, '#d6f0ff', 0.45) : hash3(Math.floor(x * 60), 0, Math.floor(z * 60)) > 0.9 ? shade(c, 1.12) : c;
-/** Cheap smooth pseudo-noise in ~[0,1] (stands in for fbm on per-vertex / per-face paths). */
-const qn = (x: number, y: number, z: number) =>
-  0.5 + 0.24 * Math.sin(x * 1.9 + Math.sin(z * 1.3 + y) * 1.6) * Math.cos(z * 1.7 - y * 0.7 + Math.sin(x * 0.9)) + 0.14 * Math.sin(x * 4.3 - z * 3.7 + y * 2.3) * Math.sin(z * 4.9 + x * 1.1);
-function shade(c: string, f: number): string {
-  const q = Math.round(f * 100), k = c + '*' + q;
-  let v = _cm.get(k);
-  if (!v) { v = shade0(c, q / 100); _cm.set(k, v); }
-  return v;
-}
 const LO = () => g('cc:sph9', () => new THREE.SphereGeometry(0.5, 9, 7));
 /** Cheap smooth ellipsoid with semi-axes (sx, sy, sz). */
 const blob = (p: THREE.Object3D, c: string, x: number, y: number, z: number, sx: number, sy = sx, sz = sx, ry = 0, rx = 0, rz = 0) =>

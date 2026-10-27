@@ -2,7 +2,7 @@
 import type { Pair } from '../kit.ts';
 
 export type TermGroup = 'land' | 'past' | 'power' | 'today';
-export interface Term { id: string; term: Pair; def: Pair; group: TermGroup }
+interface Term { id: string; term: Pair; def: Pair; group: TermGroup }
 
 const t = (id: string, group: TermGroup, term: Pair, def: Pair): Term => ({ id, term, def, group });
 

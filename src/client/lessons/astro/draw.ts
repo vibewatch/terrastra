@@ -14,7 +14,7 @@ export const ease = (x: number) => { const t = clamp(x); return t * t * (3 - 2 *
 /** 0 → 1 between `t0` and `t0 + dur` seconds (eased): reveal and draw-in timings. */
 export const ramp = (el: number, t0: number, dur = 1) => ease((el - t0) / dur);
 export const v3 = (p: V3 | THREE.Vector3) => (p instanceof THREE.Vector3 ? p.clone() : new THREE.Vector3(p[0], p[1], p[2]));
-export const col = (c: string | number) => new THREE.Color(c);
+const col = (c: string | number) => new THREE.Color(c);
 
 /** Deterministic random numbers (same sky every time). */
 export function rng(seed = 1): () => number {

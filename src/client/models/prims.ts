@@ -73,7 +73,28 @@ export function mix(a: string, b: string, t: number): string {
   return '#' + new THREE.Color(a).lerp(new THREE.Color(b), t).getHexString();
 }
 
+// Per-face painters call colour maths thousands of times; these quantise and memoise so hex parsing never dominates.
+const _cm = new Map<string, string>();
+/** Memoised `mix`, with `t` quantised to 1/16. */
+export function mixQ(a: string, b: string, t: number): string {
+  const q = Math.round(Math.min(1, Math.max(0, t)) * 16), k = a + b + q;
+  let v = _cm.get(k);
+  if (!v) { v = mix(a, b, q / 16); _cm.set(k, v); }
+  return v;
+}
+/** Memoised `shade`, with `f` quantised to 1/100. */
+export function shadeQ(c: string, f: number): string {
+  const q = Math.round(f * 100), k = c + '*' + q;
+  let v = _cm.get(k);
+  if (!v) { v = shade(c, q / 100); _cm.set(k, v); }
+  return v;
+}
+
 // ---- Deterministic noise (pattern painting & terrain) ----
+
+/** Cheap smooth pseudo-noise in ~[0,1] (stands in for fbm on per-vertex / per-face paths). */
+export const qn = (x: number, y: number, z: number) =>
+  0.5 + 0.24 * Math.sin(x * 1.9 + Math.sin(z * 1.3 + y) * 1.6) * Math.cos(z * 1.7 - y * 0.7 + Math.sin(x * 0.9)) + 0.14 * Math.sin(x * 4.3 - z * 3.7 + y * 2.3) * Math.sin(z * 4.9 + x * 1.1);
 
 export function hash3(x: number, y: number, z: number): number {
   const s = Math.sin(x * 127.1 + y * 311.7 + z * 74.7) * 43758.5453;
@@ -256,13 +277,6 @@ export function rbox(p: THREE.Object3D, c: string, x: number, y: number, z: numb
     return eg;
   });
   return add(p, geo, mat(c), x, y + sy / 2, z, 1, 1, 1, ry);
-}
-
-/** Cartoon eye: glossy sclera, iris/pupil and a tiny catch-light, looking along +z (or `dir`). */
-export function eye(p: THREE.Object3D, x: number, y: number, z: number, r: number, iris = '#1f2937', sclera = '#f8fafc', dirX = 0): void {
-  ellip(p, sclera, x, y, z, r, r, r * 0.8);
-  ellip(p, iris, x + dirX * r * 0.35, y, z + r * 0.52, r * 0.62, r * 0.66, r * 0.4);
-  ellip(p, '#ffffff', x + r * 0.22 + dirX * r * 0.3, y + r * 0.28, z + r * 0.78, r * 0.18).material = mat('#ffffff', { emissive: '#ffffff' });
 }
 
 // ---- Architectural CAD Primitives ----

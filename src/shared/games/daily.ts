@@ -31,7 +31,7 @@ export function puzzleFor(pool: CatalogueItem[], day: number): CatalogueItem {
   return pool[((day % pool.length) + pool.length) % pool.length];
 }
 
-export type Band = 'hit' | 'warm' | 'mild' | 'cold';
+type Band = 'hit' | 'warm' | 'mild' | 'cold';
 export const BAND_EMOJI: Record<Band, string> = { hit: '🟩', warm: '🟨', mild: '🟧', cold: '🟥' };
 
 export interface GuessResult { key: string; km: number; band: Band; arrow: string }

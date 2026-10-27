@@ -197,7 +197,7 @@ export function climateAt(lat: number, lon: number, dw: number, de: number): Cli
   return 'continental';
 }
 
-export function biomeOf(cl: Climate, lat: number, lon: number, dw: number, de: number): Biome {
+export function biomeOf(cl: Climate, lat: number, lon: number): Biome {
   switch (cl) {
     case 'rainforest': return 'rainforest';
     case 'tmonsoon': return 'monsoonforest';

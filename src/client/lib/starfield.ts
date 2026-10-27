@@ -39,7 +39,7 @@ function rng(seed: number): () => number {
 }
 
 /** Rough stellar colours by spectral class: K/M orange, G/F cream, A white, B/O blue. */
-export function tint(t: number): [number, number, number] {
+function tint(t: number): [number, number, number] {
   return t < 0.15 ? [1.0, 0.78, 0.6] : t < 0.35 ? [1.0, 0.92, 0.8] : t < 0.8 ? [0.95, 0.97, 1.0] : [0.75, 0.85, 1.0];
 }
 

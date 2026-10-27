@@ -11,21 +11,10 @@ import * as THREE from 'three';
 import type { BodyId } from '../../shared/data/solar.ts';
 import { displayOrbit } from '../../shared/lib/orbits.ts';
 import type { Quality } from '../globe/quality.ts';
+import { mulberry32 as rng } from '../../shared/lib/rng.ts';
 
 const TAU = Math.PI * 2;
 const D2R = Math.PI / 180;
-
-/** Seeded PRNG (mulberry32). */
-function rng(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
 
 const NOISE = /* glsl */ `
 float h3(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }

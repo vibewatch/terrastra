@@ -29,7 +29,7 @@ const wrap = (a: number) => { a %= Math.PI * 2; return a > Math.PI ? a - Math.PI
 /** Seed for noise generators, drawn from the builder's stream. */
 export const seed = (b: NB) => Math.floor(b.r() * 1e9);
 
-export type Xf = (v: V3) => V3;
+type Xf = (v: V3) => V3;
 /**
  * Galaxy-local → model transform. Local x = major axis, y in the disc plane, z = disc normal (units of `R`).
  * Inclined by `inc` about the major axis, major axis turned to sky PA `pa`; `near` = +1 puts the side at PA+90° nearer to us.
@@ -402,7 +402,7 @@ export function mini(b: NB, c: V3, R: number, type: MiniType, pa: number, inc: n
 }
 
 // ---------------------------------------------------------------- galaxy clusters
-export interface Sub { c: V3; w: number; core: number }
+interface Sub { c: V3; w: number; core: number }
 interface ClusterOpts {
   /** Member galaxies, galaxy-size scale (radius of the biggest normal members, model units), axis stretch. */
   n: number; size?: number; stretch?: V3;

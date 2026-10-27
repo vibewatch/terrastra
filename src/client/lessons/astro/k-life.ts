@@ -291,7 +291,7 @@ const kit: KitFactory<Opts> = (ctx, o) => {
   root.add(starfield(low ? 1500 : 2600, 900, 7, 1.4));
   // the dot and grain textures are shared by many materials: dispose them once, at the end
   const own = [tex, grain];
-  if (o.mode === 'both') return both(ctx, o, tex, grain, own);
+  if (o.mode === 'both') return both(ctx, tex, grain, own);
   if (o.mode === 'fusion') return fusion(ctx, grain, own);
 
   const big = o.mode === 'massive', bh = big && o.end === 'bh';
@@ -382,7 +382,7 @@ const kit: KitFactory<Opts> = (ctx, o) => {
 export default kit;
 
 /** The two paths as two rows: one nebula, then a Sun-like star above and a massive star below. */
-function both(ctx: KitCtx, o: Opts, tex: THREE.Texture, grain: THREE.Texture, own: THREE.Texture[]) {
+function both(ctx: KitCtx, tex: THREE.Texture, grain: THREE.Texture, own: THREE.Texture[]) {
   const root = ctx.root, low = ctx.low;
   const X = [-14, -8.6, -3.4, 1.8, 7.2, 12.6], ZT = 3.4, ZB = -3.4;
   const neb = nebula(low ? 1600 : 3500, 2.4, tex, 11);

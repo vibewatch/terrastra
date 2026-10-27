@@ -30,12 +30,12 @@ export const hex = (h: string): C3 => { const v = parseInt(h.slice(1), 16); retu
 export const mix = (a: C3, b: C3, t: number): C3 => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 export const clamp = (v: number, a = 0, b = 1) => v < a ? a : v > b ? b : v;
 export const smooth = (a: number, b: number, v: number) => { const t = clamp((v - a) / (b - a)); return t * t * (3 - 2 * t); };
-export const len = (v: V3) => Math.hypot(v[0], v[1], v[2]);
+const len = (v: V3) => Math.hypot(v[0], v[1], v[2]);
 export const norm = (v: V3): V3 => { const l = len(v) || 1; return [v[0] / l, v[1] / l, v[2] / l]; };
 export const add = (a: V3, b: V3, k = 1): V3 => [a[0] + b[0] * k, a[1] + b[1] * k, a[2] + b[2] * k];
 export const sub = (a: V3, b: V3): V3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 export const dot = (a: V3, b: V3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-export const cross = (a: V3, b: V3): V3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const cross = (a: V3, b: V3): V3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 export const scale = (a: V3, k: number): V3 => [a[0] * k, a[1] * k, a[2] * k];
 /** Rotation (degrees about X, then Y, then Z) as a function on points. */
 export function rot(ax: number, ay = 0, az = 0): (v: V3) => V3 {
@@ -222,7 +222,7 @@ export function crPoint(P: V3[], t: number): V3 {
   for (let k = 0; k < 3; k++) o[k] = 0.5 * (2 * p1[k] + (-p0[k] + p2[k]) * u + (2 * p0[k] - 5 * p1[k] + 4 * p2[k] - p3[k]) * u2 + (-p0[k] + 3 * p1[k] - 3 * p2[k] + p3[k]) * u3);
   return o;
 }
-export function inPoly(P: P2[], x: number, y: number): boolean {
+function inPoly(P: P2[], x: number, y: number): boolean {
   let c = false;
   for (let i = 0, j = P.length - 1; i < P.length; j = i++) {
     const [xi, yi] = P[i], [xj, yj] = P[j];
@@ -394,9 +394,6 @@ export function toModel(b: NB, radius = 1): NebulaModel {
     dispose() { geos.forEach((g) => g.dispose()); mats.forEach((m) => m.dispose()); },
   };
 }
-
-/** Primitive counts (for budgets). */
-export const counts = (b: NB) => ({ glow: b.glow.s.length + b.glowF.s.length, haze: b.haze.s.length, dust: b.dust.s.length, stars: b.stars.s.length });
 
 // ---------------------------------------------------------------- CPU painter
 /** Orthographic +Z view of the model data splatted onto a square canvas (same look as the 3D front view). */

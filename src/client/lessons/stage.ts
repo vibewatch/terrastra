@@ -63,7 +63,7 @@ export interface StageScene {
   names?: boolean; borders?: boolean; graticule?: boolean; tectonics?: boolean;
 }
 
-export type Ocean = 'pacific' | 'atlantic' | 'indian' | 'arctic';
+type Ocean = 'pacific' | 'atlantic' | 'indian' | 'arctic';
 const OCEAN_COLORS: Record<Ocean, string> = { pacific: '#2f80ed', atlantic: '#27ae9f', indian: '#8e6cf0', arctic: '#9fd8ff' };
 const CONTINENT_COLORS: Record<Continent, string> = {
   asia: '#f2c94c', europe: '#6fcf97', africa: '#f2994a', 'north-america': '#eb5757', 'south-america': '#bb6bd9', oceania: '#56ccf2', antarctica: '#e0e6ee',
@@ -409,7 +409,7 @@ export class LessonStage {
     if (!data[ix] && !country) return {};
     const cd = coasts(countries, w);
     const climate = climateAt(lat, lon, cd.dw[ix], cd.de[ix]);
-    return { a2: country?.a2 || undefined, climate, biome: biomeOf(climate, lat, lon, cd.dw[ix], cd.de[ix]) };
+    return { a2: country?.a2 || undefined, climate, biome: biomeOf(climate, lat, lon) };
   }
 
   relabel(): void {
@@ -568,7 +568,7 @@ export class LessonStage {
             } else if (cd) {
               if (data[i]) {
                 const cl = climateAt(lat, lon, cd.dw[i], cd.de[i]);
-                const z = f.k === 'biome' ? biomeOf(cl, lat, lon, cd.dw[i], cd.de[i]) : cl;
+                const z = f.k === 'biome' ? biomeOf(cl, lat, lon) : cl;
                 if (!pick || pick.has(z)) c = pal.get(z)!;
               }
             } else c = tempColour(tempAt(lat, lon, !!data[i], sunLat));

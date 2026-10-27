@@ -90,7 +90,7 @@ function boxes(f: Feature<Polygon | MultiPolygon>): Box[] {
 }
 
 /** True if (lat, lon) lies inside the feature (holes excluded). */
-export function contains(f: Feature<Polygon | MultiPolygon>, lat: number, lon: number): boolean {
+function contains(f: Feature<Polygon | MultiPolygon>, lat: number, lon: number): boolean {
   const polys = f.geometry.type === 'Polygon' ? [f.geometry.coordinates] : f.geometry.coordinates;
   const bx = boxes(f);
   for (let i = 0; i < polys.length; i++) {

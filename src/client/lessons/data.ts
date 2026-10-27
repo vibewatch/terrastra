@@ -20,7 +20,7 @@ import { SSBS_LESSONS, SSBS_VIEWS, ssbsCourse } from './ssbs/index.ts';
 import { ssbsOn } from '../lib/ssbs.ts';
 import type { Grade, Lesson, Pair, Strand, Track } from './kit.ts';
 
-export type { Grade, Lesson, Quiz, Step, Strand, Track } from './kit.ts';
+export type { Lesson, Quiz, Step, Track } from './kit.ts';
 
 const ALL: Lesson[] = [...EARTH_A, ...EARTH_B, ...MAPS, ...LAND, ...PHYSICAL, ...CLIMATE_L, ...HUMAN, ...REGIONS_L, ...WORLD, ...CHINA, ...CHINA_B, ...CHINA_C, ...CHINA_D, ...HOME, ...SENIOR_A, ...SENIOR_B];
 const STRAND_ORDER: Strand[] = ['maps', 'physical', 'climate', 'human', 'world', 'china'];

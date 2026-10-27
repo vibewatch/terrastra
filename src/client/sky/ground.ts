@@ -44,7 +44,7 @@ interface SkyState {
   planets: Record<string, { alt: number; az: number; dir: Vec3; mag: number; rDeg: number }>;
 }
 
-export interface Meteor { radiant: Vec3; born: number; life: number; start: Vec3; axis: Vec3; len: number; bright: number }
+interface Meteor { radiant: Vec3; born: number; life: number; start: Vec3; axis: Vec3; len: number; bright: number }
 
 interface Label { el: HTMLElement; dir: THREE.Vector3; on: boolean }
 

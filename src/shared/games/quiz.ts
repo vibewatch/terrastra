@@ -9,7 +9,7 @@ export type QuizLevel = 'easy' | 'normal' | 'hard';
 export const LEVEL_OPTIONS: Record<QuizLevel, number> = { easy: 2, normal: 3, hard: 5 };
 export const QUIZ_SETS: QuizSet[] = ['mixed', 'animals', 'geo', 'landmarks', 'secrets'];
 
-export interface Question {
+interface Question {
   id: string;
   set: Exclude<QuizSet, 'mixed'>;
   prompt: I18n;

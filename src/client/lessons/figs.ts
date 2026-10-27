@@ -66,7 +66,7 @@ export type Fig =
   /** a custom diagram drawn by the lesson file; `id` is unique per figure (for marker/gradient ids) */
   | { k: 'svg'; draw: (L: Lx, id: string) => string };
 
-export const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const r1 = (v: number) => Math.round(v * 10) / 10;
 let uid = 0;
 

@@ -32,7 +32,7 @@ interface ItemSpec {
 
 const n = ([en, zh]: N2) => ({ en, zh });
 
-export function make(type: ItemType, s: ItemSpec): CatalogueItem {
+function make(type: ItemType, s: ItemSpec): CatalogueItem {
   const [lat, lon] = s.route ? s.route.pts[0] : [s.lat, s.lon];
   return {
     key: s.key, slug: s.slug, type, name: n(s.name), country: s.country, continent: s.continent, lat, lon,
