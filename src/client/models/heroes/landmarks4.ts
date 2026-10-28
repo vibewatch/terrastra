@@ -1,10 +1,8 @@
-import { passerby } from '../human.ts';
 import * as THREE from 'three';
-import {
-  type Builder, type V3, type MatOpts, type Paint, g, add, mat, box, cyl, cone, rod, tbox, gable, skin, prism, panel, archPath,
-  paintFaces, shadeQ as shade, mixQ as mix, qn, hash3,
-} from '../prims.ts';
+import { type Builder, type V3, type MatOpts, type Paint, g, add, mat, box, cyl, cone, rod, tbox, gable, skin, prism, panel, archPath, shadeQ as shade, mixQ as mix, qn, hash3 } from '../prims.ts';
 import { type HFn, island, sstep, strataSide, EARTH, onGround, pine } from '../nature.ts';
+import { grp, hip, plathe, person, crowd } from '../kit/town.ts';
+import { Mesher as BaseMesher } from '../kit/mesher.ts';
 
 // Hero builders for the wave-4 landmark pack (keys lm4_*). Each is a compact diorama on its real setting:
 // front is +z, base at y=0, footprint radius ≈ 0.5. Mobile budget: ≤ 15k triangles, ≤ 80 ms per model, so
@@ -23,47 +21,16 @@ const blob = (p: THREE.Object3D, c: string, x: number, y: number, z: number, sx:
 /** Very cheap faceted ellipsoid (heads, stones, bushes far from the camera). */
 const pebble = (p: THREE.Object3D, c: string, x: number, y: number, z: number, sx: number, sy = sx, sz = sx, ry = 0) =>
   add(p, S6(), mat(c), x, y, z, sx * 2, sy * 2, sz * 2, ry);
-function grp(p: THREE.Object3D, x = 0, y = 0, z = 0, ry = 0): THREE.Group {
-  const q = new THREE.Group(); q.position.set(x, y, z); q.rotation.y = ry; p.add(q); return q;
-}
 /** Terrain disc with a low triangle count (rings × segs) and banded earth skirt. */
 function ground(gp: THREE.Object3D, hf: HFn, base: string, paint: Paint, rings = 16, segs = 56, side = strataSide(EARTH)): void {
   island(gp, 0.5, hf, base, paint, { rings, segs, side });
 }
 const Y0 = 0.035;
 
-/** Triangle soup with per-face colours; `want` (optional) forces each face normal to point along that direction. */
-class Mesher {
-  pos: number[] = [];
-  col: number[] = [];
-  private c = new THREE.Color();
-  tri(a: V3, b: V3, d: V3, color: string, want?: V3): void {
-    let q1 = b, q2 = d;
-    if (want) {
-      const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2], vx = d[0] - a[0], vy = d[1] - a[1], vz = d[2] - a[2];
-      const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
-      if (nx * want[0] + ny * want[1] + nz * want[2] < 0) { q1 = d; q2 = b; }
-    }
-    this.c.set(color);
-    for (const q of [a, q1, q2]) { this.pos.push(q[0], q[1], q[2]); this.col.push(this.c.r, this.c.g, this.c.b); }
-  }
-  quad(a: V3, b: V3, d: V3, e: V3, color: string, want?: V3): void { this.tri(a, b, d, color, want); this.tri(a, d, e, color, want); }
-  /** Flat rectangle on a vertical facade: bottom-centre c, horizontal unit axis u, outward normal n. */
-  rect(c: V3, u: [number, number], n: [number, number], w: number, h: number, color: string): void {
-    const ux = u[0] * w / 2, uz = u[1] * w / 2;
-    this.quad([c[0] - ux, c[1], c[2] - uz], [c[0] + ux, c[1], c[2] + uz], [c[0] + ux, c[1] + h, c[2] + uz], [c[0] - ux, c[1] + h, c[2] - uz], color, [n[0], 0, n[1]]);
-  }
-  /** Rows of (optionally arched) windows on a facade plane: o = facade centre at its base, u along the wall, n outward. */
-  windows(o: V3, u: [number, number], n: [number, number], cols: number, dx: number, rows: number[], ww: number, wh: number, glass: string, frame?: string, arch = false): void {
-    for (const y of rows) for (let i = 0; i < cols; i++) {
-      const s = (i - (cols - 1) / 2) * dx;
-      const cx = o[0] + u[0] * s + n[0] * 0.0012, cz = o[2] + u[1] * s + n[1] * 0.0012;
-      if (frame) this.rect([cx, o[1] + y - 0.0025, cz], u, n, ww + 0.005, wh + 0.005 + (arch ? ww * 0.5 : 0), frame);
-      const cx2 = cx + n[0] * 0.0008, cz2 = cz + n[1] * 0.0008;
-      this.rect([cx2, o[1] + y, cz2], u, n, ww, wh, glass);
-      if (arch) this.tri([cx2 - u[0] * ww / 2, o[1] + y + wh, cz2 - u[1] * ww / 2], [cx2 + u[0] * ww / 2, o[1] + y + wh, cz2 + u[1] * ww / 2], [cx2, o[1] + y + wh + ww * 0.5, cz2], glass, [n[0], 0, n[1]]);
-    }
-  }
+/** Shared triangle soup plus box/log/frustum primitives. */
+class Mesher extends BaseMesher {
+  /** Like `build`, but skips empty soups. */
+  buildIfAny(p: THREE.Object3D, o: MatOpts = {}): THREE.Mesh | null { return this.pos.length ? this.build(p, o) : null; }
   /** Box without a bottom face (10 triangles), rotated by ry about its vertical axis; y = base. */
   box(x: number, y: number, z: number, w: number, h: number, d: number, color: string, ry = 0, top?: string): void {
     const c = Math.cos(ry), s = Math.sin(ry);
@@ -103,14 +70,6 @@ class Mesher {
       } else this.tri(p0, p1, ap, c, nn);
     }
   }
-  build(p: THREE.Object3D, o: MatOpts = {}): THREE.Mesh | null {
-    if (!this.pos.length) return null;
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3));
-    geo.setAttribute('color', new THREE.Float32BufferAttribute(this.col, 3));
-    geo.computeVertexNormals();
-    return add(p, geo, mat('#ffffff', { vc: true, ...o }), 0, 0, 0, 1, 1, 1);
-  }
 }
 
 /** Battlement merlons along a straight wall top from a to b (into the Mesher). */
@@ -118,9 +77,6 @@ function merlons(M: Mesher, a: [number, number], b: [number, number], y: number,
   const len = Math.hypot(b[0] - a[0], b[1] - a[1]), n = Math.max(1, Math.round(len / step)), ry = -Math.atan2(b[1] - a[1], b[0] - a[0]);
   for (let i = 0; i <= n; i++) { const f = i / n; M.box(a[0] + (b[0] - a[0]) * f, y, a[1] + (b[1] - a[1]) * f, s, h, t, c, ry); }
 }
-/** Hipped / pyramid roof (w × d footprint tapering to w1 × d1). */
-const hip = (p: THREE.Object3D, c: string, x: number, y: number, z: number, w: number, d: number, h: number, w1 = 0.002, d1 = 0.002, ry = 0) =>
-  tbox(p, w, d, w1, d1, h, c, x, y, z, 0, 0, ry);
 /** Frustum (cached) with bottom radius r0 and top radius r1. */
 function frust(p: THREE.Object3D, c: string, x: number, y: number, z: number, r0: number, r1: number, h: number, seg = 12, o: MatOpts = {}): THREE.Mesh {
   const k = (r1 / r0).toFixed(3);
@@ -130,22 +86,7 @@ function frust(p: THREE.Object3D, c: string, x: number, y: number, z: number, r0
 function dome(p: THREE.Object3D, c: string, x: number, y: number, z: number, r: number, h = r, seg = 12, o: MatOpts = {}): THREE.Mesh {
   return add(p, g(`lm4:dome:${seg}`, () => new THREE.SphereGeometry(1, seg, Math.max(4, seg >> 1), 0, Math.PI * 2, 0, Math.PI / 2)), mat(c, { flat: false, ...o }), x, y, z, r, h, r);
 }
-/** Lathe with per-face paint (not cached; use for the hero shapes only). */
-function plathe(p: THREE.Object3D, prof: [number, number][], x: number, y: number, z: number, seg: number, base: string, paint?: Paint, o: MatOpts = {}): THREE.Mesh {
-  const lg = new THREE.LatheGeometry(prof.map(([r, py]) => new THREE.Vector2(r, py)), seg);
-  lg.computeVertexNormals();
-  return add(p, paintFaces(lg, base, paint), mat('#ffffff', { vc: true, flat: false, ...o }), x, y, z, 1, 1, 1);
-}
 
-const SKIN = ['#8d5a3b', '#c68b5e', '#5a3825', '#e0b48a'];
-const PCOL = ['#ef4444', '#3b82f6', '#facc15', '#22c55e', '#f97316', '#a855f7', '#f8fafc', '#0ea5e9'];
-/** Tiny visitor for scale (3 meshes, ~70 triangles). */
-function person(p: THREE.Object3D, x: number, y: number, z: number, c: string, k = 0, s = 1): void {
-  passerby(p, x, y, z, 0.023 * s, k, { top: c, skin: SKIN[k % 4] });
-}
-function crowd(p: THREE.Object3D, n: number, seed: number, at: (i: number) => [number, number, number] | null, s = 1): void {
-  for (let i = 0; i < n; i++) { const q = at(i); if (q) person(p, q[0], q[1], q[2], PCOL[Math.floor(hash3(i, seed, 3) * 8)], i, s); }
-}
 /** Two-blob broadleaf tree. */
 function leafTree(p: THREE.Object3D, x: number, y: number, z: number, s: number, c: string, seed = 0): void {
   cyl(p, '#5b4636', x, y, z, s * 0.09, s * 0.55, 5);
@@ -261,7 +202,7 @@ const meroe: Builder = gp => {
     if (Math.hypot(x, z) > 0.44 || P.some(q => Math.abs(x - q[0]) < q[2] * 0.6 && Math.abs(z - q[1]) < q[2] * 0.9)) continue;
     M.box(x, gy(x, z), z, 0.01 + hash3(k, 3, 7) * 0.012, 0.006 + hash3(k, 4, 7) * 0.008, 0.01 + hash3(k, 5, 7) * 0.01, shade(RU, 0.9 + hash3(k, 6, 7) * 0.3), hash3(k, 7, 7) * 3);
   }
-  M.build(gp, { rough: 0.85 });
+  M.buildIfAny(gp, { rough: 0.85 });
   camel(gp, -0.17, gy(-0.17, 0.3), 0.3, 0.5, 1.2);
   person(gp, -0.12, gy(-0.12, 0.33), 0.33, '#f8fafc', 2, 1.3);
   camel(gp, 0.22, gy(0.22, 0.27), 0.27, 2.6, 1.0);
@@ -336,7 +277,7 @@ const leptis: Builder = gp => {
     if (Math.abs(x) < 0.09 || Math.hypot(x, z) > 0.44) continue;
     add(gp, g('cyl8', () => new THREE.CylinderGeometry(0.5, 0.5, 1, 8)), mat(shade(LS, 0.9 + hash3(k, 6, 2) * 0.15)), x, gy(x, z) + 0.008, z, 0.017, 0.03 + hash3(k, 7, 2) * 0.03, 0.017, hash3(k, 8, 2) * 3, 0, Math.PI / 2);
   }
-  M.build(gp, { rough: 0.8 });
+  M.buildIfAny(gp, { rough: 0.8 });
   for (const [x, z, h] of [[0.33, -0.08, 0.17], [0.38, 0.0, 0.14], [-0.38, 0.06, 0.15]]) palm(gp, x, gy(x, z), z, h, 0.1, hash3(x, z, 1) * 6, '#5a8a3a', Math.round(x * 100));
   crowd(gp, 5, 3, i => { const x = -0.04 + i * 0.02, z = 0.24 + (i % 2) * 0.02; return [x, gy(x, z), z]; }, 1.2);
 };
@@ -382,7 +323,7 @@ const fiat: Builder = gp => {
   F2.tri([-0.02, Y + 0.24, 0.025], [-0.004, Y + 0.24, 0.025], [-0.012, Y + 0.225, 0.025], '#b3261e', [0, 0, 1]);
   F2.box(-0.012, Y + 0.355, 0.0228, 0.02, 0.012, 0.002, '#b3261e');
   for (let k = 0; k < 4; k++) F2.box(0.0402, Y + 0.3 - k * 0.012, 0.0, 0.002, 0.009, 0.006, '#b3261e');
-  F2.build(fin);
+  F2.buildIfAny(fin);
   for (const sx of [-0.025, 0.002]) rod(fin, [sx, Y + 0.38, 0], [sx, Y + 0.47, 0], 0.0016, '#d9d9d9', 4);
   // Forecourt: pump islands, cars and people
   for (const sx of [-1, 1]) for (const k of [0.17, 0.3]) {
@@ -396,13 +337,13 @@ const fiat: Builder = gp => {
     C.box(0, 0.006, 0, 0.06, 0.014, 0.028, c); C.box(-0.004, 0.02, 0, 0.032, 0.012, 0.025, c);
     C.rect([0.0121, 0.021, 0], [0, -1], [1, 0], 0.022, 0.009, '#2b3a44'); C.rect([-0.0201, 0.021, 0], [0, 1], [-1, 0], 0.022, 0.009, '#2b3a44');
     C.rect([-0.004, 0.021, 0.0126], [1, 0], [0, 1], 0.028, 0.008, '#2b3a44');
-    C.build(q);
+    C.buildIfAny(q);
     for (const [wx, wz] of [[0.018, 0.014], [-0.018, 0.014], [0.018, -0.014], [-0.018, -0.014]]) add(q, g('lm4:wheel', () => new THREE.CylinderGeometry(0.5, 0.5, 1, 8)), mat('#1f1f1f'), wx, 0.007, wz, 0.014, 0.006, 0.014, 0, Math.PI / 2, 0);
   };
   for (let k = 0; k < 8; k++) M.quad([-0.42 + k * 0.11, Y + 0.0015, 0.29], [-0.37 + k * 0.11, Y + 0.0015, 0.29], [-0.37 + k * 0.11, Y + 0.0015, 0.275], [-0.42 + k * 0.11, Y + 0.0015, 0.275], '#f2f2f2', [0, 1, 0]);
   for (let k = 0; k < 8; k++) M.rect([-0.03 + k * 0.0085, Y + 0.148, 0.0506], [1, 0], [0, 1], 0.006, 0.007, '#7a2a24');
   car(0.25, 0.22, '#f2c418', 0); car(-0.2, 0.06, '#2f6fb3', 0.2); car(-0.3, 0.24, '#e5e5e5', Math.PI);
-  M.build(gp, { rough: 0.55 });
+  M.buildIfAny(gp, { rough: 0.55 });
   palm(gp, -0.4, Y, -0.12, 0.2, 0.08, 0.3, '#4f8a3a', 1);
   palm(gp, 0.4, Y, -0.16, 0.17, 0.1, 2.5, '#4f8a3a', 2);
   for (const [x, z] of [[-0.25, -0.22], [0.22, -0.22], [0.0, -0.25]]) { box(gp, x === 0 ? '#c4a27e' : '#a4553a', x, Y, z, 0.13, 0.07, 0.07); box(gp, shade('#a4553a', 0.85), x, Y + 0.07, z, 0.135, 0.006, 0.075); }
@@ -462,7 +403,7 @@ const maqam: Builder = gp => {
   // eternal flame
   M.cyl(0, Y + 0.018, 0.02, 0.014, 0.014, 0.006, 8, '#6b5a48');
   cone(gp, '#ff9a3c', 0, Y + 0.024, 0.02, 0.008, 0.03, 6).material = mat('#ff9a3c', { emissive: '#ff7a1a' });
-  M.build(gp, { rough: 0.85 });
+  M.buildIfAny(gp, { rough: 0.85 });
   for (const [x, z, h] of [[-0.3, 0.16, 0.17], [-0.36, 0.06, 0.15], [0.3, 0.18, 0.16], [0.37, 0.08, 0.17], [-0.2, 0.33, 0.13], [0.21, 0.34, 0.14]]) palm(gp, x, gy(x, z), z, h, 0.06, hash3(x * 10, z * 10, 1) * 6, '#3f7d35', Math.round(x * 100 + z * 10), 7);
   for (const [x, z] of [[-0.33, -0.2], [0.32, -0.22], [0.0, -0.3]]) leafTree(gp, x, gy(x, z), z, 0.08, '#3f6f35', Math.round(x * 50));
   crowd(gp, 6, 21, i => { const x = -0.06 + i * 0.024, z = 0.2 + (i % 2) * 0.02; return [x, Y + 0.018, z]; }, 1.2);
@@ -516,7 +457,7 @@ const aitbenhaddou: Builder = gp => {
   // Stepping stones across the stream and a donkey with a rider
   for (let k = 0; k < 6; k++) { const x = 0.02 + k * 0.012, z = 0.3 + k * 0.008; M.box(x, gy(x, z) - 0.002, z, 0.012, 0.006, 0.01, '#bba48a', k); }
   for (let k = 0; k < 18; k++) { const x = (hash3(k, 4, 1) - 0.5) * 0.8, z = 0.24 + hash3(k, 5, 1) * 0.2; if (Math.hypot(x, z) < 0.46) M.box(x, gy(x, z) - 0.002, z, 0.008, 0.005, 0.007, '#d6c6b0', k); }
-  M.build(gp, { rough: 0.95 });
+  M.buildIfAny(gp, { rough: 0.95 });
   const dk = grp(gp, 0.22, gy(0.22, 0.38), 0.38, 0.3);
   blob(dk, '#6b625a', 0, 0.022, 0, 0.016, 0.009, 0.008); blob(dk, '#6b625a', 0.018, 0.03, 0, 0.007, 0.006, 0.005);
   for (const [lx, lz] of [[0.01, 0.005], [0.01, -0.005], [-0.01, 0.005], [-0.01, -0.005]]) rod(dk, [lx, 0.016, lz], [lx, 0, lz], 0.0018, '#5a524a', 4);
@@ -570,7 +511,7 @@ const burana: Builder = gp => {
     M.box(x, gy(x, z) - 0.003, z, 0.016, hgt, 0.009, shade('#8c8a84', 0.85 + hash3(k, 3, 4) * 0.3), (hash3(k, 4, 4) - 0.5) * 0.4);
     M.rect([x, gy(x, z) + hgt - 0.017, z + 0.0048], [1, 0], [0, 1], 0.008, 0.009, '#6e6c66');
   }
-  M.build(gp, { rough: 0.9 });
+  M.buildIfAny(gp, { rough: 0.9 });
   for (let k = 0; k < 8; k++) { const x = 0.42 - k * 0.04, z = -0.24 - k * 0.012; cypress(gp, x, gy(x, z), z, 0.1 + hash3(k, 5, 1) * 0.04, k % 2 ? '#5c7a3a' : '#6e8a40'); }
   for (let k = 0; k < 5; k++) { const x = -0.42 + k * 0.035, z = -0.18 - k * 0.01; cypress(gp, x, gy(x, z), z, 0.09, '#6e8a40'); }
   crowd(gp, 4, 17, i => { const x = -0.06 + i * 0.05, z = 0.17 + (i % 2) * 0.03; return [x, gy(x, z), z]; }, 1.2);
@@ -638,7 +579,7 @@ const erdenezuu: Builder = gp => {
   M.cyl(-0.17, Y + 0.072, 0.1, 0.006, 0.0, 0.03, 6, '#d4a62a');
   // Stone path and paving
   for (let k = 0; k < 9; k++) M.box(0, Y - 0.002, 0.27 - k * 0.035, 0.05, 0.003, 0.028, k % 2 ? '#d5ccbc' : '#cbc2b0');
-  M.build(gp, { rough: 0.8 });
+  M.buildIfAny(gp, { rough: 0.8 });
   // Gers on the steppe outside the wall
   for (const [x, z] of [[0.38, 0.18], [0.42, 0.06], [-0.4, 0.2]]) {
     const y = onGround(hf)(x, z);
@@ -689,7 +630,7 @@ const shibam: Builder = gp => {
       M.windows(o, [ux, uz], [nx, nz], 2, wd * 0.42, rows, 0.006, 0.008, '#3a2a1e');
     }
   }
-  M.build(gp, { rough: 0.95 });
+  M.buildIfAny(gp, { rough: 0.95 });
   // Palm groves and fields behind, a few cars on the wadi road
   for (const [x, z, h] of [[-0.3, -0.3, 0.12], [-0.2, -0.36, 0.13], [0.1, -0.38, 0.12], [0.25, -0.33, 0.13], [0.38, -0.12, 0.12], [0.4, 0.02, 0.11]]) palm(gp, x, gy(x, z), z, h, 0.07, hash3(x * 10, z * 10, 3) * 6, '#4e7d35', Math.round(x * 100 + z), 6);
   for (const [x, z] of [[-0.05, -0.32], [-0.38, -0.18], [0.36, -0.24]]) pebble(gp, '#4f7a32', x, gy(x, z) + 0.01, z, 0.03, 0.02, 0.026);
@@ -750,7 +691,7 @@ const nizwa: Builder = gp => {
   M.cyl(nx, Y + 0.162, nzz, 0.009, 0.009, 0.03, 8, '#efe8da', null);
   dome(gp, '#2f6fb8', nx, Y + 0.192, nzz, 0.011, 0.016, 8);
   M.cyl(nx, Y + 0.207, nzz, 0.002, 0, 0.014, 5, '#e0b84a');
-  M.build(gp, { rough: 0.9 });
+  M.buildIfAny(gp, { rough: 0.9 });
   for (const [x, z, h] of [[0.27, 0.16, 0.16], [0.34, 0.06, 0.14], [0.38, -0.08, 0.17], [0.26, 0.28, 0.12], [-0.38, -0.22, 0.13], [-0.09, 0.3, 0.13], [0.12, 0.33, 0.12]]) palm(gp, x, gy(x, z), z, h, 0.07, hash3(x * 10, z * 10, 4) * 6, '#4e7d35', Math.round(x * 100 + z * 7), 7);
   crowd(gp, 6, 51, i => { const x = -0.12 + i * 0.04, z = 0.24 + (i % 2) * 0.03; return [x, gy(x, z), z]; }, 1.2);
 };
@@ -818,7 +759,7 @@ const baalbek: Builder = gp => {
   for (let k = 0; k < 4; k++) { const x = -0.3 + k * 0.06, z = 0.2 + (k % 2) * 0.05; M.cyl(x, gy(x, z), z, 0.012, 0.012, 0.012, 8, shade(BB, 0.92)); }
   M.box(-0.33, Y - 0.004, -0.18, 0.08, 0.07, 0.06, shade(BB, 0.9));
   M.rect([-0.33, Y, -0.149], [1, 0], [0, 1], 0.02, 0.04, '#3a3026');
-  M.build(gp, { rough: 0.85 });
+  M.buildIfAny(gp, { rough: 0.85 });
   for (const [x, z, h] of [[0.36, 0.0, 0.2], [0.38, 0.12, 0.16], [-0.38, 0.12, 0.15]]) cypress(gp, x, gy(x, z), z, h, '#2f5a36');
   leafTree(gp, 0.3, gy(0.3, -0.12), -0.12, 0.12, '#4a7a3a', 3);
   crowd(gp, 4, 61, i => { const x = 0.12 + i * 0.03, z = 0.17 + (i % 2) * 0.02; return [x, gy(x, z), z]; }, 1.2);
@@ -864,7 +805,7 @@ const flametowers: Builder = gp => {
   // Steps and the seaside boulevard
   for (let k = 0; k < 6; k++) M.box(0, Y0 + 0.05 - k * 0.008, 0.16 + k * 0.016, 0.12, 0.004, 0.016, '#d8d2c4');
   for (let k = 0; k < 8; k++) { const x = -0.38 + k * 0.11, z = 0.33; M.cyl(x, Y0, z, 0.0016, 0.0016, 0.04, 4, '#3a3a3a', null); M.cyl(x, Y0 + 0.04, z, 0.004, 0.004, 0.004, 6, '#f2e6b0'); }
-  M.build(gp, { rough: 0.6 });
+  M.buildIfAny(gp, { rough: 0.6 });
   const car = (x: number, c: string) => { box(gp, c, x, Y0 + 0.006, 0.3, 0.032, 0.01, 0.016); box(gp, '#2b3a44', x - 0.003, Y0 + 0.014, 0.3, 0.018, 0.006, 0.014); };
   car(-0.2, '#f2f2f2'); car(0.06, '#c62828'); car(0.25, '#1f1f1f');
   for (const [x, z] of [[-0.32, 0.08], [-0.3, -0.12], [0.3, -0.14], [0.33, 0.1], [-0.18, 0.2], [0.2, 0.2]]) leafTree(gp, x, gy(x, z), z, 0.07, '#4a7a3a', Math.round(x * 30));
@@ -928,7 +869,7 @@ const rila: Builder = gp => {
   drum(cx - 0.085, cz, 0.03, 0.036, Y + 0.076);
   drum(cx + 0.085, cz, 0.03, 0.036, Y + 0.076);
   M.box(cx, Y + 0.076, cz, W - 0.02, 0.006, D - 0.02, '#8f949a');
-  M.build(gp, { rough: 0.8 });
+  M.buildIfAny(gp, { rough: 0.8 });
   // Forested mountainside
   for (let k = 0; k < 16; k++) {
     const x = -0.42 + (k % 8) * 0.12 + (hash3(k, 1, 9) - 0.5) * 0.05, z = -0.36 - Math.floor(k / 8) * 0.06 + (hash3(k, 2, 9) - 0.5) * 0.03;
@@ -992,7 +933,7 @@ const trakai: Builder = gp => {
   }
   for (const s of [-1, 1]) M.box(-0.005 + s * 0.013, Y + 0.017, 0.34, 0.002, 0.002, 0.21, '#6b5034');
   for (const [x, z, ry] of [[-0.18, 0.24, 0.5], [0.17, 0.24, -0.4]]) M.box(x, Y - 0.004, z, 0.07, 0.008, 0.016, '#94704a', ry);
-  M.build(gp, { rough: 0.85 });
+  M.buildIfAny(gp, { rough: 0.85 });
   // Trees on the island and the far shore, a boat
   for (const [x, z, s] of [[-0.27, 0.0, 0.1], [-0.25, 0.12, 0.09], [0.26, 0.04, 0.1], [0.24, 0.15, 0.08], [0.22, -0.12, 0.11], [-0.28, -0.12, 0.09], [-0.12, 0.2, 0.07], [0.12, 0.2, 0.07]]) leafTree(gp, x, gy(x, z), z, s, '#3f7a35', Math.round(x * 50 + z * 20));
   for (const [x, z] of [[-0.3, 0.44], [-0.18, 0.46], [0.22, 0.45], [0.33, 0.42]]) leafTree(gp, x, gy(x, z), z, 0.07, '#4a8a3a', Math.round(x * 40));
@@ -1053,7 +994,7 @@ const bled: Builder = gp => {
     for (let k = 0; k < 3; k++) box(q, k % 2 ? '#f2f2f2' : '#c62828', -0.012 + k * 0.012, 0.022, 0, 0.012, 0.003, 0.022);
     for (const [sx, sz] of [[-0.02, 0.009], [0.02, 0.009], [-0.02, -0.009], [0.02, -0.009]]) box(q, '#5a3a22', sx, 0.014, sz, 0.002, 0.012, 0.002);
   }
-  M.build(gp, { rough: 0.8 });
+  M.buildIfAny(gp, { rough: 0.8 });
   // Trees on the island and forested shores
   for (const [x, z, s] of [[-0.05, 0.06, 0.06], [0.09, 0.07, 0.055], [-0.07, -0.04, 0.06], [0.11, -0.05, 0.05], [0.05, -0.09, 0.05], [-0.09, 0.01, 0.05]]) leafTree(gp, x, gy(x, z), z, s, '#3f7a35', Math.round(x * 90 + z * 40));
   for (let k = 0; k < 22; k++) {
@@ -1116,7 +1057,7 @@ const salvo: Builder = gp => {
   M.cyl(TX, Y + 0.518, TZ, 0.014, 0, 0.03, 8, PSD);
   // Plaza Independencia: Artigas equestrian statue, palms, street lamps
   M.box(0, Y, 0.32, 0.05, 0.03, 0.03, '#8a8a86');
-  M.build(gp, { rough: 0.75 });
+  M.buildIfAny(gp, { rough: 0.75 });
   const st = grp(gp, 0, Y + 0.03, 0.32, 0.3);
   blob(st, '#3d4a3a', 0, 0.022, 0, 0.022, 0.011, 0.009); blob(st, '#3d4a3a', 0.022, 0.034, 0, 0.008, 0.01, 0.006);
   for (const [lx, lz] of [[0.012, 0.005], [0.012, -0.005], [-0.012, 0.005], [-0.012, -0.005]]) rod(st, [lx, 0.016, lz], [lx, 0, lz], 0.002, '#3d4a3a', 4);
@@ -1177,7 +1118,7 @@ const brasilia: Builder = gp => {
   }
   // Entrance ramp to the sunken doorway
   M.box(0, Y - 0.002, 0.27, 0.06, 0.003, 0.08, '#bfb8aa');
-  M.build(gp, { rough: 0.6 });
+  M.buildIfAny(gp, { rough: 0.6 });
   for (const [x, z] of [[0.38, 0.2], [-0.4, -0.12], [0.4, -0.15]]) leafTree(gp, x, Y, z, 0.07, '#3f7a35', Math.round(x * 40));
   crowd(gp, 5, 111, i => { const x = 0.06 + i * 0.03, z = 0.33 + (i % 2) * 0.03; return [x, Y, z]; }, 1.2);
 };
@@ -1238,7 +1179,7 @@ const nanmadol: Builder = gp => {
   basaltWall(M, [0.25, -0.27], [0.39, -0.27], Yb, 0.022, 0.02, 12); basaltWall(M, [0.39, -0.27], [0.39, -0.13], Yb, 0.022, 0.02, 13);
   // Steps up from the canal at the sea gate
   for (let k = 0; k < 3; k++) M.box(0, Yb - 0.012 + k * 0.006, Z1 + 0.04 - k * 0.012, 0.07, 0.006, 0.014, shade(BAS, 1.05));
-  M.build(gp, { rough: 0.95 });
+  M.buildIfAny(gp, { rough: 0.95 });
   // Jungle: palms, breadfruit trees and ferns growing over the ruins
   for (const [x, z, h] of [[-0.14, -0.14, 0.17], [0.15, -0.06, 0.15], [0.13, 0.1, 0.14], [-0.15, 0.09, 0.15], [-0.34, 0.2, 0.13], [0.33, -0.2, 0.14]]) palm(gp, x, gy(x, z), z, h, 0.12, hash3(x * 10, z * 10, 7) * 6, '#4f8a3a', Math.round(x * 100 + z * 10), 7);
   for (const [x, z, s] of [[0.0, 0.09, 0.07], [-0.15, -0.02, 0.06], [0.15, -0.15, 0.07], [0.05, -0.15, 0.05], [-0.3, 0.22, 0.06]]) leafTree(gp, x, gy(x, z), z, s, '#3f7a35', Math.round(x * 70 + z * 30));
@@ -1316,7 +1257,7 @@ const omaralimosque: Builder = gp => {
   }
   for (let k = 0; k < 8; k++) M.box(bx + 0.04, Y - 0.006, -0.01 + k * 0.012, 0.02, 0.004, 0.012, '#d8d2c4');
   // Moored boat on the right
-  M.build(gp, { rough: 0.6 });
+  M.buildIfAny(gp, { rough: 0.6 });
   const bt = grp(gp, 0.25, Y - 0.018, 0.12, -0.3);
   blob(bt, '#8a8f96', 0, 0.004, 0, 0.06, 0.008, 0.016);
   // Palms and trees around the mosque

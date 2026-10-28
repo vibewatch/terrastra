@@ -4,7 +4,7 @@
  * Einstein ring, a spinning pulsar sweeping its beams past the Earth, and the Event Horizon Telescope's two images.
  */
 import * as THREE from 'three';
-import { Arrow, body, clamp, dirLight, ease, glow, line, ramp, setLine, starfield } from './draw.ts';
+import { Arrow, body, clamp, dirLight, ease, glow, line, ramp, setLine, starfield, Panel, FONT } from './draw.ts';
 import type { AstroClock, KitCtx, KitFactory, KitRun, V3 } from './types.ts';
 
 export interface Opts {
@@ -37,40 +37,6 @@ const additive = (uniforms: Record<string, THREE.IUniform>, frag: string) => new
   uniforms, vertexShader: VERT, fragmentShader: frag, transparent: true, depthWrite: false,
   blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
 });
-
-/** A flat chart drawn on a canvas, shown as a card that always faces the camera. */
-class Panel {
-  readonly mesh: THREE.Mesh;
-  readonly g: CanvasRenderingContext2D;
-  readonly W: number; readonly H: number;
-  private tex: THREE.CanvasTexture;
-  private static r = new THREE.Vector3(); private static u = new THREE.Vector3();
-  constructor(w: number, h: number, px = 640) {
-    const cv = document.createElement('canvas');
-    cv.width = this.W = px; cv.height = this.H = Math.round((px * h) / w);
-    this.g = cv.getContext('2d')!;
-    this.tex = new THREE.CanvasTexture(cv);
-    this.tex.colorSpace = THREE.SRGBColorSpace;
-    this.mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: this.tex, transparent: true, depthWrite: false, depthTest: false }));
-    this.mesh.renderOrder = 20;
-  }
-  /** Clear to a rounded dark card. */
-  card(): CanvasRenderingContext2D {
-    const g = this.g, W = this.W, H = this.H;
-    g.clearRect(0, 0, W, H);
-    g.fillStyle = 'rgba(8,14,24,0.78)'; g.strokeStyle = 'rgba(255,255,255,0.14)'; g.lineWidth = 2;
-    g.beginPath(); g.roundRect(2, 2, W - 4, H - 4, 14); g.fill(); g.stroke();
-    return g;
-  }
-  commit(): void { this.tex.needsUpdate = true; }
-  /** Face the camera, `dx` / `dy` scene units right / up of `at` on screen. */
-  face(cam: THREE.Camera, at: THREE.Vector3, dx = 0, dy = 0): void {
-    this.mesh.quaternion.copy(cam.quaternion);
-    Panel.r.set(1, 0, 0).applyQuaternion(cam.quaternion); Panel.u.set(0, 1, 0).applyQuaternion(cam.quaternion);
-    this.mesh.position.copy(at).addScaledVector(Panel.r, dx).addScaledVector(Panel.u, dy);
-  }
-}
-const FONT = 'system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif';
 
 const kit: KitFactory<Opts & { clock?: AstroClock }> = (ctx, o) => {
   ctx.root.add(starfield(ctx.low ? 900 : 2200));
@@ -298,7 +264,7 @@ function pulsar(ctx: KitCtx): KitRun {
   arrow.opacity = 0.35;
   ctx.root.add(arrow);
 
-  const pn = new Panel(5.4, 1.5, ctx.low ? 480 : 720);
+  const pn = new Panel(5.4, 1.5, ctx.low ? 480 : 720, 'rgba(8,14,24,0.78)');
   ctx.root.add(pn.mesh);
   const beamDir = new THREE.Vector3(), q = new THREE.Quaternion(), qs = new THREE.Quaternion(), X = new THREE.Vector3(1, 0, 0), Zz = new THREE.Vector3(0, 0, 1);
   /** brightness at the Earth at time t (s) */

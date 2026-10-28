@@ -1,12 +1,10 @@
 import { passerby } from '../human.ts';
 import * as THREE from 'three';
 import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import {
-  type Builder, type V3, type Paint, g, add, mat, box, cyl, rbox, rod, skin, sweep, lathe, prism, panel, archPath,
-  paintFaces, shade, mix, fbm, hash3, tree,
-} from '../prims.ts';
+import { type Builder, type V3, type Paint, g, add, mat, box, cyl, rbox, rod, skin, sweep, lathe, prism, panel, archPath, paintFaces, shade, mix, fbm, hash3, tree } from '../prims.ts';
 import { type HFn, island, sstep, ridged, strataSide, pine } from '../nature.ts';
 import { pblob } from '../animals.ts';
+import { grp } from '../kit/town.ts';
 
 // Hero builders for: abusimbel, djenne, hassan2, rushmore, gatewayarch, teotihuacan, milford.
 // Keyed by catalogue item key (recipe.hero). Front faces +z, base at y=0, footprint radius ≈0.5.
@@ -41,9 +39,6 @@ function frustum(p: THREE.Object3D, w0: number, d0: number, w1: number, d1: numb
   }
   geo.computeVertexNormals();
   return place(p, geo, base, paint, x, y, z, ry);
-}
-function grp(p: THREE.Object3D, x = 0, y = 0, z = 0, ry = 0): THREE.Group {
-  const q = new THREE.Group(); q.position.set(x, y, z); q.rotation.y = ry; p.add(q); return q;
 }
 function person(p: THREE.Object3D, x: number, y: number, z: number, c: string, s = 1): void {
   passerby(p, x, y, z, 0.0165 * s, 1, { top: c });
@@ -901,6 +896,5 @@ const milford: Builder = gp => {
     pine(gp, x, 0.035 + y - 0.002, z, 0.03 + hash3(i, 9, 3) * 0.025, hash3(i, 9, 4) > 0.5 ? '#24482a' : '#2f5a33');
   }
 };
-
 
 export const WORLD2: Record<string, Builder> = { abusimbel, djenne, hassan2, rushmore, gatewayarch, teotihuacan, milford };

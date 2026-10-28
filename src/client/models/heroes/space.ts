@@ -2,12 +2,11 @@ import { passerby } from '../human.ts';
 import * as THREE from 'three';
 import { type Builder, type Paint, type V3, g, add, mat, box, cyl, cone, lathe, rod, slab, tree, gable, hash3, fbm, paintFaces } from '../prims.ts';
 import { island, sstep, type HFn } from '../nature.ts';
+import { type P2, mx, sh, fine, bar, batched, hcyl } from '../kit/orbit.ts';
 
 // Hero builders for the space & science collection (launch pads, telescopes, labs, a crater and two space stations).
 // Front faces +z, base at y=0, ground footprint radius ≈0.48; the orbiting stations have no base.
 
-// ---- local helpers ----------------------------------------------------------------------------------------
-type P2 = [number, number];
 const TAU = Math.PI * 2;
 const grp = (p: THREE.Object3D, x = 0, y = 0, z = 0, ry = 0, rx = 0, rz = 0) => {
   const q = new THREE.Group(); q.position.set(x, y, z); q.rotation.set(rx, ry, rz); p.add(q); return q;
@@ -16,37 +15,11 @@ const grp = (p: THREE.Object3D, x = 0, y = 0, z = 0, ry = 0, rx = 0, rz = 0) => 
 const radial = (p: THREE.Object3D, cx: number, cz: number, a: number, d: number, y: number) =>
   grp(p, cx + Math.sin(a) * d, y, cz + Math.cos(a) * d, a - Math.PI / 2);
 
-const memo = new Map<string, string>();
-const C = new THREE.Color(), C2 = new THREE.Color();
-/** Memoised colour mix (t quantised to 1/32) — paints run per face, so avoid re-parsing colours. */
-const mx = (a: string, b: string, t: number): string => {
-  const q = Math.round(Math.min(1, Math.max(0, t)) * 32), k = a + b + q;
-  let r = memo.get(k);
-  if (!r) { r = '#' + C.set(a).lerp(C2.set(b), q / 32).getHexString(); memo.set(k, r); }
-  return r;
-};
-const sh = (a: string, f: number): string => {
-  const q = Math.round(f * 32), k = a + '*' + q;
-  let r = memo.get(k);
-  if (!r) { r = '#' + C.set(a).multiplyScalar(q / 32).getHexString(); memo.set(k, r); }
-  return r;
-};
-
 /** Lathe of a [radius, y] profile with per-face colours (rocket roll patterns, dish panels, domes). */
 function plathe(p: THREE.Object3D, prof: P2[], base: string, paint?: Paint, seg = 20, x = 0, y = 0, z = 0, o: { flat?: boolean; metal?: number; rough?: number } = {}): THREE.Mesh {
   const lg = new THREE.LatheGeometry(prof.map(([r, h]) => new THREE.Vector2(Math.max(r, 1e-4), h)), seg);
   lg.computeVertexNormals();
   return add(p, paintFaces(lg, base, paint), mat('#ffffff', { vc: true, flat: o.flat ?? false, metal: o.metal, rough: o.rough }), x, y, z, 1, 1, 1);
-}
-/** Subdivides a polyline profile so no piece is longer than `step` (fine rows for painted bands). */
-function fine(prof: P2[], step: number): P2[] {
-  const out: P2[] = [prof[0]];
-  for (let i = 1; i < prof.length; i++) {
-    const [r0, y0] = prof[i - 1], [r1, y1] = prof[i];
-    const n = Math.max(1, Math.ceil(Math.hypot(r1 - r0, y1 - y0) / step));
-    for (let k = 1; k <= n; k++) out.push([r0 + ((r1 - r0) * k) / n, y0 + ((y1 - y0) * k) / n]);
-  }
-  return out;
 }
 const scaleProf = (prof: P2[], kr: number, ky: number): P2[] => prof.map(([r, y]) => [r * kr, y * ky]);
 
@@ -62,46 +35,6 @@ function cloud(p: THREE.Object3D, x: number, y: number, z: number, s: number, n:
   }
 }
 
-interface RodIt { p: THREE.Object3D; a: V3; b: V3; r: number; c: string; seg: number }
-let RODS: RodIt[] | null = null;
-/** Thin cylinder between two points; batched into one vertex-coloured mesh per model (lattices have hundreds). */
-function bar(p: THREE.Object3D, a: V3, b: V3, r: number, c: string, seg = 4): void {
-  if (RODS) RODS.push({ p, a, b, r, c, seg }); else rod(p, a, b, r, c, seg);
-}
-const _m = new THREE.Matrix4(), _inv = new THREE.Matrix4(), _q = new THREE.Quaternion(), _nm = new THREE.Matrix3(), _v = new THREE.Vector3(), _n = new THREE.Vector3();
-const _up = new THREE.Vector3(0, 1, 0), _dir = new THREE.Vector3(), _sc = new THREE.Vector3(), _mid = new THREE.Vector3(), _col = new THREE.Color();
-function flushRods(gp: THREE.Group, items: RodIt[]): void {
-  if (!items.length) return;
-  gp.updateMatrixWorld(true);
-  _inv.copy(gp.matrixWorld).invert();
-  const pos: number[] = [], nor: number[] = [], col: number[] = [];
-  for (const it of items) {
-    const u = g('sp:rod' + it.seg, () => new THREE.CylinderGeometry(1, 1, 1, it.seg, 1, true).toNonIndexed());
-    const up = u.getAttribute('position'), un = u.getAttribute('normal');
-    _dir.set(it.b[0] - it.a[0], it.b[1] - it.a[1], it.b[2] - it.a[2]);
-    const len = _dir.length() || 1e-4;
-    _q.setFromUnitVectors(_up, _dir.normalize());
-    _mid.set((it.a[0] + it.b[0]) / 2, (it.a[1] + it.b[1]) / 2, (it.a[2] + it.b[2]) / 2);
-    _m.compose(_mid, _q, _sc.set(it.r, len, it.r)).premultiply(it.p.matrixWorld).premultiply(_inv);
-    _nm.getNormalMatrix(_m);
-    _col.set(it.c);
-    for (let i = 0; i < up.count; i++) {
-      _v.fromBufferAttribute(up, i).applyMatrix4(_m); pos.push(_v.x, _v.y, _v.z);
-      _n.fromBufferAttribute(un, i).applyMatrix3(_nm).normalize(); nor.push(_n.x, _n.y, _n.z);
-      col.push(_col.r, _col.g, _col.b);
-    }
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
-  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-  add(gp, geo, mat('#ffffff', { vc: true, flat: true }), 0, 0, 0, 1, 1, 1);
-}
-/** Runs a builder with rod batching enabled. */
-const batched = (fn: Builder): Builder => (gp, r) => {
-  const prev = RODS; RODS = [];
-  try { fn(gp, r); flushRods(gp, RODS); } finally { RODS = prev; }
-};
 /** Inserts profile vertices at the given heights so painted bands get crisp, straight edges. */
 function cuts(prof: P2[], ys: number[]): P2[] {
   const out: P2[] = [prof[0]];
@@ -247,7 +180,6 @@ function swingArm(p: THREE.Object3D, a: V3, b: V3, c: string, room = false): voi
   if (room) box(p, '#eef0f0', b[0] - 0.008, a[1] - 0.004, b[2], 0.018, 0.02, 0.022);
 }
 
-
 // ---- telescopes -------------------------------------------------------------------------------------------
 /**
  * Paraboloid dish (concave up, vertex at the origin): panelled front (subtle per-panel tint), grey back.
@@ -324,13 +256,6 @@ const bump = (x: number, z: number, cx: number, cz: number, r: number, h: number
 };
 
 // ---- space-station parts ---------------------------------------------------------------------------------
-/** Horizontal (or vertical) cylinder centred at (x,y,z) along `ax`. */
-function hcyl(p: THREE.Object3D, c: string, x: number, y: number, z: number, r: number, L: number, ax: 'x' | 'y' | 'z', seg = 12): THREE.Mesh {
-  const m = cyl(p, c, x, y, z, r, L, seg);
-  m.position.set(x, y, z);
-  if (ax === 'x') m.rotation.z = Math.PI / 2; else if (ax === 'z') m.rotation.x = Math.PI / 2;
-  return m;
-}
 const sph = (p: THREE.Object3D, c: string, x: number, y: number, z: number, r: number) => add(p, PUFF(), mat(c, { flat: false }), x, y, z, r, r, r);
 /** Solar-array blanket lying flat, long side along `ax`, painted as a grid of cells. */
 function pv(p: THREE.Object3D, x: number, y: number, z: number, W: number, L: number, c: string, ax: 'x' | 'z', tilt = 0): void {

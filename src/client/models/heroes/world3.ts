@@ -1,10 +1,8 @@
 import { passerby } from '../human.ts';
 import * as THREE from 'three';
-import {
-  type Builder, type V3, type Paint, BOX, g, add, mat, box, cyl, cone, rbox, rod, strut, skin, sweep, prism, panel, archPath,
-  paintFaces, shade, mix, fbm, hash3, vnoise,
-} from '../prims.ts';
+import { type Builder, type V3, type Paint, BOX, g, add, mat, box, cyl, cone, rbox, rod, strut, sweep, prism, panel, archPath, shade, mix, fbm, hash3, vnoise } from '../prims.ts';
 import { type HFn, island, sstep, ridged, strataSide } from '../nature.ts';
+import { grp, type MOpts, place, pbox, skirt, column } from '../kit/town.ts';
 
 // Hero builders for: lalibela, baobabs, monumentvalley, uyuni, torresdelpaine, morainelake, harbourbridge, twelveapostles.
 // Keyed by catalogue item key (recipe.hero). Front faces +z, base at y=0, footprint radius ≈0.5.
@@ -16,22 +14,7 @@ const blob = (p: THREE.Object3D, c: string, x: number, y: number, z: number, sx:
   add(p, LO(), mat(c, { flat: false }), x, y, z, sx * 2, sy * 2, sz * 2, ry, rx, rz);
 const frac = (v: number) => v - Math.floor(v);
 const peak = (x: number, z: number, cx: number, cz: number, h: number, r: number, pw: number) => h * Math.max(0, 1 - Math.hypot(x - cx, z - cz) / r) ** pw;
-interface MOpts { flat?: boolean; metal?: number; rough?: number }
 
-/** Paints a fresh model-space geometry and adds it with a vertex-colour material. */
-function place(p: THREE.Object3D, geo: THREE.BufferGeometry, base: string, paint?: Paint, o: MOpts = {}): THREE.Mesh {
-  return add(p, paintFaces(geo, base, paint), mat('#ffffff', { vc: true, flat: o.flat ?? true, metal: o.metal, rough: o.rough }), 0, 0, 0, 1, 1, 1);
-}
-/** Painted box, base at y (paint sees model coordinates). */
-function pbox(p: THREE.Object3D, w: number, h: number, d: number, x: number, y: number, z: number, base: string, paint?: Paint, seg: V3 = [1, 1, 1], ry = 0): THREE.Mesh {
-  const geo = new THREE.BoxGeometry(w, h, d, seg[0], seg[1], seg[2]);
-  geo.translate(0, h / 2, 0);
-  geo.applyMatrix4(new THREE.Matrix4().makeRotationY(ry).setPosition(x, y, z));
-  return place(p, geo, base, paint);
-}
-function grp(p: THREE.Object3D, x = 0, y = 0, z = 0, ry = 0): THREE.Group {
-  const q = new THREE.Group(); q.position.set(x, y, z); q.rotation.y = ry; p.add(q); return q;
-}
 function person(p: THREE.Object3D, x: number, y: number, z: number, c: string, s = 1, skinC = '#c58c64'): void {
   passerby(p, x, y, z, 0.0165 * s, 1, { top: c, skin: skinC });
 }
@@ -88,23 +71,6 @@ function field(p: THREE.Object3D, R: number, n: number, h: HFn, keep: (x: number
   geo.computeVertexNormals();
   return place(p, geo, base, paint, { flat: o.flat ?? false, metal: o.metal, rough: o.rough ?? 0.85 });
 }
-/** Vertical rim around a disc from the terrain edge down to y=0. */
-function skirt(p: THREE.Object3D, R: number, top: (x: number, z: number) => number, side: (y: number, x: number, z: number) => string, segs = 96, rows = 3): void {
-  const pos: number[] = [], idx: number[] = [];
-  for (let j = 0; j <= segs; j++) {
-    const a = (j / segs) * Math.PI * 2, x = Math.cos(a) * R, z = Math.sin(a) * R, t = top(x, z);
-    for (let k = 0; k <= rows; k++) pos.push(x, t * (1 - k / rows), z);
-  }
-  for (let j = 0; j < segs; j++) for (let k = 0; k < rows; k++) {
-    const a = j * (rows + 1) + k, b = a + 1, c = a + rows + 1, d = c + 1;
-    idx.push(a, c, b, b, c, d);
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  geo.setIndex(idx);
-  geo.computeVertexNormals();
-  place(p, geo, '#5b4636', (x, y, z) => side(y, x, z), { rough: 0.9 });
-}
 /** Subdivided vertical wall from (ax,az) to (bx,bz), optionally roughened along its normal; faces away from `face`=-1 origin or toward a point. */
 function wall(p: THREE.Object3D, ax: number, az: number, bx: number, bz: number, yb: number, yt: number, nu: number, nv: number, base: string,
   paint?: Paint, disp?: (u: number, v: number) => number, toward?: [number, number]): THREE.Mesh {
@@ -129,20 +95,6 @@ function wall(p: THREE.Object3D, ax: number, az: number, bx: number, bz: number,
   geo.setIndex(idx);
   geo.computeVertexNormals();
   return place(p, geo, base, paint);
-}
-/** Closed rock column: rings of radius rad(angle, t) from y0 to y0+h around (cx, cz), capped. */
-function column(p: THREE.Object3D, cx: number, cz: number, y0: number, h: number, rad: (a: number, t: number) => number, base: string,
-  paint?: Paint, na = 22, nh = 14, shift?: (t: number) => [number, number], flat = true): THREE.Mesh {
-  const rings: V3[][] = [];
-  for (let k = 0; k <= nh; k++) {
-    const t = k / nh, [ox, oz] = shift ? shift(t) : [0, 0], ring: V3[] = [];
-    for (let j = 0; j < na; j++) {
-      const a = (j / na) * Math.PI * 2, r = rad(a, t);
-      ring.push([cx + ox + Math.cos(a) * r, y0 + h * t, cz + oz + Math.sin(a) * r]);
-    }
-    rings.push(ring);
-  }
-  return skin(p, rings, base, { paint, caps: true, flat });
 }
 /** Ring-shaped extrusion: outer plan minus inner plan ([x, z] lists), from y to y+h. */
 function ringPrism(p: THREE.Object3D, outer: [number, number][], inner: [number, number][], y: number, h: number, c: string): THREE.Mesh {

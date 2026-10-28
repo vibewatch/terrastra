@@ -93,6 +93,13 @@ export function fmtDur(hours: number): string {
   return t('yearsN', { n: fmtNum(+(a / 24 / 365.25).toFixed(1)) });
 }
 
+const stat = (k: string, v: string) => h('div', {}, h('dt', {}, k), h('dd', {}, v));
+/** A titled row of tappable chips; nothing when empty. */
+const tagList = (title: string, chips: HTMLElement[]) => (chips.length
+  ? h('div', { class: 'solar-list' }, h('h3', {}, title), h('div', { class: 'solar-tags' }, ...chips)) : null);
+const tagChip = (testid: string, pick: () => void, lead: HTMLElement, name: string) =>
+  h('button', { class: 'tag-chip', 'data-testid': testid, onclick: () => { sfx.tap(); pick(); } }, lead, h('span', {}, name));
+
 export class SolarUI {
   readonly view: SolarView;
   readonly el: HTMLElement;
@@ -276,12 +283,16 @@ export class SolarUI {
       [t('meterLight'), light],
       [t('meterCar'), fmtDur(carH)],
     ];
-    const sig = rows.flat().join('|');
-    if (this.meterOut.dataset.sig !== sig) {
-      this.meterOut.dataset.sig = sig;
-      this.meterOut.replaceChildren(...rows.map(([k, v]) => h('div', {}, h('dt', {}, k), h('dd', {}, v))));
-    }
+    this.showMeterRows(rows);
     this.view.meterLabel.textContent = a === b ? '' : fmtKm(km, l);
+  }
+
+  /** Re-render the meter's definition list only when a value changed (keeps text selectable, avoids layout churn). */
+  private showMeterRows(rows: [string, string][]): void {
+    const sig = rows.flat().join('|');
+    if (this.meterOut.dataset.sig === sig) return;
+    this.meterOut.dataset.sig = sig;
+    this.meterOut.replaceChildren(...rows.map(([k, v]) => stat(k, v)));
   }
 
   /** Light-years between two deep objects, light travel time, and how long Voyager 1 (17 km/s) or a car would take. */
@@ -294,11 +305,7 @@ export class SolarUI {
       [t('meterProbe'), fmtYears(ly * LIGHT_KMS / 17, l)],
       [t('meterCar'), fmtYears(ly * LY_KM / 100 / 8766, l)],
     ];
-    const sig = rows.flat().join('|');
-    if (this.meterOut.dataset.sig !== sig) {
-      this.meterOut.dataset.sig = sig;
-      this.meterOut.replaceChildren(...rows.map(([k, v]) => h('div', {}, h('dt', {}, k), h('dd', {}, v))));
-    }
+    this.showMeterRows(rows);
     this.view.deep.meterLabel.textContent = a === b ? '' : fmtLy(ly, l);
   }
 
@@ -619,7 +626,6 @@ export class SolarUI {
     const l = lang();
     const body = BODY[s.kind === 'body' ? s.id : s.f.body];
     const it = this.readable();
-    const stat = (k: string, v: string) => h('div', {}, h('dt', {}, k), h('dd', {}, v));
     let eyebrow: string, key: [string, string][], extra: [string, string][] = [];
     if (s.kind === 'body') {
       const f = body.facts, pName = body.parent ? tr(BODY[body.parent].name, l) : '';
@@ -653,41 +659,46 @@ export class SolarUI {
     const feats = s.kind === 'body' ? featuresOf(s.id) : [];
     const moons = s.kind === 'body' ? BODIES.filter(b => b.parent === s.id && b.kind === 'moon') : [];
     const sites = s.kind === 'body' ? sitesOf(s.id) : [];
-    const hasMore = extra.length > 0 || Boolean(it.funFact?.en);
     this.drawHero();
+    this.paintCard({
+      hero: this.hero, chip: s.kind === 'body' ? t('bk_' + body.kind) : t('fk_' + s.f.kind),
+      eyebrowIcon: s.kind === 'body' ? 'planet' : 'pin', eyebrow, it, key, extra,
+      lists: [
+        tagList(t('surface'), feats.map(f => tagChip('feat-' + f.key, () => this.view.selectFeature(f), h('span', { class: 'chip-emoji', 'aria-hidden': 'true' }, f.emoji), tr(f.name, l)))),
+        tagList(t('explorers'), sites.map(x => tagChip('site-' + x.key, () => this.view.selectSite(x), h('span', { class: 'chip-emoji', 'aria-hidden': 'true' }, x.emoji), tr(x.name, l)))),
+        tagList(t('moonsList'), moons.map(m => tagChip('moon-' + m.id, () => this.view.select(m.id), h('i', { class: 'dot', style: `--c:${dotColor(m)}` }), tr(m.name, l)))),
+      ],
+      footer: [
+        s.kind === 'feature' ? h('button', { class: 'pill pill-sm', 'data-testid': 'solar-back-body', onclick: () => this.view.select(body.id) }, t('backTo', { p: tr(body.name, l) })) : null,
+        s.kind === 'body' && body.parent && body.parent !== 'sun' ? h('button', { class: 'pill pill-sm', 'data-testid': 'solar-back-body', onclick: () => this.view.select(body.parent!) }, t('backTo', { p: tr(BODY[body.parent].name, l) })) : null,
+        s.kind === 'body' && s.id === 'earth' ? h('button', { class: 'cta cta-sm', 'data-testid': 'solar-enter-earth', html: icon('globe', 16), onclick: () => this.backToEarth() }, h('span', {}, t('enterEarth'))) : null,
+      ],
+    });
+  }
+
+  /** Shared card layout: hero + chip + close, then name, description, key stats, "more" details, chip lists and a footer. */
+  private paintCard(o: {
+    hero: HTMLElement; heroClass?: string; chip: string; eyebrowIcon: string; eyebrow: string; it: Readable;
+    key: [string, string][]; extra: [string, string][]; lists: (HTMLElement | null)[]; footer: (HTMLElement | null)[];
+  }): void {
+    const l = lang(), it = o.it, hasMore = o.extra.length > 0 || Boolean(it.funFact?.en);
     this.infoMain.replaceChildren(
-      h('div', { class: 'info-hero solar-hero' },
-        this.hero,
-        h('span', { class: 'type-chip' }, (s.kind === 'body' ? t('bk_' + body.kind) : t('fk_' + s.f.kind))),
+      h('div', { class: 'info-hero solar-hero' + (o.heroClass ? ' ' + o.heroClass : '') },
+        o.hero,
+        h('span', { class: 'type-chip' }, o.chip),
         foldButton(this.info),
         h('button', { class: 'icon-btn info-x', 'aria-label': t('close'), 'data-testid': 'solar-info-close', html: icon('close', 16), onclick: () => this.showCard(null) })),
       h('div', { class: 'info-body' },
-        h('p', { class: 'eyebrow', html: icon(s.kind === 'body' ? 'planet' : 'pin', 13) }, h('span', {}, eyebrow)),
+        h('p', { class: 'eyebrow', html: icon(o.eyebrowIcon, 13) }, h('span', {}, o.eyebrow)),
         h('h2', { 'data-testid': 'solar-name' }, tr(it.name, l)),
         h('p', { class: 'desc' }, tr(it.desc, l)),
-        key.length ? h('dl', { class: 'stats-row' }, ...key.map(([k, v]) => stat(k, v))) : null,
+        o.key.length ? h('dl', { class: 'stats-row' }, ...o.key.map(([k, v]) => stat(k, v))) : null,
         hasMore ? h('details', { class: 'more' },
           h('summary', { html: icon('chevron', 14) }, h('span', {}, t('moreDetails'))),
           it.funFact?.en ? h('p', { class: 'fun' }, h('b', {}, t('funFact')), ' ', tr(it.funFact, l)) : null,
-          extra.length ? h('dl', { class: 'facts' }, ...extra.map(([k, v]) => stat(k, v))) : null) : null,
-        feats.length ? h('div', { class: 'solar-list' },
-          h('h3', {}, t('surface')),
-          h('div', { class: 'solar-tags' }, ...feats.map(f => h('button', { class: 'tag-chip', 'data-testid': 'feat-' + f.key, onclick: () => { sfx.tap(); this.view.selectFeature(f); } },
-            h('span', { class: 'chip-emoji', 'aria-hidden': 'true' }, f.emoji), h('span', {}, tr(f.name, l)))))) : null,
-        sites.length ? h('div', { class: 'solar-list' },
-          h('h3', {}, t('explorers')),
-          h('div', { class: 'solar-tags' }, ...sites.map(x => h('button', { class: 'tag-chip', 'data-testid': 'site-' + x.key, onclick: () => { sfx.tap(); this.view.selectSite(x); } },
-            h('span', { class: 'chip-emoji', 'aria-hidden': 'true' }, x.emoji), h('span', {}, tr(x.name, l)))))) : null,
-        moons.length ? h('div', { class: 'solar-list' },
-          h('h3', {}, t('moonsList')),
-          h('div', { class: 'solar-tags' }, ...moons.map(m => h('button', { class: 'tag-chip', 'data-testid': 'moon-' + m.id, onclick: () => { sfx.tap(); this.view.select(m.id); } },
-            h('i', { class: 'dot', style: `--c:${dotColor(m)}` }), h('span', {}, tr(m.name, l)))))) : null,
-        h('div', { class: 'info-footer' },
-          s.kind === 'feature' ? h('button', { class: 'pill pill-sm', 'data-testid': 'solar-back-body', onclick: () => this.view.select(body.id) }, t('backTo', { p: tr(body.name, l) })) : null,
-          s.kind === 'body' && body.parent && body.parent !== 'sun' ? h('button', { class: 'pill pill-sm', 'data-testid': 'solar-back-body', onclick: () => this.view.select(body.parent!) }, t('backTo', { p: tr(BODY[body.parent].name, l) })) : null,
-          s.kind === 'body' && s.id === 'earth' ? h('button', { class: 'cta cta-sm', 'data-testid': 'solar-enter-earth', html: icon('globe', 16), onclick: () => this.backToEarth() }, h('span', {}, t('enterEarth'))) : null,
-          h('button', { class: 'read-more', 'data-testid': 'solar-read-more', 'aria-expanded': String(this.readerOpen), onclick: () => { sfx.tap(); void this.toggleReader(); } },
-            h('span', {}, this.readerOpen ? t('readerClose') : t('readMore')), h('span', { html: icon('book', 14) })))));
+          o.extra.length ? h('dl', { class: 'facts' }, ...o.extra.map(([k, v]) => stat(k, v))) : null) : null,
+        ...o.lists,
+        h('div', { class: 'info-footer' }, ...o.footer, this.readBtn())));
   }
 
   private readBtn(): HTMLElement {
@@ -698,7 +709,6 @@ export class SolarUI {
   /** Cards for explorer sites, deep-space objects and whole scales. */
   private renderOtherCard(): void {
     const s = this.sel!, l = lang(), it = this.readable();
-    const stat = (k: string, v: string) => h('div', {}, h('dt', {}, k), h('dd', {}, v));
     const key: [string, string][] = [], extra: [string, string][] = [];
     let eyebrow = '', chip = '', hero: HTMLElement = this.hero, footer: (HTMLElement | null)[] = [], list: HTMLElement | null = null;
     if (s.kind === 'site') {
@@ -740,30 +750,11 @@ export class SolarUI {
       key.push([t('across'), fmtLy(i.sizeLy, l)]);
       if (s.id !== 'solar') {
         const objs = this.view.deep.objectsOf(s.id as DeepScale).filter(o => (o.rank ?? 1) >= 2).slice(0, 10);
-        if (objs.length) list = h('div', { class: 'solar-list' }, h('h3', {}, t('highlights')),
-          h('div', { class: 'solar-tags' }, ...objs.map(o => h('button', { class: 'tag-chip', 'data-testid': 'hl-' + o.key, onclick: () => { sfx.tap(); this.view.selectDeep(o.key); } },
-            h('span', { class: 'chip-emoji', 'aria-hidden': 'true' }, o.emoji), h('span', {}, tr(o.name, l))))));
+        list = tagList(t('highlights'), objs.map(o => tagChip('hl-' + o.key, () => this.view.selectDeep(o.key), h('span', { class: 'chip-emoji', 'aria-hidden': 'true' }, o.emoji), tr(o.name, l))));
       }
     }
     if (hero === this.hero) this.drawHero();
-    const hasMore = extra.length > 0 || Boolean(it.funFact?.en);
-    this.infoMain.replaceChildren(
-      h('div', { class: 'info-hero solar-hero' + (s.kind === 'site' ? ' is-model' : '') },
-        hero,
-        h('span', { class: 'type-chip' }, chip),
-        foldButton(this.info),
-        h('button', { class: 'icon-btn info-x', 'aria-label': t('close'), 'data-testid': 'solar-info-close', html: icon('close', 16), onclick: () => this.showCard(null) })),
-      h('div', { class: 'info-body' },
-        h('p', { class: 'eyebrow', html: icon(s.kind === 'site' ? 'pin' : 'planet', 13) }, h('span', {}, eyebrow)),
-        h('h2', { 'data-testid': 'solar-name' }, tr(it.name, l)),
-        h('p', { class: 'desc' }, tr(it.desc, l)),
-        key.length ? h('dl', { class: 'stats-row' }, ...key.map(([k, v]) => stat(k, v))) : null,
-        hasMore ? h('details', { class: 'more' },
-          h('summary', { html: icon('chevron', 14) }, h('span', {}, t('moreDetails'))),
-          it.funFact?.en ? h('p', { class: 'fun' }, h('b', {}, t('funFact')), ' ', tr(it.funFact, l)) : null,
-          extra.length ? h('dl', { class: 'facts' }, ...extra.map(([k, v]) => stat(k, v))) : null) : null,
-        list,
-        h('div', { class: 'info-footer' }, ...footer, this.readBtn())));
+    this.paintCard({ hero, heroClass: s.kind === 'site' ? 'is-model' : '', chip, eyebrowIcon: s.kind === 'site' ? 'pin' : 'planet', eyebrow, it, key, extra, lists: [list], footer });
   }
 
   private async toggleReader(open = !this.readerOpen): Promise<void> {

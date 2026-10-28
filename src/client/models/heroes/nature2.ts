@@ -2,38 +2,18 @@ import { passerby } from '../human.ts';
 import * as THREE from 'three';
 import type { Builder, V3 } from '../prims.ts';
 import { add, mat, g, box, cyl, cone, strut, sweep, slab, hash3, lathe, tbox, gable, SPH, CONE, CYL } from '../prims.ts';
+import { PAL, W, f2 } from '../kit/terrain.ts';
 
 // Wave-4 nature pack (plants pl_*, volcanoes vo_*, prehistoric animals dn_*). Every model is a compact diorama on a
 // vertex-coloured terrain disc (radius ≈0.5, strata skirt), front +z, base y=0. Built for phones: low-segment
 // shapes, cached geometry, ≤15k triangles each.
 
-// ---- colour kit ------------------------------------------------------------------------------------------
-const PAL = new Map<string, THREE.Color>();
 const K = (h: string) => { let c = PAL.get(h); if (!c) { c = new THREE.Color(h); PAL.set(h, c); } return c; };
-const W = new THREE.Color();
 const B = (h: string) => W.copy(K(h));
 const L = (h: string, t: number) => { if (t > 0) W.lerp(K(h), t > 1 ? 1 : t); return W; };
 const sst = (a: number, b: number, x: number) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 const H = (i: number, s: number, k = 0) => hash3(i, s, k);
 const TAU = Math.PI * 2;
-
-// fast 2D value noise (integer hash)
-const hh = (i: number, j: number) => {
-  let h = (Math.imul(i, 374761393) + Math.imul(j, 668265263)) | 0;
-  h = Math.imul(h ^ (h >>> 13), 1274126177);
-  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
-};
-const n2 = (x: number, z: number) => {
-  const xi = Math.floor(x), zi = Math.floor(z), xf = x - xi, zf = z - zi;
-  const u = xf * xf * (3 - 2 * xf), v = zf * zf * (3 - 2 * zf);
-  const a = hh(xi, zi), b = hh(xi + 1, zi), c = hh(xi, zi + 1), d = hh(xi + 1, zi + 1);
-  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
-};
-const f2 = (x: number, z: number, oct = 3, sd = 0) => {
-  let a = 0.5, f = 1, s = 0, n = 0;
-  for (let i = 0; i < oct; i++) { s += a * n2(x * f + sd * 31.7 + i * 5.3, z * f - sd * 17.1); n += a; a *= 0.5; f *= 2.07; }
-  return s / n;
-};
 
 // ---- terrain disc ----------------------------------------------------------------------------------------
 type HF = (x: number, z: number) => number;
@@ -291,7 +271,6 @@ const sakura: Builder = gp => {
   person(gp, -0.215, gy(-0.215, 0.11), 0.11, '#c45a8a', 0.3, 0.8);
 };
 
-
 /** Red Lotus Sea (Nong Han Kumphawapi): pink sacred lotus rising on stalks above cupped pads, a long-tail boat. */
 const PADG = () => g('n2-pad', () => {
   const lg = new THREE.LatheGeometry([[0, -0.004], [0.3, 0.004], [0.62, 0.022], [0.92, 0.05], [1, 0.064], [0.97, 0.07], [0.6, 0.032], [0.28, 0.014], [0, 0.01]].map(([r, y]) => new THREE.Vector2(r, y)), 12);
@@ -501,7 +480,6 @@ const coffee: Builder = gp => {
   person(gp, -0.17, gy(-0.17, 0.2), 0.2, '#e8d8a8', 0.6, 1.0, '#5a3420');
 };
 
-
 /** Munnar tea estate: a rounded hill combed with bright contour hedges, silver oaks, a picker and the factory. */
 const tea: Builder = gp => {
   const HX = -0.06, HZ = -0.1;
@@ -675,7 +653,6 @@ const quiver: Builder = gp => {
   sph(gp, '#8a6a4a', -0.22, gy(-0.22, 0.2) + 0.07, 0.2, 0.016, 0.012, 0.022, 8);
   sph(gp, '#7a5a3a', -0.22, gy(-0.22, 0.2) + 0.078, 0.222, 0.009, 0.009, 0.01, 6);
 };
-
 
 /** The Great Banyan (Howrah): one tree that became a forest — a vast low canopy held up by thousands of prop roots. */
 const banyan: Builder = gp => {
@@ -853,7 +830,6 @@ const sunflower: Builder = gp => {
   strut(gp, [px + 0.004, py + 0.2, pz], [px + 0.004, py + 0.222, pz], 0.0015, 0.0015, '#e04020', 4);
 };
 
-
 // ================================================ VOLCANOES ===============================================
 /** Translucent drifting smoke / steam puffs. */
 function puffs(p: THREE.Object3D, from: V3, n: number, c: string, s: number, drift: V3, op = 0.75): void {
@@ -1000,7 +976,6 @@ const villarrica: Builder = gp => {
   slab(sb, [[0, 0.012], [0, 0.066], [0.03, 0.014]], 0.002, '#f8f8f2', 0, false).position.set(0, 0, 0.001);
   person(gp, 0.12, WL + 0.007, 0.38, '#e0442a', 0, 0.9);
 };
-
 
 /** Mount Ararat: Greater and Little Ararat over the Ararat plain, seen from Khor Virap with its apricot orchards. */
 const ararat: Builder = gp => {
@@ -1167,7 +1142,6 @@ const fournaise: Builder = gp => {
   person(gp, -0.2, gy(-0.2, 0.06), 0.06, '#f0c020', 1.2, 1);
   person(gp, -0.18, gy(-0.18, 0.08), 0.08, '#2a6ab0', 1.6, 0.9);
 };
-
 
 // ================================================ PREHISTORIC ANIMALS =====================================
 /** Hide painter: local position, normal and u along the loft (0 = first station). Returns W. */
@@ -1375,7 +1349,6 @@ const cryolophosaurus: Builder = gp => {
   sph(gp, '#6a5040', mx, my + 0.008, mz, 0.006, 0.006, 0.01, 6); sph(gp, '#6a5040', mx, my + 0.011, mz + 0.01, 0.004, 0.004, 0.005, 5);
 };
 
-
 /** Massospondylus (Golden Gate, South Africa): long-necked early sauropodomorph guarding the world's oldest known dinosaur nest. */
 const massospondylus: Builder = gp => {
   const cliff = (x: number, z: number) => sst(-0.12, -0.3, z + 0.08 * Math.sin(x * 7) + 0.04 * f2(x * 8, 3));
@@ -1520,7 +1493,6 @@ const therizinosaurus: Builder = gp => {
   for (let i = 0; i < 6; i++) { const a = i * 0.8 + 3.2, r = 0.38 + H(i, 1) * 0.06, x = Math.cos(a) * r, z = Math.sin(a) * r; if (i % 2) pineT(gp, x, gy(x, z), z, 1.4 + H(i, 3) * 0.5, '#3a5a30'); else fern(gp, x, gy(x, z), z, 1.0, i); }
   for (let i = 0; i < 4; i++) { const x = -0.2 + i * 0.1, z = 0.32 + H(i, 2) * 0.05; stone(gp, x, gy(x, z), z, 0.015, '#a08a6a', i); }
 };
-
 
 /** Quetzalcoatlus (Big Bend, Texas): giraffe-tall azhdarchid pterosaur stalking on all fours, wings folded, across a Cretaceous floodplain. */
 const quetzalcoatlus: Builder = gp => {

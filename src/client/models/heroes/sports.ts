@@ -1,10 +1,8 @@
-import { human, passerby } from '../human.ts';
+import { human } from '../human.ts';
 import * as THREE from 'three';
-import {
-  type Builder, type Paint, type V3, add, g, mat, box, rbox, cyl, cone, gable, lathe, rod, skin, panel, archPath,
-  shade, mix, hash3, fbm, SPH, paintFaces, tbox, strut,
-} from '../prims.ts';
+import { type Builder, type Paint, type V3, add, g, mat, box, rbox, cyl, cone, gable, lathe, rod, skin, panel, archPath, shade, mix, hash3, fbm, SPH, paintFaces, tbox, strut } from '../prims.ts';
 import { island, ripple, sstep } from '../nature.ts';
+import { grp, type Q, type Plan, supPlan, type StandOpts, turf, mow, SK, HR, fan } from '../kit/sport.ts';
 
 // Sports dioramas: each venue is a compact scale model on a round base (radius ≈0.5) — the instantly readable
 // shape first (stadium bowl, track, ramp, ring, wave), then signature details (Green Monster, Pagoda, Swilcan
@@ -15,14 +13,6 @@ const TAU = Math.PI * 2;
 
 // ---- shared helpers -------------------------------------------------------------------------------------
 
-function grp(p: THREE.Object3D, x: number, y: number, z: number, ry = 0, s = 1): THREE.Group {
-  const f = new THREE.Group();
-  f.position.set(x, y, z);
-  f.rotation.y = ry;
-  f.scale.setScalar(s);
-  p.add(f);
-  return f;
-}
 /** Low-poly ball (heads, hands, balls, studs). */
 const dot = (p: THREE.Object3D, c: string, x: number, y: number, z: number, r: number, seg = 7) =>
   add(p, SPH(seg), mat(c), x, y, z, r * 2, r * 2, r * 2);
@@ -42,7 +32,6 @@ function ringLine(p: THREE.Object3D, x: number, y: number, z: number, r: number,
   return add(p, geo, mat(c), x, y, z, r, r, r * 0.4, 0, -Math.PI / 2);
 }
 
-type Q = [number, number, number];
 /** Accumulates painted quads into one vertex-coloured mesh; each quad is turned to face `want`. */
 class Quads {
   pos: number[] = [];
@@ -77,13 +66,6 @@ class Quads {
   }
 }
 
-/** Closed plan curve: t∈[0,1) → [x,z] pushed outward by `off`. */
-type Plan = (t: number, off: number) => [number, number];
-/** Super-ellipse plan (n=2 ellipse, larger n squarer) — MCG, FNB, oval bowls. */
-const supPlan = (a: number, b: number, n = 2.4): Plan => (t, off) => {
-  const th = t * TAU, c = Math.cos(th), s = Math.sin(th);
-  return [(a + off) * Math.sign(c) * Math.pow(Math.abs(c), 2 / n), (b + off) * Math.sign(s) * Math.pow(Math.abs(s), 2 / n)];
-};
 /** Rounded-rectangle plan (half sizes hx,hz, corner radius rc); arcs/straights keep fixed t spans so rows align. */
 function rrPlan(hx: number, hz: number, rc: number): Plan {
   const sx = 2 * (hx - rc), sz = 2 * (hz - rc), ar = Math.max(rc, 0.02) * Math.PI / 2;
@@ -105,15 +87,6 @@ function rrPlan(hx: number, hz: number, rc: number): Plan {
   };
 }
 
-interface StandOpts {
-  t0?: number; t1?: number; n: number; rows: number;
-  /** offset of the front row from the plan curve, row depth, height of the front wall, rise per row */
-  off0: number; dr: number; y0: number; dh: number;
-  seat: (t: number, row: number, i: number) => string;
-  riser?: string; wall?: string; back?: (t: number, y: number) => string;
-  /** extra height of the outer back wall above the top row */
-  backH?: number;
-}
 /** Stepped grandstand following a plan curve: crowd-painted treads, concrete risers, front wall, back facade. */
 function stands(p: THREE.Object3D, plan: Plan, o: StandOpts): void {
   const t0 = o.t0 ?? 0, t1 = o.t1 ?? 1, q = new Quads(), full = t1 - t0 >= 0.999;
@@ -160,32 +133,6 @@ const crowd = (pal: string[], empty = '#94a3b8', fill = 0.9, seed = 1) => (t: nu
   return k < 0.22 ? ['#f1c7a3', '#c58c5c', '#8d5a3b'][Math.floor(k * 13.6) % 3] : shade(pal[Math.floor(k * 97) % pal.length], 0.88 + h * 0.2);
 };
 
-/** Square-grid surface clipped to an inside() test (pitches, ovals); paint per triangle centroid. */
-function turf(p: THREE.Object3D, inside: (x: number, z: number) => boolean, hx: number, hz: number, n: number, y: number, paint: Paint): void {
-  const pos: number[] = [], cs = (hx * 2) / n, nz = Math.ceil((hz * 2) / cs);
-  const clamp = (x: number, z: number): [number, number] => {
-    if (inside(x, z)) return [x, z];
-    let lo = 0, hi = 1;
-    for (let k = 0; k < 10; k++) { const m = (lo + hi) / 2; if (inside(x * m, z * m)) lo = m; else hi = m; }
-    return [x * lo, z * lo];
-  };
-  for (let i = 0; i < n; i++) for (let j = 0; j < nz; j++) {
-    const x0 = -hx + i * cs, z0 = -hz + j * cs, x1 = Math.min(hx, x0 + cs), z1 = Math.min(hz, z0 + cs);
-    if (!inside(x0, z0) && !inside(x1, z0) && !inside(x1, z1) && !inside(x0, z1)) continue;
-    const a = clamp(x0, z0), b = clamp(x1, z0), c = clamp(x1, z1), d = clamp(x0, z1);
-    pos.push(a[0], y, a[1], d[0], y, d[1], c[0], y, c[1], a[0], y, a[1], c[0], y, c[1], b[0], y, b[1]);
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  geo.computeVertexNormals();
-  add(p, paintFaces(geo, '#ffffff', paint), mat('#ffffff', { vc: true, flat: true, rough: 0.9 }), 0, 0, 0, 1, 1, 1);
-}
-/** Mowing stripes along x (or z). */
-const mow = (c: string, w = 0.04, alongX = true, k = 0.1): Paint => (x, _y, z) => {
-  const v = alongX ? x : z;
-  return shade(c, (Math.floor(v / w + 1000) % 2 ? 1 - k / 2 : 1 + k / 2) * (0.97 + fbm(x * 40, 0, z * 40, 2) * 0.06));
-};
-
 /** Round flat base (lawn / snow / plaza) with an earth skirt. */
 function base(gp: THREE.Object3D, R: number, top: string, paint: Paint, h = 0.03, hf: (x: number, z: number) => number = () => 0, rings = 14, segs = 72, side = '#6b5644'): void {
   island(gp, R, hf, top, paint, { rings, segs, base: h, side: (y) => (y > h * 0.55 ? side : shade(side, 0.78)) });
@@ -199,8 +146,6 @@ interface Pose {
   /** forward lean of chest/head (unit space) */
   lean?: number; bulk?: number; hat?: (f: THREE.Group) => void; sleeve?: string;
 }
-const SK = ['#f1c7a3', '#d9a27a', '#b9805a', '#8d5a3b', '#5c3a24'];
-const HR = ['#2b1d14', '#3b2a1f', '#1c1917', '#6b4226', '#a16207'];
 /** Little athlete, h tall: two-segment limbs reaching foot/hand targets, rounded torso, head with hair. */
 function fig(p: THREE.Object3D, x: number, y: number, z: number, ry: number, h: number, o: Pose): THREE.Group {
   const f = grp(p, x, y, z, ry, h);
@@ -226,11 +171,6 @@ const RUN = (ph = 0): Pick<Pose, 'feet' | 'hands' | 'lean'> => {
   const s = ph ? -1 : 1;
   return { feet: [[-0.06, 0.06, 0.28 * s], [0.06, 0.14, -0.3 * s]], hands: [[-0.2, 0.55, -0.2 * s], [0.2, 0.58, 0.22 * s]], lean: 0.35 };
 };
-/** Seated / standing spectator as a 2–3 part pawn (cheap crowds near the action). */
-function fan(p: THREE.Object3D, x: number, y: number, z: number, h: number, c: string, arms = false, sit = false): void {
-  // spectators face the middle of the scene; a seated fan's h is the seated height
-  passerby(p, x, y, z, sit ? h * 1.55 : h, 2, { top: c, ry: Math.atan2(-x, -z), pose: sit ? 'sitGround' : arms ? 'cheer' : undefined });
-}
 
 /** Stadium floodlight mast with a lit head. */
 function mast(p: THREE.Object3D, x: number, y: number, z: number, h: number, ry: number, w = 0.05, c = '#cbd5e1'): void {

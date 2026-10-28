@@ -2,32 +2,15 @@ import * as THREE from 'three';
 import { type Builder, type Paint, type V3, g, add, mat, box, cyl, cone, rod, slab, hash3, fbm, worley, paintFaces } from '../prims.ts';
 import { island, sstep, type HFn } from '../nature.ts';
 import { H_SPACE } from './space.ts';
+import { type P2, mx, sh, batched, hcyl, RODS } from '../kit/orbit.ts';
 
 // Hero builders for the Solar System view: landers, rovers and crewed sites on other worlds (round diorama bases of
 // radius ≈0.46, ground at y≈0.03), plus orbiters and deep-space probes (no base, centred at the origin, ≈0.9 across).
 // Front faces +z. Real-world sizes are modelled in metres inside a scaled group wherever that helps proportions.
 
-// ---- local helpers (copied from space.ts where they are not exported) ---------------------------------------
-type P2 = [number, number];
 const TAU = Math.PI * 2;
 const grp = (p: THREE.Object3D, x = 0, y = 0, z = 0, ry = 0, rx = 0, rz = 0, s = 1) => {
   const q = new THREE.Group(); q.position.set(x, y, z); q.rotation.set(rx, ry, rz); q.scale.setScalar(s); p.add(q); return q;
-};
-
-const memo = new Map<string, string>();
-const C = new THREE.Color(), C2 = new THREE.Color();
-/** Memoised colour mix (t quantised to 1/32) — paints run per face, so avoid re-parsing colours. */
-const mx = (a: string, b: string, t: number): string => {
-  const q = Math.round(Math.min(1, Math.max(0, t)) * 32), k = a + b + q;
-  let r = memo.get(k);
-  if (!r) { r = '#' + C.set(a).lerp(C2.set(b), q / 32).getHexString(); memo.set(k, r); }
-  return r;
-};
-const sh = (a: string, f: number): string => {
-  const q = Math.round(f * 32), k = a + '*' + q;
-  let r = memo.get(k);
-  if (!r) { r = '#' + C.set(a).multiplyScalar(q / 32).getHexString(); memo.set(k, r); }
-  return r;
 };
 
 /** Lathe of a [radius, y] profile with per-face colours. */
@@ -37,46 +20,11 @@ function plathe(p: THREE.Object3D, prof: P2[], base: string, paint?: Paint, seg 
   return add(p, paintFaces(lg, base, paint), mat('#ffffff', { vc: true, flat: o.flat ?? false, metal: o.metal, rough: o.rough }), x, y, z, 1, 1, 1);
 }
 
-interface RodIt { p: THREE.Object3D; a: V3; b: V3; r: number; c: string; seg: number }
-let RODS: RodIt[] | null = null;
 /** Thin cylinder between two points; batched into one vertex-coloured mesh per model. */
 function bar(p: THREE.Object3D, a: V3, b: V3, r: number, c: string, seg = 5): void {
   if (RODS) RODS.push({ p, a, b, r, c, seg }); else rod(p, a, b, r, c, seg);
 }
-const _m = new THREE.Matrix4(), _inv = new THREE.Matrix4(), _q = new THREE.Quaternion(), _nm = new THREE.Matrix3(), _v = new THREE.Vector3(), _n = new THREE.Vector3();
-const _up = new THREE.Vector3(0, 1, 0), _dir = new THREE.Vector3(), _sc = new THREE.Vector3(), _mid = new THREE.Vector3(), _col = new THREE.Color();
-function flushRods(gp: THREE.Group, items: RodIt[]): void {
-  if (!items.length) return;
-  gp.updateMatrixWorld(true);
-  _inv.copy(gp.matrixWorld).invert();
-  const pos: number[] = [], nor: number[] = [], col: number[] = [];
-  for (const it of items) {
-    const u = g('pl:rod' + it.seg, () => new THREE.CylinderGeometry(1, 1, 1, it.seg, 1, true).toNonIndexed());
-    const up = u.getAttribute('position'), un = u.getAttribute('normal');
-    _dir.set(it.b[0] - it.a[0], it.b[1] - it.a[1], it.b[2] - it.a[2]);
-    const len = _dir.length() || 1e-4;
-    _q.setFromUnitVectors(_up, _dir.normalize());
-    _mid.set((it.a[0] + it.b[0]) / 2, (it.a[1] + it.b[1]) / 2, (it.a[2] + it.b[2]) / 2);
-    _m.compose(_mid, _q, _sc.set(it.r, len, it.r)).premultiply(it.p.matrixWorld).premultiply(_inv);
-    _nm.getNormalMatrix(_m);
-    _col.set(it.c);
-    for (let i = 0; i < up.count; i++) {
-      _v.fromBufferAttribute(up, i).applyMatrix4(_m); pos.push(_v.x, _v.y, _v.z);
-      _n.fromBufferAttribute(un, i).applyMatrix3(_nm).normalize(); nor.push(_n.x, _n.y, _n.z);
-      col.push(_col.r, _col.g, _col.b);
-    }
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
-  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-  add(gp, geo, mat('#ffffff', { vc: true, flat: true }), 0, 0, 0, 1, 1, 1);
-}
-/** Runs a builder with rod batching enabled. */
-const batched = (fn: Builder): Builder => (gp, r) => {
-  const prev = RODS; RODS = [];
-  try { fn(gp, r); flushRods(gp, RODS); } finally { RODS = prev; }
-};
+const _inv = new THREE.Matrix4(), _v = new THREE.Vector3();
 
 /** Lattice girder between a and b: 4 longerons on a w×d rectangle, n bays with rings and zig-zag diagonals. */
 function truss(p: THREE.Object3D, a: V3, b: V3, w: number, d: number, n: number, c: string, r = 0.003): void {
@@ -125,13 +73,6 @@ function antennaDish(p: THREE.Object3D, x: number, y: number, z: number, R: numb
   return q;
 }
 
-/** Horizontal (or vertical) cylinder centred at (x,y,z) along `ax`. */
-function hcyl(p: THREE.Object3D, c: string, x: number, y: number, z: number, r: number, L: number, ax: 'x' | 'y' | 'z', seg = 12): THREE.Mesh {
-  const m = cyl(p, c, x, y, z, r, L, seg);
-  m.position.set(x, y, z);
-  if (ax === 'x') m.rotation.z = Math.PI / 2; else if (ax === 'z') m.rotation.x = Math.PI / 2;
-  return m;
-}
 const SPH = (s: number) => g('pl:sph' + s, () => new THREE.SphereGeometry(1, s, Math.max(4, Math.round(s * 0.7))));
 /** Smooth ellipsoid with segment count scaled to its size (prims' ellip is heavy). */
 const ell = (p: THREE.Object3D, c: string, x: number, y: number, z: number, rx: number, ry = rx, rz = rx, roty = 0, rotx = 0, rotz = 0) => {
@@ -1626,4 +1567,3 @@ export const H_PLANETS_WORLDS: Record<string, Builder> = {
     rocks(gp, y, 14, 241, '#5f5c57', 0.014, (x, z) => Math.hypot(x * 0.85, z) > 0.3);
   }),
 };
-

@@ -1,10 +1,8 @@
-import { passerby } from '../human.ts';
 import * as THREE from 'three';
-import {
-  type Builder, type V3, type Paint, type MatOpts, g, add, mat, box, cyl, cone, ball, rbox, rod, strut, tube, lathe, prism, gable,
-  paintFaces, shade, mix, fbm, hash3, worley, BOX, CYL,
-} from '../prims.ts';
+import { type Builder, type V3, type Paint, type MatOpts, g, add, mat, box, cyl, cone, ball, rbox, rod, strut, tube, lathe, prism, gable, paintFaces, shade, mix, fbm, hash3, worley, BOX, CYL } from '../prims.ts';
 import { type HFn, island, sstep, ripple, strataSide, EARTH, onGround, scatter } from '../nature.ts';
+import { grp, person } from '../kit/town.ts';
+import { Mesher } from '../kit/mesher.ts';
 
 // Hero builders for landmarks of African, American and Oceanian countries (keys cb_*). Each is a compact diorama on its
 // real setting; front is +z, base at y=0, footprint radius ≈ 0.5.
@@ -14,34 +12,7 @@ const LO = () => g('cb:sph9', () => new THREE.SphereGeometry(0.5, 9, 7));
 /** Cheap smooth ellipsoid with semi-axes (sx, sy, sz). */
 const blob = (p: THREE.Object3D, c: string, x: number, y: number, z: number, sx: number, sy = sx, sz = sx, ry = 0, rx = 0, rz = 0) =>
   add(p, LO(), mat(c, { flat: false }), x, y, z, sx * 2, sy * 2, sz * 2, ry, rx, rz);
-function grp(p: THREE.Object3D, x = 0, y = 0, z = 0, ry = 0): THREE.Group {
-  const q = new THREE.Group(); q.position.set(x, y, z); q.rotation.y = ry; p.add(q); return q;
-}
 
-/** Triangle soup with per-face colours; `want` (optional) forces each face normal to point along that direction. */
-class Mesher {
-  pos: number[] = [];
-  col: number[] = [];
-  private c = new THREE.Color();
-  tri(a: V3, b: V3, d: V3, color: string, want?: V3): void {
-    let q1 = b, q2 = d;
-    if (want) {
-      const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2], vx = d[0] - a[0], vy = d[1] - a[1], vz = d[2] - a[2];
-      const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
-      if (nx * want[0] + ny * want[1] + nz * want[2] < 0) { q1 = d; q2 = b; }
-    }
-    this.c.set(color);
-    for (const q of [a, q1, q2]) { this.pos.push(q[0], q[1], q[2]); this.col.push(this.c.r, this.c.g, this.c.b); }
-  }
-  quad(a: V3, b: V3, d: V3, e: V3, color: string, want?: V3): void { this.tri(a, b, d, color, want); this.tri(a, d, e, color, want); }
-  build(p: THREE.Object3D, o: MatOpts = {}): THREE.Mesh {
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3));
-    geo.setAttribute('color', new THREE.Float32BufferAttribute(this.col, 3));
-    geo.computeVertexNormals();
-    return add(p, geo, mat('#ffffff', { vc: true, ...o }), 0, 0, 0, 1, 1, 1);
-  }
-}
 
 /** Parametric surface P(u,v) on an nu×nv grid, coloured per cell by col(u,v). Front face follows u × v. */
 function patch(p: THREE.Object3D, P: (u: number, v: number) => V3, nu: number, nv: number, col: (u: number, v: number) => string, o: MatOpts = {}, flip = false): THREE.Mesh {
@@ -81,10 +52,6 @@ function beam(p: THREE.Object3D, a: V3, b: V3, w: number, t: number, c: string):
   return m;
 }
 
-const SKIN = ['#8d5a3b', '#c68b5e', '#5a3825', '#e0b48a'];
-function person(p: THREE.Object3D, x: number, y: number, z: number, c: string, k = 0, s = 1): void {
-  passerby(p, x, y, z, 0.023 * s, k, { top: c, skin: SKIN[k % 4] });
-}
 function leafTree(p: THREE.Object3D, x: number, y: number, z: number, s: number, c: string, seed = 0): void {
   cyl(p, '#5b4636', x, y, z, s * 0.09, s * 0.55, 5);
   for (let i = 0; i < 3; i++) {

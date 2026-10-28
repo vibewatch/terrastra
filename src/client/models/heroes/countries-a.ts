@@ -1,10 +1,8 @@
 import { passerby } from '../human.ts';
 import * as THREE from 'three';
-import {
-  type Builder, type Paint, type V3, CYL, g, add, mat, box, cyl, cone, rbox, rod, skin, prism, panel, archPath, lathe, tbox, gable,
-  paintFaces, shade, mix, fbm, hash3, vnoise,
-} from '../prims.ts';
+import { type Builder, type Paint, type V3, CYL, g, add, mat, box, cyl, cone, rbox, rod, prism, panel, archPath, lathe, tbox, gable, shade, mix, fbm, hash3, vnoise } from '../prims.ts';
 import { type HFn, sstep } from '../nature.ts';
+import { grp, type MOpts, place, pbox, skirt, column } from '../kit/town.ts';
 
 // Hero builders for country landmarks (Europe, Middle East, Asia): Belém Tower, Hungarian Parliament, Preikestolen,
 // Cliffs of Moher, Santa Claus Village, Walls of Dubrovnik, Registan, Sigiriya, Chocolate Hills, Elephant Rock.
@@ -18,22 +16,7 @@ const TINY = () => g('ca:sph6', () => new THREE.SphereGeometry(0.5, 6, 4));
 const blob = (p: THREE.Object3D, c: string, x: number, y: number, z: number, sx: number, sy = sx, sz = sx, ry = 0, rx = 0, rz = 0) =>
   add(p, Math.max(sx, sy, sz) < 0.0065 ? TINY() : LO(), mat(c, { flat: false }), x, y, z, sx * 2, sy * 2, sz * 2, ry, rx, rz);
 const frac = (v: number) => v - Math.floor(v);
-interface MOpts { flat?: boolean; metal?: number; rough?: number }
 
-/** Paints a fresh model-space geometry and adds it with a vertex-colour material. */
-function place(p: THREE.Object3D, geo: THREE.BufferGeometry, base: string, paint?: Paint, o: MOpts = {}): THREE.Mesh {
-  return add(p, paintFaces(geo, base, paint), mat('#ffffff', { vc: true, flat: o.flat ?? true, metal: o.metal, rough: o.rough }), 0, 0, 0, 1, 1, 1);
-}
-/** Painted box, base at y (paint sees model coordinates). */
-function pbox(p: THREE.Object3D, w: number, h: number, d: number, x: number, y: number, z: number, base: string, paint?: Paint, seg: V3 = [1, 1, 1], ry = 0): THREE.Mesh {
-  const geo = new THREE.BoxGeometry(w, h, d, seg[0], seg[1], seg[2]);
-  geo.translate(0, h / 2, 0);
-  geo.applyMatrix4(new THREE.Matrix4().makeRotationY(ry).setPosition(x, y, z));
-  return place(p, geo, base, paint);
-}
-function grp(p: THREE.Object3D, x = 0, y = 0, z = 0, ry = 0): THREE.Group {
-  const q = new THREE.Group(); q.position.set(x, y, z); q.rotation.y = ry; p.add(q); return q;
-}
 const SKINS = ['#c58c64', '#e0b18f', '#8d5a3b', '#f1c9a5'];
 function person(p: THREE.Object3D, x: number, y: number, z: number, c: string, s = 1, skinC = SKINS[Math.floor(hash3(x * 91, z * 37, 3) * 4)]): void {
   passerby(p, x, y, z, 0.0168 * s, 1, { top: c, skin: skinC });
@@ -62,37 +45,6 @@ function field(p: THREE.Object3D, R: number, n: number, h: HFn, base: string, pa
   geo.setIndex(idx);
   geo.computeVertexNormals();
   return place(p, geo, base, paint, { flat: o.flat ?? false, metal: o.metal, rough: o.rough ?? 0.85 });
-}
-/** Vertical rim around a disc from the terrain edge down to y=0. */
-function skirt(p: THREE.Object3D, R: number, top: (x: number, z: number) => number, side: (y: number, x: number, z: number) => string, segs = 96, rows = 3): void {
-  const pos: number[] = [], idx: number[] = [];
-  for (let j = 0; j <= segs; j++) {
-    const a = (j / segs) * Math.PI * 2, x = Math.cos(a) * R, z = Math.sin(a) * R, t = top(x, z);
-    for (let k = 0; k <= rows; k++) pos.push(x, t * (1 - k / rows), z);
-  }
-  for (let j = 0; j < segs; j++) for (let k = 0; k < rows; k++) {
-    const a = j * (rows + 1) + k, b = a + 1, c = a + rows + 1, d = c + 1;
-    idx.push(a, c, b, b, c, d);
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  geo.setIndex(idx);
-  geo.computeVertexNormals();
-  place(p, geo, '#5b4636', (x, y, z) => side(y, x, z), { rough: 0.9 });
-}
-/** Closed column: rings of radius rad(angle, t) from y0 to y0+h around (cx, cz) (+ optional per-ring shift), capped. */
-function column(p: THREE.Object3D, cx: number, cz: number, y0: number, h: number, rad: (a: number, t: number) => number, base: string,
-  paint?: Paint, na = 22, nh = 14, shift?: (t: number) => [number, number], flat = true): THREE.Mesh {
-  const rings: V3[][] = [];
-  for (let k = 0; k <= nh; k++) {
-    const t = k / nh, [ox, oz] = shift ? shift(t) : [0, 0], ring: V3[] = [];
-    for (let j = 0; j < na; j++) {
-      const a = (j / na) * Math.PI * 2, r = rad(a, t);
-      ring.push([cx + ox + Math.cos(a) * r, y0 + h * t, cz + oz + Math.sin(a) * r]);
-    }
-    rings.push(ring);
-  }
-  return skin(p, rings, base, { paint, caps: true, flat });
 }
 /** Superellipse radius at angle a for semi-axes A (x) and B (z). */
 const sup = (a: number, A: number, B: number, pw = 3) => 1 / ((Math.abs(Math.cos(a)) / A) ** pw + (Math.abs(Math.sin(a)) / B) ** pw) ** (1 / pw);

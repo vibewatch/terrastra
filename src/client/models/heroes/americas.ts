@@ -1,10 +1,8 @@
 import { passerby } from '../human.ts';
 import * as THREE from 'three';
-import {
-  type Builder, type V3, type Paint, g, add, mat, box, cyl, rbox, rod, strut, skin, sweep, lathe, prism, gable, slab, tbox, panel,
-  paintFaces, shade, mix, fbm, hash3,
-} from '../prims.ts';
+import { type Builder, type V3, type Paint, g, add, mat, box, cyl, rbox, rod, strut, skin, sweep, lathe, prism, gable, slab, tbox, panel, paintFaces, shade, mix, fbm, hash3 } from '../prims.ts';
 import { type HFn, island, sstep, ridged, ripple, strataSide, EARTH, onGround } from '../nature.ts';
+import { grp } from '../kit/town.ts';
 
 // Hero builders for: opera, goldengate, liberty, empire, chichenitza, machupicchu, moai, stonehenge, louvre, spaceneedle.
 // Keyed by catalogue item key (recipe.hero). Each sits on its real setting; front is +z, base at y=0.
@@ -19,9 +17,6 @@ function pbox(p: THREE.Object3D, w: number, h: number, d: number, x: number, y: 
   const geo = new THREE.BoxGeometry(w, h, d, seg[0], seg[1], seg[2]);
   geo.translate(0, h / 2, 0);
   return add(p, paintFaces(geo, base, paint), mat('#ffffff', { vc: true }), x, y, z, 1, 1, 1, ry);
-}
-function grp(p: THREE.Object3D, x = 0, y = 0, z = 0, ry = 0): THREE.Group {
-  const q = new THREE.Group(); q.position.set(x, y, z); q.rotation.y = ry; p.add(q); return q;
 }
 function bush(p: THREE.Object3D, x: number, y: number, z: number, s: number, c: string): void {
   cyl(p, '#5b4636', x, y, z, s * 0.1, s * 0.45, 5);

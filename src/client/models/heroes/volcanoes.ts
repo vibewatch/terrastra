@@ -1,57 +1,23 @@
-import { passerby } from '../human.ts';
 import * as THREE from 'three';
-import { type Builder, type V3, g, add, mat, box, cyl, cone, rod, gable, shade, hash3 } from '../prims.ts';
+import { type Builder, type V3, g, add, mat, box, cyl, cone, rod, gable, shade } from '../prims.ts';
 import { type HFn, sstep } from '../nature.ts';
+import { type VCol, K, W, B, L, S, W2, clamp, smax, Y0, hh, n2, f2, r2, H01, person, type TOpts, terra as terra0 } from '../kit/terrain.ts';
 
 // Hero builders for the volcano collection (keys vo_*). Each is a small terrain diorama: a smooth vertex-coloured
 // heightfield disc (radius 0.5, strata skirt), glowing emissive lava, soft ash/steam puffs and scale props.
 // Front faces +z, base at y=0.
 
-// ---- terrain kit -----------------------------------------------------------------------------------------
-type VCol = (x: number, y: number, z: number, nx: number, ny: number, nz: number) => THREE.Color;
-interface TOpts { n?: number; focus?: number; strata?: string[]; wl?: number; water?: VCol }
 
-const PAL = new Map<string, THREE.Color>();
-const K = (hex: string) => { let c = PAL.get(hex); if (!c) { c = new THREE.Color(hex); PAL.set(hex, c); } return c; };
-const W = new THREE.Color();
-const W2 = new THREE.Color();
-/** Working-colour helpers: `B` sets the base, `L` blends toward another colour by t (clamped), `S` scales. */
-const B = (hex: string) => W.copy(K(hex));
-const L = (hex: string, t: number) => { if (t > 0) W.lerp(K(hex), t > 1 ? 1 : t); return W; };
-const S = (f: number) => W.multiplyScalar(f);
+/** Volcanic terrain: a slightly coarser grid than the peaks pack and dark basaltic strata. */
+const terra = (gp: THREE.Object3D, R: number, h: HFn, paint: VCol, o: TOpts = {}) =>
+  terra0(gp, R, h, paint, { n: 100, focus: 0.3, strata: ['#4a3a32', '#3b2f2a', '#5a463a', '#2f2826'], ...o });
+
 /** Blend toward two-tone snow (lit → shadowed by the up component of the normal). */
 const LS = (t: number, ny: number, lit = '#f4f7fb', sh = '#c6d2e2') => {
   if (t > 0) W.lerp(W2.copy(K(lit)).lerp(K(sh), sstep(0.8, 0.35, ny)), t > 1 ? 1 : t);
   return W;
 };
-const clamp = (v: number, a = 0, b = 1) => (v < a ? a : v > b ? b : v);
-const smax = (a: number, b: number, k: number) => { const h = Math.max(k - Math.abs(a - b), 0) / k; return Math.max(a, b) + h * h * k * 0.25; };
-const Y0 = 0.035;
 
-// Fast 2D value noise (integer hash, no trig)
-const hh = (i: number, j: number) => {
-  let h = (Math.imul(i, 374761393) + Math.imul(j, 668265263)) | 0;
-  h = Math.imul(h ^ (h >>> 13), 1274126177);
-  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
-};
-const n2 = (x: number, z: number) => {
-  const xi = Math.floor(x), zi = Math.floor(z), xf = x - xi, zf = z - zi;
-  const u = xf * xf * (3 - 2 * xf), v = zf * zf * (3 - 2 * zf);
-  const a = hh(xi, zi), b = hh(xi + 1, zi), c = hh(xi, zi + 1), d = hh(xi + 1, zi + 1);
-  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
-};
-/** Fractal 2D noise in [0,1]. */
-const f2 = (x: number, z: number, oct = 3, sd = 0) => {
-  let a = 0.5, f = 1, s = 0, n = 0;
-  for (let i = 0; i < oct; i++) { s += a * n2(x * f + sd * 31.7 + i * 5.3, z * f - sd * 17.1); n += a; a *= 0.5; f *= 2.07; }
-  return s / n;
-};
-/** Ridged 2D noise in [0,1] (sharp crests). */
-const r2 = (x: number, z: number, oct = 3, sd = 0) => {
-  let a = 0.5, f = 1, s = 0, n = 0;
-  for (let i = 0; i < oct; i++) { s += a * (1 - Math.abs(2 * n2(x * f + sd * 13.3 + i * 7.1, z * f + sd * 3.9) - 1)); n += a; a *= 0.5; f *= 2.1; }
-  return s / n;
-};
 /** Radial gully pattern around a cone (0 = ridge, 1 = gully floor), `k` ≈ number of gullies. */
 const gully = (a: number, k = 13, sd = 0) => {
   const n = n2(Math.cos(a) * 2.5 + 7 + sd, Math.sin(a) * 2.5);
@@ -59,94 +25,7 @@ const gully = (a: number, k = 13, sd = 0) => {
   const a2 = s1 * s1, a4 = a2 * a2, b2 = s2 * s2, b4 = b2 * b2;
   return Math.max(a4 * a2 * s1, 0.75 * b4 * b4 * s2);
 };
-const H01 = (i: number, s: number, k = 0) => hash3(i, s, k);
 
-/** Smooth heightfield disc (radius R) with per-vertex colours, strata skirt and optional water sheet at `wl`. */
-function terra(gp: THREE.Object3D, R: number, h: HFn, paint: VCol, o: TOpts = {}): void {
-  const N = o.n ?? 100, f = o.focus ?? 0.3, M = N + 1;
-  const warp = (s: number) => s * (1 - f + f * s * s);
-  const grid = (n: number, y: (x: number, z: number) => number) => {
-    const m = n + 1, pos = new Float32Array(m * m * 3);
-    for (let j = 0; j < m; j++) for (let i = 0; i < m; i++) {
-      const u = warp(-1 + (2 * i) / n), v = warp(-1 + (2 * j) / n);
-      const x = R * u * Math.sqrt(1 - (v * v) / 2), z = R * v * Math.sqrt(1 - (u * u) / 2), k = (j * m + i) * 3;
-      pos[k] = x; pos[k + 1] = y(x, z); pos[k + 2] = z;
-    }
-    return pos;
-  };
-  const quads = (n: number, keep?: (a: number, b: number, c: number, d: number) => boolean) => {
-    const m = n + 1, idx: number[] = [];
-    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
-      const a = j * m + i, b = a + 1, c = a + m, d = c + 1;
-      if (keep && !keep(a, b, c, d)) continue;
-      if ((i + j) & 1) idx.push(a, c, b, b, c, d); else idx.push(a, c, d, a, d, b);
-    }
-    return idx;
-  };
-  const colour = (geo: THREE.BufferGeometry, fn: VCol, yb: number) => {
-    geo.computeVertexNormals();
-    const p = geo.getAttribute('position'), nr = geo.getAttribute('normal'), col = new Float32Array(p.count * 3);
-    for (let i = 0; i < p.count; i++) {
-      const c = fn(p.getX(i), p.getY(i) - yb, p.getZ(i), nr.getX(i), nr.getY(i), nr.getZ(i));
-      col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
-    }
-    geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-    return geo;
-  };
-  const pos = grid(N, (x, z) => Y0 + h(x, z));
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  geo.setIndex(quads(N));
-  add(gp, colour(geo, paint, Y0), mat('#ffffff', { flat: false, vc: true, rough: 0.9 }), 0, 0, 0, 1, 1, 1);
-
-  const wl = o.wl;
-  if (wl !== undefined && o.water) {
-    const n = Math.round(N / 2), wy = Y0 + wl;
-    const wp = grid(n, () => wy);
-    const dry = (k: number) => h(wp[k * 3], wp[k * 3 + 2]) > wl + 0.006;
-    const idx = quads(n, (a, b, c, d) => !(dry(a) && dry(b) && dry(c) && dry(d)));
-    if (idx.length) {
-      const wg = new THREE.BufferGeometry();
-      wg.setAttribute('position', new THREE.BufferAttribute(wp, 3));
-      wg.setIndex(idx);
-      add(gp, colour(wg, o.water, Y0), mat('#ffffff', { flat: false, vc: true, rough: 0.25 }), 0, 0, 0, 1, 1, 1);
-    }
-  }
-
-  const rim: number[] = [];
-  for (let i = 0; i < N; i++) rim.push(i);
-  for (let j = 0; j < N; j++) rim.push(j * M + N);
-  for (let i = N; i > 0; i--) rim.push(N * M + i);
-  for (let j = N; j > 0; j--) rim.push(j * M);
-  const ROWS = 5, sp: number[] = [], strata = o.strata ?? ['#4a3a32', '#3b2f2a', '#5a463a', '#2f2826'];
-  const cols: number[] = [];
-  const ring = (k: number) => {
-    const x = pos[k * 3], y = pos[k * 3 + 1], z = pos[k * 3 + 2];
-    const top = wl !== undefined ? Math.max(y, Y0 + wl) : y;
-    const ys = [top, y];
-    for (let r = 1; r <= ROWS; r++) ys.push(y * (1 - r / ROWS));
-    return { x, z, ys };
-  };
-  const wc = K('#2b6f9c');
-  for (let e = 0; e < rim.length; e++) {
-    const A = ring(rim[e]), Bq = ring(rim[(e + 1) % rim.length]);
-    for (let r = 0; r <= ROWS; r++) {
-      const k1 = r === ROWS ? 0.985 : 1;
-      const a0: V3 = [A.x, A.ys[r], A.z], b0: V3 = [Bq.x, Bq.ys[r], Bq.z];
-      const a1: V3 = [A.x * k1, A.ys[r + 1], A.z * k1], b1: V3 = [Bq.x * k1, Bq.ys[r + 1], Bq.z * k1];
-      if (a0[1] - a1[1] < 1e-5 && b0[1] - b1[1] < 1e-5) continue;
-      sp.push(...a0, ...b0, ...a1, ...b0, ...b1, ...a1);
-      const yc = (a0[1] + a1[1]) / 2;
-      const c = r === 0 ? wc : K(strata[Math.abs(Math.floor(yc * 34 + (f2(A.x * 5 + A.z * 4, 0.5, 2) - 0.5) * 1.2)) % strata.length]);
-      for (let q = 0; q < 6; q++) cols.push(c.r, c.g, c.b);
-    }
-  }
-  const sg = new THREE.BufferGeometry();
-  sg.setAttribute('position', new THREE.Float32BufferAttribute(sp, 3));
-  sg.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
-  sg.computeVertexNormals();
-  add(gp, sg, mat('#ffffff', { flat: true, vc: true, rough: 0.9 }), 0, 0, 0, 1, 1, 1);
-}
 
 /** Sea/lake painter: depth-tinted (shallow → deep by terrain depth below `wl`) with ripple glints. */
 function sea(h: HFn, wl: number, shallow = '#3fa7b8', deep = '#1d5f8c', foam = '#e8f6fb'): VCol {
@@ -300,9 +179,6 @@ function palm(p: THREE.Object3D, x: number, y: number, z: number, s: number, see
     box(p, k % 2 ? '#3f7a3a' : '#4f8a42', top[0] + (l / 2) * Math.cos(d) * Math.cos(a), top[1] - (l / 2) * Math.sin(d), top[2] - (l / 2) * Math.cos(d) * Math.sin(a), l, 0.003, s * 0.08, a, 0, -d);
   }
   blob(p, '#3a6b35', top[0], top[1], top[2], s * 0.08);
-}
-function person(p: THREE.Object3D, x: number, y: number, z: number, c: string, s = 1): void {
-  passerby(p, x, y, z, 0.0155 * s, 1, { top: c });
 }
 function house(p: THREE.Object3D, x: number, y: number, z: number, w: number, ry: number, wall: string, roof: string, hgt = w * 0.7): void {
   box(p, wall, x, y - 0.002, z, w, hgt + 0.002, w * 0.75, ry);

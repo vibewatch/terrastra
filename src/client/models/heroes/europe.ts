@@ -1,26 +1,15 @@
 import { passerby } from '../human.ts';
 import * as THREE from 'three';
-import {
-  type Builder, type V3, add, g, mat, box, ball, cyl, cone, rod, slab, shade as shade0, mix, fbm, hash3,
-} from '../prims.ts';
+import { type Builder, type V3, add, g, mat, box, ball, cyl, cone, rod, slab, mix, fbm, hash3 } from '../prims.ts';
 import { type HFn, island, strataSide, EARTH, sstep, ridged } from '../nature.ts';
+import { shade, rgbMemo } from '../kit/euro.ts';
 
 // Hero builders for: colosseum, parthenon, brandenburg, pisa, bigben, towerbridge. Keyed by catalogue item key (recipe.hero).
 // Each is a scale-model diorama: correct silhouette first (tiers, column counts, arcade rhythms), then signature details.
 
 const TAU = Math.PI * 2;
-// Memoised colour helpers (thousands of faces per model reuse a handful of tones)
-const shadeMemo = new Map<string, string>();
-const shade = (hex: string, f: number): string => {
-  const k = hex + f;
-  let v = shadeMemo.get(k);
-  if (v === undefined) { v = shade0(hex, f); shadeMemo.set(k, v); }
-  return v;
-};
-const rgbMemo = new Map<string, [number, number, number]>();
 
 // ---- local helpers -------------------------------------------------------------------------------------
-
 export type Xf = (v: V3) => V3;
 /** Local frame transform for Mesh3: translate to (cx,cy,cz) after turning by ry about y (same convention as Object3D). */
 export const xform = (cx: number, cy: number, cz: number, ry = 0): Xf => {

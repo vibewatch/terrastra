@@ -1,14 +1,14 @@
 import { passerby } from '../human.ts';
 import * as THREE from 'three';
-import { type Builder, type Paint, type V3, add, mat, shade, fbm, hash3, paintFaces, g, rod, sweep, slab } from '../prims.ts';
+import { type Builder, type Paint, type V3, add, mat, shade, fbm, hash3, paintFaces, g, sweep, slab } from '../prims.ts';
 import { island, sstep, type HFn } from '../nature.ts';
+import { type P2, fine, bar, batched } from '../kit/orbit.ts';
 
 // Hero builders for the second space & discovery pack: observatories, launch sites and a meteorite (sx_*), plus
 // natural wonders and amazing finds (dc_*). Front faces +z, base at y=0, ground disc radius 0.5.
 // Mobile budget: light terrain (≈3k tris), low-segment shared geometry, thin parts batched into one mesh.
 
 const TAU = Math.PI * 2;
-type P2 = [number, number];
 let seed = 1;
 const srand = (s: number) => { seed = s; };
 const rnd = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
@@ -40,52 +40,9 @@ function plathe(p: THREE.Object3D, prof: P2[], c: string, paint?: Paint, x = 0, 
   geo.computeVertexNormals();
   return add(p, paintFaces(geo, c, paint), VC(o), x, y, z, 1, 1, 1);
 }
-/** Inserts rows into a profile so painted bands get crisp edges. */
-function fine(prof: P2[], step: number): P2[] {
-  const out: P2[] = [prof[0]];
-  for (let i = 1; i < prof.length; i++) {
-    const [r0, y0] = prof[i - 1], [r1, y1] = prof[i];
-    const n = Math.max(1, Math.ceil(Math.hypot(r1 - r0, y1 - y0) / step));
-    for (let k = 1; k <= n; k++) out.push([r0 + ((r1 - r0) * k) / n, y0 + ((y1 - y0) * k) / n]);
-  }
-  return out;
-}
 
-// ---- thin rods batched into one vertex-coloured mesh per model ----
-interface RodIt { p: THREE.Object3D; a: V3; b: V3; r: number; c: string; seg: number }
-let RODS: RodIt[] | null = null;
-function bar(p: THREE.Object3D, a: V3, b: V3, r: number, c: string, seg = 4): void {
-  if (RODS) RODS.push({ p, a, b, r, c, seg }); else rod(p, a, b, r, c, seg);
-}
-const _m = new THREE.Matrix4(), _inv = new THREE.Matrix4(), _q = new THREE.Quaternion(), _nm = new THREE.Matrix3(), _v = new THREE.Vector3(), _n = new THREE.Vector3();
-const _up = new THREE.Vector3(0, 1, 0), _dir = new THREE.Vector3(), _sc = new THREE.Vector3(), _mid = new THREE.Vector3(), _col = new THREE.Color();
-function flushRods(gp: THREE.Group, items: RodIt[]): void {
-  if (!items.length) return;
-  gp.updateMatrixWorld(true);
-  _inv.copy(gp.matrixWorld).invert();
-  const pos: number[] = [], nor: number[] = [], col: number[] = [];
-  for (const it of items) {
-    const u = g('s2:rod' + it.seg, () => new THREE.CylinderGeometry(1, 1, 1, it.seg, 1, true).toNonIndexed());
-    const up = u.getAttribute('position'), un = u.getAttribute('normal');
-    _dir.set(it.b[0] - it.a[0], it.b[1] - it.a[1], it.b[2] - it.a[2]);
-    const len = _dir.length() || 1e-4;
-    _q.setFromUnitVectors(_up, _dir.normalize());
-    _mid.set((it.a[0] + it.b[0]) / 2, (it.a[1] + it.b[1]) / 2, (it.a[2] + it.b[2]) / 2);
-    _m.compose(_mid, _q, _sc.set(it.r, len, it.r)).premultiply(it.p.matrixWorld).premultiply(_inv);
-    _nm.getNormalMatrix(_m);
-    _col.set(it.c);
-    for (let i = 0; i < up.count; i++) {
-      _v.fromBufferAttribute(up, i).applyMatrix4(_m); pos.push(_v.x, _v.y, _v.z);
-      _n.fromBufferAttribute(un, i).applyMatrix3(_nm).normalize(); nor.push(_n.x, _n.y, _n.z);
-      col.push(_col.r, _col.g, _col.b);
-    }
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
-  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-  add(gp, geo, mat('#ffffff', { vc: true, flat: true }), 0, 0, 0, 1, 1, 1);
-}
+const _nm = new THREE.Matrix3(), _v = new THREE.Vector3(), _n = new THREE.Vector3();
+const _col = new THREE.Color();
 /** Batched flat triangles with per-face colour, for custom walls, arcs and stairs. */
 class QB {
   pos: number[] = []; col: number[] = [];
@@ -127,11 +84,6 @@ class Stamp {
     add(p, geo, VC({ flat: true, rough: 0.9 }), 0, 0, 0, 1, 1, 1);
   }
 }
-/** Runs a builder with rod batching enabled. */
-const batched = (fn: Builder): Builder => (gp, r) => {
-  const prev = RODS; RODS = [];
-  try { fn(gp, r); flushRods(gp, RODS); } finally { RODS = prev; }
-};
 
 /** Light terrain disc (≈2.8k tris) with an earthy skirt; y0 is the base thickness. */
 const Y0 = 0.035;
@@ -879,7 +831,6 @@ const dc_cuevamanos: Builder = batched((gp) => {
     bush(gp, x, at(h)(x, z) - 0.002, z, rr(0.035, 0.05), rnd() > 0.5 ? '#4a7a32' : '#6a8a3a', false);
   }
 });
-
 
 /** Simple human figure of height s (legs, body, arms, head), facing +x. */
 function hiker(p: THREE.Object3D, x: number, y: number, z: number, ry: number, s: number, coat: string, legs = '#3a3a48', pack?: string, arm = 0): void {

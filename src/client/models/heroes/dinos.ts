@@ -1,36 +1,15 @@
 import * as THREE from 'three';
 import type { Builder, V3 } from '../prims.ts';
 import { add, mat, g, vnoise, fbm, hash3, worley } from '../prims.ts';
+import { VCM, lerp3, mx, sh, sst, vc } from '../kit/sculpt.ts';
 
 // Prehistoric museum miniatures: each dinosaur is one continuous lofted hide (tail → body → neck → skull) with
 // IK-posed muscular limbs, clawed feet, glossy eyes and painted countershading / stripes / spots, standing on a
 // small fossil-site diorama of mossy ground, ferns, cycads and rocks. Front +z, base at y=0, ~1 unit across.
 
-// ---- Fast colour math (vertex painters run over thousands of vertices) ----
-const RGB = new Map<string, number[]>();
-function rgb(h: string): number[] {
-  let v = RGB.get(h);
-  if (!v) { const n = parseInt(h.slice(1), 16); v = [(n >> 16) & 255, (n >> 8) & 255, n & 255]; RGB.set(h, v); }
-  return v;
-}
-const c8 = (v: number) => Math.max(0, Math.min(255, Math.round(v)));
-const hx = (r: number, gg: number, b: number) => '#' + ((1 << 24) | (c8(r) << 16) | (c8(gg) << 8) | c8(b)).toString(16).slice(1);
-function mx(a: string, b: string, t: number): string {
-  if (t <= 0) return a; if (t >= 1) return b;
-  t = Math.round(t * 16) / 16;
-  const A = rgb(a), B = rgb(b);
-  return hx(A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t, A[2] + (B[2] - A[2]) * t);
-}
-const sh = (a: string, f: number) => { const A = rgb(a); f = Math.round(f * 32) / 32; return hx(A[0] * f, A[1] * f, A[2] * f); };
-const sst = (a: number, b: number, x: number) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
-const VC = new Map<string, THREE.Color>();
-const vc = (h: string) => { let c = VC.get(h); if (!c) { if (VC.size > 8000) VC.clear(); c = new THREE.Color(h); VC.set(h, c); } return c; };
-const lerp3 = (a: V3, b: V3, t: number): V3 => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
-
 /** Body painter: position, normal, u along the loft (0 = tail tip) and angle a around it (π/2 = dorsal). */
 type BP = (x: number, y: number, z: number, nx: number, ny: number, nz: number, u: number, a: number) => string;
 
-const VCM = () => mat('#ffffff', { flat: false, vc: true });
 /** Vertex-coloured grid surface: rings u∈[0,1] × v∈[0,1) with fan caps, outward winding auto-detected. */
 function surf(p: THREE.Object3D, nu: number, nv: number, f: (u: number, v: number) => V3, paint: BP, caps = true, up?: V3): THREE.Mesh {
   const pos: number[] = [];
@@ -428,7 +407,6 @@ function foot_(gp: THREE.Object3D, L: Leg, fp: V3, sx: number, paint: BP, lifted
   }
 }
 
-
 // =============================================================================================================
 // Bases
 // =============================================================================================================
@@ -519,7 +497,6 @@ const trex: Builder = gp => {
     type: 'bird', toe: 0.05, stride: 0.075, lift: 0.012, muscle: 1.45, nails: '#2a221b' }, limbHide(H));
   S.L.done(gp);
 };
-
 
 /** Horn from base a toward tip b, ivory tip on a skin-coloured base. */
 function horn(p: THREE.Object3D, a: V3, b: V3, r: number, base = '#8a7a5a', tip = '#efe3c4', bend: V3 = [0, 1, 0]): void {

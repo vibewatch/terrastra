@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { Builder, MatOpts, Paint, V3 } from '../prims.ts';
 import { g, add, mat, box, cyl, rbox, rod, sweep, skin, slab, lathe, gable, tree, paintFaces, shade, mix, fbm, vnoise, hash3, BOX } from '../prims.ts';
 import { sstep, ridged } from '../nature.ts';
+import { Mesher as BaseMesher } from '../kit/mesher.ts';
 
 // Archaeological dig dioramas (keys ar_*): each find sits in its excavation — a terraced ground disc (radius 0.5)
 // with cut pits whose sides show the soil layers, grid strings, tools, tents and tiny archaeologists for scale.
@@ -20,31 +21,9 @@ const GOLD = '#d9a93a';
 const gold = (c = GOLD) => mat(c, { metal: 0.65, rough: 0.32, flat: false });
 const glow = (c: string) => mat(c, { emissive: c });
 
-/** Triangle soup with per-face colours; `want` orients each face's normal along that direction. */
-class Mesher {
-  pos: number[] = [];
-  col: number[] = [];
-  private c = new THREE.Color();
-  private cache = new Map<string, [number, number, number]>();
-  tri(a: V3, b: V3, d: V3, color: string, want?: V3): void {
-    let q1 = b, q2 = d;
-    if (want) {
-      const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2], vx = d[0] - a[0], vy = d[1] - a[1], vz = d[2] - a[2];
-      const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
-      if (nx * want[0] + ny * want[1] + nz * want[2] < 0) { q1 = d; q2 = b; }
-    }
-    let k = this.cache.get(color);
-    if (!k) { this.c.set(color); k = [this.c.r, this.c.g, this.c.b]; this.cache.set(color, k); }
-    for (const q of [a, q1, q2]) { this.pos.push(q[0], q[1], q[2]); this.col.push(k[0], k[1], k[2]); }
-  }
-  quad(a: V3, b: V3, d: V3, e: V3, color: string, want?: V3): void { this.tri(a, b, d, color, want); this.tri(a, d, e, color, want); }
-  build(p: THREE.Object3D, o: MatOpts = {}): THREE.Mesh {
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3));
-    geo.setAttribute('color', new THREE.Float32BufferAttribute(this.col, 3));
-    geo.computeVertexNormals();
-    return add(p, geo, mat('#ffffff', { vc: true, rough: 0.9, ...o }), 0, 0, 0, 1, 1, 1);
-  }
+/** Shared triangle soup, finished slightly rougher for weathered stone. */
+class Mesher extends BaseMesher {
+  override build(p: THREE.Object3D, o: MatOpts = {}): THREE.Mesh { return super.build(p, { rough: 0.9, ...o }); }
 }
 
 type H2 = (x: number, z: number) => number;

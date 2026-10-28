@@ -5,7 +5,7 @@
  */
 import * as THREE from 'three';
 import type { BodyId } from '../../../shared/data/solar.ts';
-import { Arrow, ball, body, circlePts, clamp, glow, line, ramp, ring, starfield, sunLight, tempColor } from './draw.ts';
+import { Arrow, ball, body, circlePts, clamp, glow, line, ramp, ring, starfield, sunLight, tempColor, Panel, FONT } from './draw.ts';
 import type { AstroClock, KitCtx, KitFactory, KitRun } from './types.ts';
 
 export interface Opts {
@@ -23,40 +23,6 @@ export interface Opts {
   planet?: BodyId;
   /** rv: the star's speed in m/s (default 56, 51 Pegasi) */
   k?: number;
-}
-
-const FONT = 'system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif';
-
-/** A flat chart drawn on a canvas, shown as a card that always faces the camera. */
-class Panel {
-  readonly mesh: THREE.Mesh;
-  readonly g: CanvasRenderingContext2D;
-  readonly W: number; readonly H: number;
-  private tex: THREE.CanvasTexture;
-  private static r = new THREE.Vector3(); private static u = new THREE.Vector3();
-  constructor(w: number, h: number, px = 640) {
-    const cv = document.createElement('canvas');
-    cv.width = this.W = px; cv.height = this.H = Math.round((px * h) / w);
-    this.g = cv.getContext('2d')!;
-    this.tex = new THREE.CanvasTexture(cv);
-    this.tex.colorSpace = THREE.SRGBColorSpace;
-    this.mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: this.tex, transparent: true, depthWrite: false, depthTest: false }));
-    this.mesh.renderOrder = 20;
-  }
-  card(): CanvasRenderingContext2D {
-    const g = this.g, W = this.W, H = this.H;
-    g.clearRect(0, 0, W, H);
-    g.fillStyle = 'rgba(8,14,24,0.8)'; g.strokeStyle = 'rgba(255,255,255,0.14)'; g.lineWidth = 2;
-    g.beginPath(); g.roundRect(2, 2, W - 4, H - 4, 14); g.fill(); g.stroke();
-    g.textAlign = 'left'; g.textBaseline = 'alphabetic'; g.setLineDash([]);
-    return g;
-  }
-  commit(): void { this.tex.needsUpdate = true; }
-  face(cam: THREE.Camera, at: THREE.Vector3, dx = 0, dy = 0): void {
-    this.mesh.quaternion.copy(cam.quaternion);
-    Panel.r.set(1, 0, 0).applyQuaternion(cam.quaternion); Panel.u.set(0, 1, 0).applyQuaternion(cam.quaternion);
-    this.mesh.position.copy(at).addScaledVector(Panel.r, dx).addScaledVector(Panel.u, dy);
-  }
 }
 
 /** A star whose disc darkens toward the edge (limb darkening), plus a soft glow. */

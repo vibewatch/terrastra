@@ -7,24 +7,13 @@ import { arrowDef, svg, tx, type Lx } from '../figs.ts';
 import { REGIONS } from '../geo.ts';
 import type { Paint } from '../stage.ts';
 import { subsolar } from '../../../shared/lib/sun.ts';
+import { sunspotNumber } from './sunspots.ts';
 
 const unit: Pair = ['The Sun and the Earth', '太阳对地球的影响与地球运动'];
 const D2R = Math.PI / 180;
 const OB = 23.44;
 
 // ------------------------------------------------------------------------------------------------ figures
-
-/** Smoothed sunspot number (approximate, SILSO v2): [minimum, maximum, peak]; the last cycle is a projection. */
-const CYCLES: [number, number, number][] = [[1976.2, 1979.9, 220], [1986.7, 1989.9, 213], [1996.6, 2001.9, 180], [2008.9, 2014.3, 116], [2019.9, 2024.8, 161], [2030.5, 2035, 130]];
-function sunspots(y: number): number {
-  let s = 3;
-  for (let i = 0; i < CYCLES.length; i++) {
-    const [a, p, A] = CYCLES[i], end = (CYCLES[i + 1]?.[0] ?? a + 11) + 1.2;
-    if (y < a || y > end) continue;
-    s += y < p ? A * Math.sin(((Math.PI / 2) * (y - a)) / (p - a)) ** 2 : A * Math.cos((Math.PI / 2) * Math.min(1, (y - p) / (end - p))) ** 2;
-  }
-  return s;
-}
 
 /** Sunspot number 1986–2031: cycles 22–25 (approximate shape). */
 const cycleFig: Fig = {
@@ -35,11 +24,11 @@ const cycleFig: Fig = {
     o += tx(4, 23, L(['smoothed monthly sunspot number (approximate); after 2025 a projection', '月均黑子数（平滑，近似）；2025 年后为预测']), 'fg-sub');
     for (const n of [0, 100, 200]) o += `<line x1="${x0}" x2="${x1}" y1="${Yp(n)}" y2="${Yp(n)}" class="fg-grid"/>` + tx(x0 - 4, Yp(n) + 3, String(n), 'fg-tick', 'e');
     for (let y = 1990; y <= 2030; y += 10) o += tx(X(y), y0 + 11, String(y), 'fg-tick', 'm');
-    const pts = (a: number, b: number) => Array.from({ length: Math.round((b - a) * 6) + 1 }, (_, i) => { const y = a + i / 6; return `${X(y).toFixed(1)},${Yp(sunspots(y)).toFixed(1)}`; }).join(' ');
+    const pts = (a: number, b: number) => Array.from({ length: Math.round((b - a) * 6) + 1 }, (_, i) => { const y = a + i / 6; return `${X(y).toFixed(1)},${Yp(sunspotNumber(y)).toFixed(1)}`; }).join(' ');
     o += `<polyline points="${pts(Y0, 2025.4)}" fill="none" stroke="${C.gold}" stroke-width="1.6" class="fg-line"/>`;
     o += `<polyline points="${pts(2025.4, Y1)}" fill="none" stroke="${C.gold}" stroke-width="1.2" stroke-dasharray="3 2" opacity=".7"/>`;
     [[1989.9, 22], [2001.9, 23], [2014.3, 24], [2024.8, 25]].forEach(([y, n], i) => {
-      o += `<g class="f-fade" style="--d:${(0.3 + i * 0.25).toFixed(2)}s">` + tx(X(y), Yp(sunspots(y)) - 5, L([`cycle ${n}`, `第 ${n} 周期`]), 'fg-label', 'm') + '</g>';
+      o += `<g class="f-fade" style="--d:${(0.3 + i * 0.25).toFixed(2)}s">` + tx(X(y), Yp(sunspotNumber(y)) - 5, L([`cycle ${n}`, `第 ${n} 周期`]), 'fg-label', 'm') + '</g>';
     });
     o += `<g class="f-fade" style="--d:1.4s"><line x1="${X(2008.9)}" x2="${X(2019.9)}" y1="${y0 - 8}" y2="${y0 - 8}" stroke="${C.teal}" stroke-width="1"/>` + tx((X(2008.9) + X(2019.9)) / 2, y0 - 11, L(['≈ 11 years', '约 11 年']), 'fg-label', 'm') + '</g>';
     return svg(320, 164, o, L(['Sunspot number from 1986 to 2031', '1986—2031 年太阳黑子数']));

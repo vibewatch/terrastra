@@ -1,11 +1,9 @@
-import { passerby } from '../human.ts';
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import {
-  type Builder, type V3, type MatOpts, type Paint, g, add, mat, box, cyl, cone, rod, tube, lathe, gable, tbox, prism, archPath,
-  paintFaces, shadeQ as shade, mixQ as mix, qn, hash3, CYL,
-} from '../prims.ts';
+import { type Builder, type V3, type MatOpts, type Paint, g, add, mat, box, cyl, cone, rod, tube, lathe, gable, tbox, prism, archPath, paintFaces, shadeQ as shade, mixQ as mix, qn, hash3, CYL } from '../prims.ts';
 import { type HFn, island, sstep, strataSide, EARTH, onGround, scatter, pine } from '../nature.ts';
+import { grp, hip, plathe, PCOL, crowd } from '../kit/town.ts';
+import { Mesher as BaseMesher } from '../kit/mesher.ts';
 
 // Hero builders for landmarks of countries that had none yet (keys cc_*). Each is a compact diorama on its real
 // setting; front is +z, base at y=0, footprint radius ≈ 0.5.
@@ -18,49 +16,10 @@ const LO = () => g('cc:sph9', () => new THREE.SphereGeometry(0.5, 9, 7));
 /** Cheap smooth ellipsoid with semi-axes (sx, sy, sz). */
 const blob = (p: THREE.Object3D, c: string, x: number, y: number, z: number, sx: number, sy = sx, sz = sx, ry = 0, rx = 0, rz = 0) =>
   add(p, LO(), mat(c, { flat: false }), x, y, z, sx * 2, sy * 2, sz * 2, ry, rx, rz);
-function grp(p: THREE.Object3D, x = 0, y = 0, z = 0, ry = 0): THREE.Group {
-  const q = new THREE.Group(); q.position.set(x, y, z); q.rotation.y = ry; p.add(q); return q;
-}
 
-/** Triangle soup with per-face colours; `want` (optional) forces each face normal to point along that direction. */
-class Mesher {
-  pos: number[] = [];
-  col: number[] = [];
-  private c = new THREE.Color();
-  tri(a: V3, b: V3, d: V3, color: string, want?: V3): void {
-    let q1 = b, q2 = d;
-    if (want) {
-      const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2], vx = d[0] - a[0], vy = d[1] - a[1], vz = d[2] - a[2];
-      const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
-      if (nx * want[0] + ny * want[1] + nz * want[2] < 0) { q1 = d; q2 = b; }
-    }
-    this.c.set(color);
-    for (const q of [a, q1, q2]) { this.pos.push(q[0], q[1], q[2]); this.col.push(this.c.r, this.c.g, this.c.b); }
-  }
-  quad(a: V3, b: V3, d: V3, e: V3, color: string, want?: V3): void { this.tri(a, b, d, color, want); this.tri(a, d, e, color, want); }
-  /** Flat rectangle on a vertical facade: centre c, horizontal unit axis u (normal = u × up, flipped to face n). */
-  rect(c: V3, u: [number, number], n: [number, number], w: number, h: number, color: string): void {
-    const ux = u[0] * w / 2, uz = u[1] * w / 2;
-    this.quad([c[0] - ux, c[1], c[2] - uz], [c[0] + ux, c[1], c[2] + uz], [c[0] + ux, c[1] + h, c[2] + uz], [c[0] - ux, c[1] + h, c[2] - uz], color, [n[0], 0, n[1]]);
-  }
-  /** Window rows on a vertical facade plane. Origin o = facade centre at ground; u along the wall, n outward normal. */
-  windows(o: V3, u: [number, number], n: [number, number], cols: number, dx: number, rows: number[], ww: number, wh: number, glass: string, frame?: string, arch = false): void {
-    for (const y of rows) for (let i = 0; i < cols; i++) {
-      const s = (i - (cols - 1) / 2) * dx;
-      const cx = o[0] + u[0] * s + n[0] * 0.0012, cz = o[2] + u[1] * s + n[1] * 0.0012;
-      if (frame) this.rect([cx, o[1] + y - 0.0025, cz], u, n, ww + 0.005, wh + 0.005, frame);
-      const cx2 = cx + n[0] * 0.0008, cz2 = cz + n[1] * 0.0008;
-      this.rect([cx2, o[1] + y, cz2], u, n, ww, wh, glass);
-      if (arch) this.tri([cx2 - u[0] * ww / 2, o[1] + y + wh, cz2 - u[1] * ww / 2], [cx2 + u[0] * ww / 2, o[1] + y + wh, cz2 + u[1] * ww / 2], [cx2, o[1] + y + wh + ww * 0.5, cz2], glass, [n[0], 0, n[1]]);
-    }
-  }
-  build(p: THREE.Object3D, o: MatOpts = {}): THREE.Mesh {
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3));
-    geo.setAttribute('color', new THREE.Float32BufferAttribute(this.col, 3));
-    geo.computeVertexNormals();
-    return add(p, geo, mat('#ffffff', { vc: true, ...o }), 0, 0, 0, 1, 1, 1);
-  }
+/** Shared triangle soup; arched windows keep a plain rectangular frame here. */
+class Mesher extends BaseMesher {
+  protected override archFrame = false;
 }
 
 /** Battlement merlons along a straight wall top from a to b (y = top of wall). */
@@ -68,9 +27,6 @@ function merlons(p: THREE.Object3D, a: [number, number], b: [number, number], y:
   const len = Math.hypot(b[0] - a[0], b[1] - a[1]), n = Math.max(1, Math.round(len / step)), ry = -Math.atan2(b[1] - a[1], b[0] - a[0]);
   for (let i = 0; i <= n; i++) { const f = i / n; box(p, c, a[0] + (b[0] - a[0]) * f, y, a[1] + (b[1] - a[1]) * f, s, h, t, ry); }
 }
-/** Square pyramid / hipped roof (w × d footprint, top w1 × d1). */
-const hip = (p: THREE.Object3D, c: string, x: number, y: number, z: number, w: number, d: number, h: number, w1 = 0.002, d1 = 0.002, ry = 0) =>
-  tbox(p, w, d, w1, d1, h, c, x, y, z, 0, 0, ry);
 /** Stepped brick gable facing ±x, ridge along x (wall plane at x, spanning depth d). */
 function stepGable(p: THREE.Object3D, c: string, x: number, y: number, z: number, d: number, h: number, steps: number, ry = Math.PI / 2): void {
   for (let i = 0; i < steps; i++) {
@@ -80,14 +36,6 @@ function stepGable(p: THREE.Object3D, c: string, x: number, y: number, z: number
   }
 }
 
-const SKIN = ['#8d5a3b', '#c68b5e', '#5a3825', '#e0b48a'];
-function person(p: THREE.Object3D, x: number, y: number, z: number, c: string, k = 0, s = 1): void {
-  passerby(p, x, y, z, 0.023 * s, k, { top: c, skin: SKIN[k % 4] });
-}
-const PCOL = ['#ef4444', '#3b82f6', '#facc15', '#22c55e', '#f97316', '#a855f7', '#f8fafc', '#0ea5e9'];
-function crowd(p: THREE.Object3D, n: number, seed: number, at: (i: number) => [number, number, number] | null, s = 1): void {
-  for (let i = 0; i < n; i++) { const q = at(i); if (q) person(p, q[0], q[1], q[2], PCOL[Math.floor(hash3(i, seed, 3) * 8)], i, s); }
-}
 function leafTree(p: THREE.Object3D, x: number, y: number, z: number, s: number, c: string, seed = 0): void {
   cyl(p, '#5b4636', x, y, z, s * 0.09, s * 0.55, 5);
   for (let i = 0; i < 3; i++) {
@@ -391,12 +339,6 @@ const schonbrunn: Builder = gp => {
   for (const s of [-1, 1]) { blob(cq, '#7a5236', 0.04, 0.014, s * 0.005, 0.012, 0.007, 0.004); cyl(cq, '#7a5236', 0.04, 0.0, s * 0.005, 0.002, 0.01, 4); }
 };
 
-/** Lathe surface (smooth normals) with per-face paint in local coordinates. */
-function plathe(p: THREE.Object3D, prof: [number, number][], x: number, y: number, z: number, seg: number, base: string, paint?: Paint, o: MatOpts = {}): THREE.Mesh {
-  const lg = new THREE.LatheGeometry(prof.map(([r, py]) => new THREE.Vector2(r, py)), seg);
-  lg.computeVertexNormals();
-  return add(p, paintFaces(lg, base, paint), mat('#ffffff', { vc: true, flat: false, ...o }), x, y, z, 1, 1, 1);
-}
 /** Light smooth tube along a Catmull-Rom curve (no end caps). */
 function ctube(p: THREE.Object3D, pts: V3[], r: number, c: string, tub = 24, rad = 4): THREE.Mesh {
   const cv = new THREE.CatmullRomCurve3(pts.map(q => new THREE.Vector3(...q)));
