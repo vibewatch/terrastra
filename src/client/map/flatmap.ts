@@ -10,6 +10,8 @@ import { CONTINENT_NAMES } from '../../shared/data/iso.ts';
 import { tr, type CatalogueItem } from '../../shared/data/types.ts';
 import { t, lang, fmtNum, onLang } from '../lib/i18n.ts';
 import { load, save } from '../lib/storage.ts';
+import { releaseWhenHidden, warmShaders } from '../lib/gpu.ts';
+import { loadRelief } from '../lib/relief.ts';
 import { url } from '../lib/env.ts';
 import { h } from '../ui/dom.ts';
 import { icon } from '../ui/icons.ts';
@@ -274,6 +276,7 @@ export class FlatMap {
     this.borderLine = new THREE.Mesh(empty, lineMat('#f1f5f9', 0.85));
     [this.grid, this.borderCase, this.borderLine].forEach((m, i) => { m.frustumCulled = false; m.renderOrder = i + 1; });
     this.scene.add(quad, this.grid, this.borderCase, this.borderLine);
+    void warmShaders(this.renderer, this.scene, this.cam).then(() => { this.shadersReady = true; });
 
     this.renderBar();
     onLang(() => { this.renderBar(); this.canvas.setAttribute('aria-label', t('flatMapLabel')); this.tagFor = ''; this.dirty = true; });
@@ -306,6 +309,7 @@ export class FlatMap {
     this.hoverC = null; this.picked = null; this.cursor = null;
     this.tag.hidden = true;
     this.host.hover(null, null);
+    releaseWhenHidden(this.renderer, () => !this.shown);
   }
 
   /** [lat, lon] at the centre of the screen. */
@@ -457,10 +461,11 @@ export class FlatMap {
     }
     if (!this.reliefLoaded) {
       this.reliefLoaded = true;
-      const ld = (file: string) => new Promise<THREE.Texture>((ok, fail) => new THREE.TextureLoader().load(url('data/relief/' + file), ok, undefined, fail));
-      Promise.all([ld(`land-${this.host.quality.reliefW}.webp`), ld('sea-1024.webp')]).then(([land, sea]) => {
-        for (const tx of [land, sea]) { tx.wrapS = THREE.RepeatWrapping; tx.needsUpdate = true; }
-        land.anisotropy = Math.min(8, this.renderer.capabilities.getMaxAnisotropy());
+      const anisotropy = Math.min(8, this.renderer.capabilities.getMaxAnisotropy());
+      Promise.all([
+        loadRelief(url(`data/relief/land-${this.host.quality.reliefW}.webp`), { repeatX: true, anisotropy }),
+        loadRelief(url('data/relief/sea-1024.webp'), { repeatX: true }),
+      ]).then(([land, sea]) => {
         this.mapU.uRelief.value = land;
         this.mapU.uSea.value = sea;
         this.reliefReady = true;
@@ -469,6 +474,8 @@ export class FlatMap {
     }
   }
   private reliefReady = false;
+  /** Shaders compile in the background; the map draws once they are linked. */
+  private shadersReady = false;
   /** The latest mouse position to hit-test, handled once per frame. */
   private hoverReq: { x: number; y: number } | null = null;
   private pinBoxes: [number, number, number, number][] = [];
@@ -478,6 +485,7 @@ export class FlatMap {
   private loop = (now: number): void => {
     if (!this.shown) { this.raf = 0; return; }
     this.raf = requestAnimationFrame(this.loop);
+    if (!this.shadersReady) return;
     this.step(now);
     if (this.hoverReq) { const q = this.hoverReq; this.hoverReq = null; this.hoverAt(q.x, q.y); }
     if (this.dirty) {

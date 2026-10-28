@@ -17,6 +17,8 @@ import { subsolar } from '../../shared/lib/sun.ts';
 import { GlobeLayers, RENDER_ORDER, graticuleStep } from './layers.ts';
 import { buildStarField, gmstRad, SPACE_BG } from '../lib/starfield.ts';
 import type { StationDots } from './stations.ts';
+import { releaseWhenHidden, warmShaders } from '../lib/gpu.ts';
+import { loadRelief } from '../lib/relief.ts';
 
 const FLIGHT_ARC_MAT = new THREE.LineBasicMaterial({ color: '#38bdf8', transparent: true, opacity: 0.65, depthWrite: false });
 const PIN_STICK = new THREE.CylinderGeometry(0.06, 0.06, 1, 6).translate(0, 0.5, 0);
@@ -420,9 +422,20 @@ export class Globe {
   get paused(): boolean { return this.isPaused; }
   set paused(v: boolean) {
     this.isPaused = v;
-    if (v) { this.hoverCountry = null; this.cursor = null; this.countryTag.hidden = true; }
+    if (v) {
+      this.hoverCountry = null; this.cursor = null; this.countryTag.hidden = true;
+      if (this.renderer) releaseWhenHidden(this.renderer, () => this.isPaused, () => { this.released = true; });
+    } else if (this.released) {
+      this.released = false;
+      this.resize();
+    }
     this.dirty = true;
   }
+  /** The drawing buffer was shrunk while paused; the next un-pause re-sizes it. */
+  private released = false;
+  /** Resolves once the globe's shaders are compiled (in the background, while the loader shows). */
+  warmed: Promise<void> = Promise.resolve();
+  private shadersReady = false;
   private overshoot = { v: 0, t: 0 };
   /** Optional extra visibility predicate (e.g. the time machine); selected/ridden items always stay visible. */
   private itemFilter: ((it: CatalogueItem) => boolean) | null = null;
@@ -565,7 +578,8 @@ export class Globe {
     this.resize();
     new ResizeObserver(() => this.resize()).observe(this.container);
     this.bindInput(r.domElement);
-    const loop = () => { if (!this.paused) this.frame(); requestAnimationFrame(loop); };
+    this.warmed = warmShaders(r, this.scene, this.camera).then(() => { this.shadersReady = true; });
+    const loop = () => { if (!this.paused && this.shadersReady) this.frame(); requestAnimationFrame(loop); };
     requestAnimationFrame(loop);
     return true;
   }
@@ -573,9 +587,11 @@ export class Globe {
   /** Elevation + ocean depth (NASA/GEBCO) for hill shading, snow lines and sea-floor tints; loads after the globe shows. */
   private reliefReady = false;
   private loadRelief(): void {
-    const load = (file: string) => new Promise<THREE.Texture>((ok, fail) => new THREE.TextureLoader().load(url('data/relief/' + file), ok, undefined, fail));
-    Promise.all([load(`land-${this.quality.reliefW}.webp`), load('sea-1024.webp')]).then(([land, sea]) => {
-      land.anisotropy = Math.min(8, this.renderer.capabilities.getMaxAnisotropy());
+    const anisotropy = Math.min(8, this.renderer.capabilities.getMaxAnisotropy());
+    Promise.all([
+      loadRelief(url(`data/relief/land-${this.quality.reliefW}.webp`), { anisotropy }),
+      loadRelief(url('data/relief/sea-1024.webp')),
+    ]).then(([land, sea]) => {
       this.earthUniforms.uRelief.value = land;
       this.earthUniforms.uReliefTexel.value.set(1 / this.quality.reliefW, 2 / this.quality.reliefW);
       this.earthUniforms.uSea.value = sea;
@@ -1293,7 +1309,7 @@ export class Globe {
   // ---------- frame ----------
   private resize(): void {
     const w = this.container.clientWidth, h = this.container.clientHeight;
-    if (!w || !h) return;
+    if (!w || !h || this.released) return;
     this.renderer.setSize(w, h, false);
     this.renderer.domElement.style.width = w + 'px';
     this.renderer.domElement.style.height = h + 'px';

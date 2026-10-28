@@ -26,6 +26,7 @@ import { DeepStage, LEVELS } from './deep.ts';
 import { SiteLayer, helioAU } from './sites.ts';
 import { SolarFX, FLOW_BODIES, COMET_NAME, FLARE_GLSL } from './fx.ts';
 import { ConstellationLayer, type Disc } from './constellations.ts';
+import { releaseWhenHidden, warmShaders } from '../lib/gpu.ts';
 import type { Constellation } from '../../shared/data/constellations.ts';
 import type { SolarSite } from '../../shared/data/solar-sites.ts';
 
@@ -295,7 +296,12 @@ export class SolarView {
     this.build();
     this.bindInput(cv);
     addEventListener('resize', () => this.resize());
+    this.warmed = warmShaders(this.renderer, this.scene, this.camera).then(() => { this.shadersReady = true; });
   }
+
+  /** Resolves once the Solar System's shaders are compiled (in the background), so it opens without a stall. */
+  readonly warmed: Promise<void>;
+  private shadersReady = false;
 
   // ---------- scene ----------
   private build(): void {
@@ -473,10 +479,15 @@ export class SolarView {
     map.anisotropy = aniso;
     let bump: THREE.Texture | null = null;
     if (r.height) {
-      const g = new Uint8ClampedArray(r.w * r.h * 4);
-      for (let i = 0; i < r.height.length; i++) { const v = r.height[i]; g[i * 4] = g[i * 4 + 1] = g[i * 4 + 2] = v; g[i * 4 + 3] = 255; }
-      bump = new THREE.CanvasTexture(toCanvas(g, r.w, r.h));
-      bump.anisotropy = aniso;
+      // single-channel R8 (the bump shader samples .x): a quarter of an RGBA canvas's memory and upload
+      const b = new THREE.DataTexture(r.height, r.w, r.h, THREE.RedFormat, THREE.UnsignedByteType);
+      b.flipY = true;
+      b.minFilter = THREE.LinearMipmapLinearFilter;
+      b.magFilter = THREE.LinearFilter;
+      b.generateMipmaps = true;
+      b.anisotropy = aniso;
+      b.needsUpdate = true;
+      bump = b;
     }
     if (r.rings && rt.rings) {
       const rc = toCanvas(r.rings, r.rings.length / 4, 1);
@@ -662,6 +673,7 @@ export class SolarView {
     this.active = false;
     cancelAnimationFrame(this.raf);
     this.root.classList.add('hidden');
+    releaseWhenHidden(this.renderer, () => !this.active, () => { this.sized = { w: 0, h: 0 }; });
   }
 
   get isActive(): boolean { return this.active; }
@@ -1009,6 +1021,7 @@ export class SolarView {
   }
 
   private resize(): void {
+    if (!this.active) return;
     const w = this.root.clientWidth || innerWidth, h = this.root.clientHeight || innerHeight;
     if (w === this.sized.w && h === this.sized.h) return;
     this.sized = { w, h };
@@ -1022,6 +1035,7 @@ export class SolarView {
   private loop(): void {
     if (!this.active) return;
     this.raf = requestAnimationFrame(() => this.loop());
+    if (!this.shadersReady) return;
     const now = performance.now();
     const busy = this.tween || this.xf || this.deep.busy || now - this.interacting < 400 || Math.abs(this.vAz) + Math.abs(this.vEl) > 1e-5;
     if (!busy && this.quality.idleFps && now - this.last < 1000 / this.quality.idleFps - 4) return;
@@ -1035,7 +1049,7 @@ export class SolarView {
     const xf = this.xf;
     let e = 1;
     if (xf) {
-      xf.t = Math.min(1, xf.t + dt / xf.dur);
+      if (xf.to === 'solar' || this.deep.ready(this.renderer, xf.to as DeepScale)) xf.t = Math.min(1, xf.t + dt / xf.dur);
       e = ease(xf.t);
       // the level being left keeps moving the way you were zooming while it fades
       const up = SCALES.indexOf(xf.to) < SCALES.indexOf(xf.from), f = 1 + (up ? 1 : -0.6) * dt * 0.0016;

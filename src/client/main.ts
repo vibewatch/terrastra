@@ -9,7 +9,8 @@ import { Globe } from './globe/scene.ts';
 import type { SolarUI } from './solar/ui.ts';
 import { detectQuality, lowFxFrom } from './globe/quality.ts';
 import { DEFAULT_H, MAX_H } from './globe/scene.ts';
-import { loadCountries, paintEarth, paintedLand } from './globe/painter.ts';
+import { hasLand, loadCountries, paintEarth, paintedLand } from './globe/painter.ts';
+import { paintOffThread } from './globe/paint-offthread.ts';
 import { borderPositions, borderLonLat } from './globe/borders.ts';
 import { CATALOGUE, BY_KEY } from '../shared/data/catalogue.ts';
 import { Shell } from './ui/shell.ts';
@@ -67,14 +68,23 @@ async function boot(): Promise<void> {
   const topoRes = await fetch(url('data/countries-110m.json'));
   if (!topoRes.ok) throw new Error(`country map: HTTP ${topoRes.status}`);
   const topo = (await topoRes.json()) as Topology;
-  await Promise.race([document.fonts?.ready, new Promise(r => setTimeout(r, 150))]);
   const countries = loadCountries(topo);
   const texWidth = quality.mapW;
+  const political = () => store.settings.surfaceMode === 'political';
+  // the land fill and night lights paint in a worker while the page carries on setting up
+  const landPainted = paintOffThread(topo, countries, { political: political(), width: texWidth, nightW: quality.nightW });
+  await Promise.race([document.fonts?.ready, new Promise(r => setTimeout(r, 150))]);
   let fineTopo: Topology | undefined;
   /** Country shapes for hover/tap lookups: 1:110m, then 1:50m once loaded. */
   let shapes = countries;
-  const paint = () => paintEarth(topo, countries, { political: store.settings.surfaceMode === 'political', borders: store.settings.borders, width: texWidth, borderTopo: fineTopo });
-  const repaint = () => { earthCv = paint(); globe.setEarthTexture(earthCv); solar?.view.setEarthCanvas(earthCv); };
+  const paint = () => paintEarth(topo, countries, { political: political(), borders: store.settings.borders, width: texWidth, borderTopo: fineTopo });
+  let paintSeq = 0;
+  const repaint = async () => {
+    const my = ++paintSeq;
+    if (!hasLand(countries, political(), texWidth)) await paintOffThread(topo, countries, { political: political(), width: texWidth });
+    if (my !== paintSeq) return;
+    earthCv = paint(); globe.setEarthTexture(earthCv); solar?.view.setEarthCanvas(earthCv);
+  };
 
   const globeEl = h('div', { id: 'globe' });
   app.append(globeEl);
@@ -87,6 +97,7 @@ async function boot(): Promise<void> {
   }, lowfx, quality);
   globe.lang = lang();
   globe.applySettings(store.settings);
+  await landPainted;
   let earthCv = paint();
   if (!globe.init(earthCv, countries, CATALOGUE, borderPositions(topo))) {
     loader?.remove();
@@ -108,7 +119,7 @@ async function boot(): Promise<void> {
     globe.setCountryShapes(shapes);
     await idle();
     fineTopo = t50;
-    if (store.settings.borders) repaint();
+    if (store.settings.borders) void repaint();
   })().catch(() => { /* keep the 1:110m borders */ }), 4000);
 
   let gaming = false;
@@ -168,7 +179,8 @@ async function boot(): Promise<void> {
     endLesson();
     const seq = ++navSeq;
     let ui: SolarUI;
-    try { ui = await withBusy(loadSolar()); } catch (e) {
+    // its shaders compile in the background while the busy spinner shows, so the view opens without a stall
+    try { ui = await withBusy(loadSolar().then(async u => { await u.view.warmed; return u; })); } catch (e) {
       console.error(e);
       if (seq === navSeq) showLoadError(t('solarSystem'), () => void enterSolar(opts), routeOf(opts));
       return;
@@ -451,7 +463,7 @@ async function boot(): Promise<void> {
     if (!gaming) shell.applySettings(s); else globe.applySettings({ ...s, names: globe.settings.names });
     if ((s.surfaceMode === 'political') !== (painted.mode === 'political') || s.borders !== painted.borders) {
       painted = { mode: s.surfaceMode, borders: s.borders };
-      setTimeout(repaint, 0);
+      setTimeout(() => void repaint(), 0);
     }
   });
   onLang(l => { document.documentElement.lang = l; });
@@ -511,6 +523,8 @@ async function boot(): Promise<void> {
   };
   window.addEventListener('hashchange', route);
 
+  // the loader stays up while the globe's shaders finish compiling in the background
+  await globe.warmed;
   // Opening: warp out of the star field while the globe flies in from deep space.
   if (loader && !lowfx) {
     if (!location.hash) { const lon = globe.lon; globe.h = MAX_H; globe.lon = lon - 70; globe.flyTo(globe.lat, lon, DEFAULT_H, 2600); }

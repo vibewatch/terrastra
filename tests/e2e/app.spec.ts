@@ -11,7 +11,7 @@ test('home: globe, top bar, zoom readout, hints @mobile', async ({ page }, info)
   await expect(page.getByTestId('zoom')).toHaveText('×4.0');
   for (const id of ['btn-search', 'btn-photo', 'btn-map', 'btn-hub', 'btn-menu', 'level-switch']) await expect(page.getByTestId(id)).toBeVisible();
   // one Explore hub holds every activity, on four shelves; the top bar keeps only search, photo, flat map, hub and settings
-  await expect(page.locator('.topbar .tool')).toHaveCount(5);
+  await expect(page.locator('.topbar .tool:visible')).toHaveCount(5);
   await page.getByTestId('btn-hub').click();
   for (const [tab, ids] of [['learn', ['menu-lessons', 'menu-tours']], ['look', ['menu-sky', 'menu-tonight', 'menu-time', 'menu-compare', 'menu-bookmarks']], ['play', ['menu-daily', 'menu-placeit', 'menu-quiz']], ['me', ['menu-passport', 'menu-collection', 'menu-album']]] as const) {
     await page.getByTestId('hub-tab-' + tab).click();

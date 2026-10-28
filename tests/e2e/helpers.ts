@@ -10,7 +10,12 @@ export async function openApp(page: Page, path = '/?lowfx=1&notut'): Promise<voi
 
 export async function flyTo(page: Page, lat: number, lon: number, h: number): Promise<void> {
   await page.evaluate(([a, b, c]) => (window as any).__pp.globe.flyTo(a, b, c, 10), [lat, lon, h]);
-  await page.waitForTimeout(700);
+  // the camera moves on the next rendered frame, which a software GPU can take a while to reach
+  await expect.poll(() => page.evaluate(([a, b]) => {
+    const g = (window as any).__pp.globe;
+    return Math.abs(g.lat - a) < 0.05 && Math.abs(((g.lon - b + 540) % 360) - 180) < 0.05;
+  }, [lat, lon]), { timeout: 20_000 }).toBe(true);
+  await page.waitForTimeout(300);
 }
 
 export async function clickItem(page: Page, key: string): Promise<void> {

@@ -166,7 +166,7 @@ export class RadioEngine {
       this.analysed = !!this.node;
       const start = () => { if (my === this.token && !done) el.play().catch(() => finish(false)); };
       if (isHls && !this.nativeHls()) {
-        void import('hls.js').then(({ default: Hls }) => {
+        void import('hls.js/light').then(({ default: Hls }) => {
           if (my !== this.token || done) return;
           if (!Hls.isSupported()) { finish(false); return; }
           const hls = new Hls({ lowLatencyMode: false, backBufferLength: 30 }) as unknown as HlsLike;

@@ -20,6 +20,7 @@ import { buildNebula, hasNebulaModel, paintNebulaArt, type NebulaModel } from '.
 import { buildGalaxyModel, galaxyExtentLy, hasGalaxyModel, paintGalaxyArt } from './galaxies.ts';
 import { MILKY_WAY, genericSpiral, gauss, glowCanvas, hashStr, paintBlob, paintCMB, paintDisc, paintNebula, rng, sampleDisc, type DiscDef, type StarCloud } from './cosmos-paint.ts';
 import { cssFont } from '../lib/fonts.ts';
+import { warmShaders } from '../lib/gpu.ts';
 import { KINDS, Transients, type TransientSource } from './transients.ts';
 
 const D2R = Math.PI / 180;
@@ -152,6 +153,8 @@ void main() {
 interface ObjRT { o: DeepObject; pos: THREE.Vector3; label: HTMLButtonElement; rank: number }
 interface LevelRT {
   id: DeepScale;
+  /** Background shader compile: pending until linked, then 'ready'. */
+  warm?: Promise<void> | 'ready';
   def: LevelDef;
   scene: THREE.Scene;
   labels: HTMLDivElement;
@@ -1255,10 +1258,18 @@ export class DeepStage {
 
   setScreen(w: number, h: number, pr: number): void { this.screen = { w, h, pr }; }
 
+  /** Whether level `id` can draw without stalling on shader compiles; starts compiling them in the background if not. */
+  ready(renderer: THREE.WebGLRenderer, id: DeepScale): boolean {
+    const L = this.levels.get(id);
+    if (!L) return false;
+    L.warm ??= warmShaders(renderer, L.scene, this.camera).then(() => { L.warm = 'ready'; });
+    return L.warm === 'ready';
+  }
+
   /** Draws level `id` at brightness `w` (0..1) over whatever is in the frame buffer. */
   render(renderer: THREE.WebGLRenderer, id: DeepScale, w: number, fov: number): void {
     const L = this.levels.get(id);
-    if (!L || w <= 0.001) return;
+    if (!L || w <= 0.001 || !this.ready(renderer, id)) return;
     L.w = w;
     const cam = this.camera;
     cam.fov = fov;

@@ -185,29 +185,82 @@ export function tracePath(targetCtx: CanvasRenderingContext2D, f: Feature<Polygo
   }
 }
 
+/**
+ * A W×H canvas: a DOM canvas on the page, an OffscreenCanvas inside the paint worker. The two share the 2D API
+ * the painters use, so the worker's is typed as the DOM one.
+ */
+function newCanvas(W: number, H: number): HTMLCanvasElement {
+  if (typeof document === 'undefined') return new OffscreenCanvas(W, H) as unknown as HTMLCanvasElement;
+  const cv = document.createElement('canvas');
+  cv.width = W; cv.height = H;
+  return cv;
+}
+
 let paintedBase: { countries: CountryInfo[]; political: boolean; cv: HTMLCanvasElement } | null = null;
 /** The last painted land without borders (the flat map draws its own crisp vector borders on top). */
 export const paintedLand = (): HTMLCanvasElement | null => paintedBase?.cv ?? null;
+/** Whether `paintEarth` would reuse its cached land fill for these settings (i.e. only stroke the borders). */
+export const hasLand = (countries: CountryInfo[], political: boolean, width: number): boolean =>
+  !!paintedBase && paintedBase.countries === countries && paintedBase.political === political && paintedBase.cv.width === width;
+/** Seeds the land cache with a fill painted elsewhere (the paint worker). */
+export function primeLand(countries: CountryInfo[], political: boolean, cv: HTMLCanvasElement): void {
+  paintedBase = { countries, political, cv };
+}
 
-export function paintEarth(topo: Topology, countries: CountryInfo[], opts: PaintOpts): HTMLCanvasElement {
-  const W = opts.width, H = W / 2;
-  const cv = document.createElement('canvas');
-  cv.width = W; cv.height = H;
+/**
+ * The land fill without borders, transparent over the ocean (the Earth shader takes its land mask from alpha):
+ * procedural satellite biomes, or political colours chosen so that neighbours differ.
+ */
+export function paintLand(topo: Topology, countries: CountryInfo[], political: boolean, W: number): HTMLCanvasElement {
+  const H = W / 2;
+  const cv = newCanvas(W, H);
   const ctx = cv.getContext('2d')!;
-  const X = (lon: number) => ((lon + 180) / 360) * W;
-  const Y = (lat: number) => ((90 - lat) / 180) * H;
-
-  // Clear canvas to transparent (alpha = 0 in ocean) so AuraFM's Earth shader
-  // can compute view-dependent deep ocean shading and landMask from landSample.a!
-  ctx.clearRect(0, 0, W, H);
-
   const path = (f: Feature<Polygon | MultiPolygon>, targetCtx: CanvasRenderingContext2D = ctx, isAntarctica = false) => tracePath(targetCtx, f, W, isAntarctica);
-  const base = paintedBase;
-  if (base && base.countries === countries && base.political === opts.political && base.cv.width === W) ctx.drawImage(base.cv, 0, 0);
-  else {
-    // Political fill with greedy colouring so neighbours differ.
-    const obj = topo.objects.countries as GeometryCollection;
-    const nb = neighbors(obj.geometries as never);
+  if (!political) {
+    // Build anti-aliased land mask, then fill land pixels with procedural satellite biome colours.
+    const mctx = newCanvas(W, H).getContext('2d', { willReadFrequently: true }) as CanvasRenderingContext2D;
+    mctx.fillStyle = '#fff';
+    mctx.strokeStyle = 'rgba(255,255,255,0.65)';
+    mctx.lineWidth = Math.max(0.8, W / 2048);
+    for (const c of countries) {
+      path(c.feature, mctx, c.a2 === 'AQ');
+      mctx.fill('evenodd');
+    }
+    const md = mctx.getImageData(0, 0, W, H).data;
+    const img = ctx.createImageData(W, H);
+    const d = img.data;
+    // The biome field is smooth (finest octave ≈ 0.7°), so it is evaluated on a lattice every S pixels, lazily and
+    // only next to land, and interpolated bilinearly in between: ~S² fewer evaluations, visually identical.
+    const S = W > 1024 ? 2 : 1, GW = W / S + 1, GH = H / S + 1;
+    const grid = new Float32Array(GW * GH * 3), done = new Uint8Array(GW * GH);
+    const node = (gx: number, gy: number): number => {
+      const k = gy * GW + gx;
+      if (!done[k]) {
+        done[k] = 1;
+        const c = terrainColour(90 - ((gy * S) / H) * 180, ((gx * S) / W) * 360 - 180);
+        grid[k * 3] = c[0]; grid[k * 3 + 1] = c[1]; grid[k * 3 + 2] = c[2];
+      }
+      return k * 3;
+    };
+    for (let y = 0; y < H; y++) {
+      const gy = Math.floor(y / S), fy = (y - gy * S) / S;
+      for (let x = 0; x < W; x++) {
+        const o = (y * W + x) * 4;
+        const alpha = md[o + 3];
+        if (alpha < 8) continue;
+        const gx = Math.floor(x / S), fx = (x - gx * S) / S;
+        const a = node(gx, gy), b = node(gx + 1, gy), c = node(gx, gy + 1), e = node(gx + 1, gy + 1);
+        for (let ch = 0; ch < 3; ch++) {
+          const top = grid[a + ch] + (grid[b + ch] - grid[a + ch]) * fx, bot = grid[c + ch] + (grid[e + ch] - grid[c + ch]) * fx;
+          d[o + ch] = top + (bot - top) * fy;
+        }
+        d[o + 3] = alpha;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+  } else {
+    // greedy colouring so neighbours differ
+    const nb = neighbors((topo.objects.countries as GeometryCollection).geometries as never);
     const colourIdx: number[] = [];
     countries.forEach((_, i) => {
       const used = new Set(nb[i].map(j => colourIdx[j]).filter(x => x !== undefined));
@@ -215,63 +268,25 @@ export function paintEarth(topo: Topology, countries: CountryInfo[], opts: Paint
       for (let t = 0; t < PALETTE.length && used.has(k); t++) k = (k + 1) % PALETTE.length;
       colourIdx[i] = k;
     });
-
-    if (!opts.political) {
-      // Build anti-aliased land mask, then fill land pixels with procedural satellite biome colours.
-      const mask = document.createElement('canvas'); mask.width = W; mask.height = H;
-      const mctx = mask.getContext('2d')!;
-      mctx.fillStyle = '#fff';
-      mctx.strokeStyle = 'rgba(255,255,255,0.65)';
-      mctx.lineWidth = Math.max(0.8, W / 2048);
-      for (const c of countries) {
-        path(c.feature, mctx, c.a2 === 'AQ');
-        mctx.fill('evenodd');
-      }
-      const md = mctx.getImageData(0, 0, W, H).data;
-      const img = ctx.createImageData(W, H);
-      const d = img.data;
-      // The biome field is smooth (finest octave ≈ 0.7°), so it is evaluated on a lattice every S pixels, lazily and
-      // only next to land, and interpolated bilinearly in between: ~S² fewer evaluations, visually identical.
-      const S = W > 1024 ? 2 : 1, GW = W / S + 1, GH = H / S + 1;
-      const grid = new Float32Array(GW * GH * 3), done = new Uint8Array(GW * GH);
-      const node = (gx: number, gy: number): number => {
-        const k = gy * GW + gx;
-        if (!done[k]) {
-          done[k] = 1;
-          const c = terrainColour(90 - ((gy * S) / H) * 180, ((gx * S) / W) * 360 - 180);
-          grid[k * 3] = c[0]; grid[k * 3 + 1] = c[1]; grid[k * 3 + 2] = c[2];
-        }
-        return k * 3;
-      };
-      for (let y = 0; y < H; y++) {
-        const gy = Math.floor(y / S), fy = (y - gy * S) / S;
-        for (let x = 0; x < W; x++) {
-          const o = (y * W + x) * 4;
-          const alpha = md[o + 3];
-          if (alpha < 8) continue;
-          const gx = Math.floor(x / S), fx = (x - gx * S) / S;
-          const a = node(gx, gy), b = node(gx + 1, gy), c = node(gx, gy + 1), e = node(gx + 1, gy + 1);
-          for (let ch = 0; ch < 3; ch++) {
-            const top = grid[a + ch] + (grid[b + ch] - grid[a + ch]) * fx, bot = grid[c + ch] + (grid[e + ch] - grid[c + ch]) * fx;
-            d[o + ch] = top + (bot - top) * fy;
-          }
-          d[o + 3] = alpha;
-        }
-      }
-      ctx.putImageData(img, 0, 0);
-    } else {
-      countries.forEach((c, i) => {
-        path(c.feature, ctx, c.a2 === 'AQ');
-        ctx.fillStyle = c.a2 === 'AQ' ? '#cbd5e1' : PALETTE[colourIdx[i]];
-        ctx.fill('evenodd');
-      });
-    }
-    // kept so that a border-only change (switching borders, finer border data) does not repaint the land
-    const copy = document.createElement('canvas');
-    copy.width = W; copy.height = H;
-    copy.getContext('2d')!.drawImage(cv, 0, 0);
-    paintedBase = { countries, political: opts.political, cv: copy };
+    countries.forEach((c, i) => {
+      path(c.feature, ctx, c.a2 === 'AQ');
+      ctx.fillStyle = c.a2 === 'AQ' ? '#cbd5e1' : PALETTE[colourIdx[i]];
+      ctx.fill('evenodd');
+    });
   }
+  return cv;
+}
+
+/** The globe's day map: the (cached) land fill, plus country borders when they are on. */
+export function paintEarth(topo: Topology, countries: CountryInfo[], opts: PaintOpts): HTMLCanvasElement {
+  const W = opts.width, H = W / 2;
+  // the land is cached so that a border-only change (switching borders, finer border data) does not repaint it
+  if (!hasLand(countries, opts.political, W)) primeLand(countries, opts.political, paintLand(topo, countries, opts.political, W));
+  const cv = newCanvas(W, H);
+  const ctx = cv.getContext('2d')!;
+  const X = (lon: number) => ((lon + 180) / 360) * W;
+  const Y = (lat: number) => ((90 - lat) / 180) * H;
+  ctx.drawImage(paintedBase!.cv, 0, 0);
 
   if (opts.borders) {
     const bt = opts.borderTopo ?? topo;
@@ -306,11 +321,16 @@ export function paintEarth(topo: Topology, countries: CountryInfo[], opts: Paint
 let cachedNightCanvas: HTMLCanvasElement | null = null;
 let cachedNightWidth = 0;
 
+/** Seeds the night-lights cache with a map painted elsewhere (the paint worker). */
+export function primeNightLights(cv: HTMLCanvasElement): void {
+  cachedNightCanvas = cv;
+  cachedNightWidth = cv.width;
+}
+
 export function paintNightLights(countries: CountryInfo[], width: number): HTMLCanvasElement {
   if (cachedNightCanvas && cachedNightWidth === width) return cachedNightCanvas;
   const W = width, H = W / 2;
-  const cv = document.createElement('canvas');
-  cv.width = W; cv.height = H;
+  const cv = newCanvas(W, H);
   const ctx = cv.getContext('2d')!;
   const X = (lon: number) => ((lon + 180) / 360) * W;
   const Y = (lat: number) => ((90 - lat) / 180) * H;
