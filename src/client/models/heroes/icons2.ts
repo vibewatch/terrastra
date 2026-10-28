@@ -5,7 +5,7 @@ import {
 } from '../prims.ts';
 import { type HFn, island, ripple, strataSide, sstep } from '../nature.ts';
 import { pblob } from '../animals.ts';
-import { Mesh3, ID } from './europe.ts';
+import { Mesh3, ID } from '../kit/euro.ts';
 
 // Hero builders for: redeemer, burj, cntower, petra.
 // Keyed by catalogue item key (recipe.hero). Front faces +z, base at y=0, footprint radius ≈0.5.

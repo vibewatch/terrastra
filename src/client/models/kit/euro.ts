@@ -2,7 +2,7 @@ import { humanSoup } from '../human.ts';
 import * as THREE from 'three';
 import { type V3, add, mat, shade as shade0 } from '../prims.ts';
 
-// Mesh-soup kit shared by the European landmark packs (europe2, europe3): memoised shading, local frames
+// Mesh-soup kit shared by the landmark packs (europe, europe2, europe3, classics, icons2): memoised shading, local frames
 // and a flat-shaded per-face vertex-coloured mesh builder with architectural helpers.
 
 const TAU = Math.PI * 2;
@@ -13,7 +13,7 @@ export const shade = (hex: string, f: number): string => {
   if (v === undefined) { v = shade0(hex, f); shadeMemo.set(k, v); }
   return v;
 };
-export const rgbMemo = new Map<string, [number, number, number]>();
+const rgbMemo = new Map<string, [number, number, number]>();
 
 export type Xf = (v: V3) => V3;
 /** Local frame transform: translate to (cx,cy,cz) after turning by ry about y (same convention as Object3D). */
@@ -23,6 +23,15 @@ export const xform = (cx: number, cy: number, cz: number, ry = 0): Xf => {
 };
 export const ID: Xf = (v) => v;
 export const dirOf = (T: Xf, v: V3): V3 => { const o = T([0, 0, 0]), q = T(v); return [q[0] - o[0], q[1] - o[1], q[2] - o[2]]; };
+/** Local frame: a child group at (x,y,z) turned by ry (local +z faces the direction (sin ry, cos ry)). */
+export function frame(p: THREE.Object3D, x: number, y: number, z: number, ry = 0): THREE.Group {
+  const f = new THREE.Group();
+  f.position.set(x, y, z);
+  f.rotation.y = ry;
+  p.add(f);
+  return f;
+}
+
 /** Flat-shaded, per-face vertex-coloured mesh builder (one draw per call). */
 export class Mesh3 {
   pos: number[] = [];
@@ -40,11 +49,11 @@ export class Mesh3 {
   }
   quad(a: V3, b: V3, c: V3, d: V3, color: string, out?: V3): void { this.tri(a, b, c, color, out); this.tri(a, c, d, color, out); }
   tq(T: Xf, a: V3, b: V3, c: V3, d: V3, color: string, out: V3): void { this.quad(T(a), T(b), T(c), T(d), color, dirOf(T, out)); }
-  /** Box (base at y) in the local frame T; bottom face omitted unless `bottom`. */
-  box(T: Xf, x: number, y: number, z: number, w: number, h: number, d: number, c: string, bottom = false): void {
+  /** Box (base at y) in the local frame T; bottom face omitted unless `bottom`, back (−z) face omitted if `back` is false. */
+  box(T: Xf, x: number, y: number, z: number, w: number, h: number, d: number, c: string, bottom = false, back = true): void {
     const x0 = x - w / 2, x1 = x + w / 2, y1 = y + h, z0 = z - d / 2, z1 = z + d / 2;
     this.tq(T, [x0, y, z1], [x1, y, z1], [x1, y1, z1], [x0, y1, z1], c, [0, 0, 1]);
-    this.tq(T, [x0, y, z0], [x1, y, z0], [x1, y1, z0], [x0, y1, z0], shade(c, 0.9), [0, 0, -1]);
+    if (back) this.tq(T, [x0, y, z0], [x1, y, z0], [x1, y1, z0], [x0, y1, z0], shade(c, 0.9), [0, 0, -1]);
     this.tq(T, [x0, y, z0], [x0, y, z1], [x0, y1, z1], [x0, y1, z0], shade(c, 0.95), [-1, 0, 0]);
     this.tq(T, [x1, y, z0], [x1, y, z1], [x1, y1, z1], [x1, y1, z0], shade(c, 0.95), [1, 0, 0]);
     this.tq(T, [x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1], shade(c, 1.05), [0, 1, 0]);
@@ -93,6 +102,18 @@ export class Mesh3 {
     const l = Math.hypot(x1 - x0, y1 - y0) || 1, nx = (-(y1 - y0) / l) * (w / 2), ny = ((x1 - x0) / l) * (w / 2);
     const Tz = (v: V3): V3 => T([v[0], v[1], v[2] + z]);
     this.poly(Tz, [[x0 + nx, y0 + ny], [x1 + nx, y1 + ny], [x1 - nx, y1 - ny], [x0 - nx, y0 - ny]], -d / 2, d / 2, c);
+  }
+  /** Greek Doric column: fluted (alternating-radius facets) shaft with entasis, echinus and abacus. */
+  doric(T: Xf, x: number, y: number, z: number, r: number, h: number, c: string, n = 16): void {
+    const hs = h - r * 1.0, rows = [0, 0.45, 1];
+    const R = (t: number, j: number) => r * (1 - 0.2 * Math.pow(t, 1.4)) * (j % 2 ? 0.93 : 1);
+    const P = (t: number, j: number): V3 => { const a = (j / n) * TAU; return [x + Math.cos(a) * R(t, j), y + t * hs, z + Math.sin(a) * R(t, j)]; };
+    for (let i = 0; i < rows.length - 1; i++) for (let j = 0; j < n; j++) {
+      const am = ((j + 0.5) / n) * TAU;
+      this.tq(T, P(rows[i], j), P(rows[i], j + 1), P(rows[i + 1], j + 1), P(rows[i + 1], j), shade(c, j % 2 ? 0.94 : 1.02), [Math.cos(am), 0, Math.sin(am)]);
+    }
+    this.prism(T, x, y + hs, z, r * 0.8, r * 0.45, 12, shade(c, 1.03), r * 1.22, 0, false);
+    this.box(T, x, y + hs + r * 0.45, z, r * 2.5, r * 0.55, r * 2.5, shade(c, 1.06));
   }
   /** Low-poly ellipsoid knob (sculpture masses, foliage, figures). */
   blob(T: Xf, x: number, y: number, z: number, rx: number, ry: number, rz: number, c: string, n = 6): void {

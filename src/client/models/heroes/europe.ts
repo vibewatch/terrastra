@@ -2,7 +2,7 @@ import { passerby } from '../human.ts';
 import * as THREE from 'three';
 import { type Builder, type V3, add, g, mat, box, ball, cyl, cone, rod, slab, mix, fbm, hash3 } from '../prims.ts';
 import { type HFn, island, strataSide, EARTH, sstep, ridged } from '../nature.ts';
-import { shade, rgbMemo } from '../kit/euro.ts';
+import { type Xf, Mesh3, xform, ID, frame, shade } from '../kit/euro.ts';
 
 // Hero builders for: colosseum, parthenon, brandenburg, pisa, bigben, towerbridge. Keyed by catalogue item key (recipe.hero).
 // Each is a scale-model diorama: correct silhouette first (tiers, column counts, arcade rhythms), then signature details.
@@ -10,154 +10,6 @@ import { shade, rgbMemo } from '../kit/euro.ts';
 const TAU = Math.PI * 2;
 
 // ---- local helpers -------------------------------------------------------------------------------------
-export type Xf = (v: V3) => V3;
-/** Local frame transform for Mesh3: translate to (cx,cy,cz) after turning by ry about y (same convention as Object3D). */
-export const xform = (cx: number, cy: number, cz: number, ry = 0): Xf => {
-  const c = Math.cos(ry), s = Math.sin(ry);
-  return (v) => [cx + v[0] * c + v[2] * s, cy + v[1], cz - v[0] * s + v[2] * c];
-};
-export const ID: Xf = (v) => v;
-const dirOf = (T: Xf, v: V3): V3 => { const o = T([0, 0, 0]), q = T(v); return [q[0] - o[0], q[1] - o[1], q[2] - o[2]]; };
-
-/** Flat-shaded, per-face vertex-coloured mesh builder for custom bands, steps and ruins (one draw per call). */
-export class Mesh3 {
-  pos: number[] = [];
-  col: number[] = [];
-  tri(a: V3, b: V3, c: V3, color: string, out?: V3): void {
-    if (out) {
-      const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2], vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
-      const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
-      if (nx * out[0] + ny * out[1] + nz * out[2] < 0) { const t = b; b = c; c = t; }
-    }
-    this.pos.push(a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2]);
-    let q = rgbMemo.get(color);
-    if (!q) { const t = new THREE.Color(color); q = [t.r, t.g, t.b]; rgbMemo.set(color, q); }
-    this.col.push(q[0], q[1], q[2], q[0], q[1], q[2], q[0], q[1], q[2]);
-  }
-  quad(a: V3, b: V3, c: V3, d: V3, color: string, out?: V3): void { this.tri(a, b, c, color, out); this.tri(a, c, d, color, out); }
-  /** Transformed quad: local points through T, local outward hint rotated by T. */
-  tq(T: Xf, a: V3, b: V3, c: V3, d: V3, color: string, out: V3): void { this.quad(T(a), T(b), T(c), T(d), color, dirOf(T, out)); }
-  /** Box (base at y) in the local frame T; bottom face omitted unless `bottom`, back (−z) face omitted if `back` is false. */
-  box(T: Xf, x: number, y: number, z: number, w: number, h: number, d: number, c: string, bottom = false, back = true): void {
-    const x0 = x - w / 2, x1 = x + w / 2, y1 = y + h, z0 = z - d / 2, z1 = z + d / 2;
-    this.tq(T, [x0, y, z1], [x1, y, z1], [x1, y1, z1], [x0, y1, z1], c, [0, 0, 1]);
-    if (back) this.tq(T, [x0, y, z0], [x1, y, z0], [x1, y1, z0], [x0, y1, z0], shade(c, 0.9), [0, 0, -1]);
-    this.tq(T, [x0, y, z0], [x0, y, z1], [x0, y1, z1], [x0, y1, z0], shade(c, 0.95), [-1, 0, 0]);
-    this.tq(T, [x1, y, z0], [x1, y, z1], [x1, y1, z1], [x1, y1, z0], shade(c, 0.95), [1, 0, 0]);
-    this.tq(T, [x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1], shade(c, 1.05), [0, 1, 0]);
-    if (bottom) this.tq(T, [x0, y, z0], [x1, y, z0], [x1, y, z1], [x0, y, z1], shade(c, 0.8), [0, -1, 0]);
-  }
-  /** n-sided prism / frustum (radius r → r1) standing at y, with a top cap. */
-  prism(T: Xf, x: number, y: number, z: number, r: number, h: number, n: number, c: string, r1 = r, a0 = 0, cap = true): void {
-    const P = (i: number, rr: number, yy: number): V3 => { const a = a0 + (i / n) * TAU; return [x + Math.cos(a) * rr, yy, z + Math.sin(a) * rr]; };
-    for (let i = 0; i < n; i++) {
-      const am = a0 + ((i + 0.5) / n) * TAU;
-      this.tq(T, P(i, r, y), P(i + 1, r, y), P(i + 1, r1, y + h), P(i, r1, y + h), shade(c, 0.92 + 0.12 * Math.cos(am - 2.2)), [Math.cos(am), 0, Math.sin(am)]);
-      if (cap && r1 > 0) this.tri(T(P(i, r1, y + h)), T(P(i + 1, r1, y + h)), T([x, y + h, z]), shade(c, 1.05), dirOf(T, [0, 1, 0]));
-    }
-  }
-  /** Convex polygon (local XY, CCW or CW) extruded along z from z0 to z1, side faces included. */
-  poly(T: Xf, pts: [number, number][], z0: number, z1: number, c: string, sides = true): void {
-    const n = pts.length;
-    let cx = 0, cy = 0;
-    for (const [x, y] of pts) { cx += x / n; cy += y / n; }
-    for (let i = 1; i < n - 1; i++) {
-      this.tri(T([pts[0][0], pts[0][1], z1]), T([pts[i][0], pts[i][1], z1]), T([pts[i + 1][0], pts[i + 1][1], z1]), c, dirOf(T, [0, 0, 1]));
-      this.tri(T([pts[0][0], pts[0][1], z0]), T([pts[i][0], pts[i][1], z0]), T([pts[i + 1][0], pts[i + 1][1], z0]), shade(c, 0.9), dirOf(T, [0, 0, -1]));
-    }
-    if (!sides) return;
-    for (let i = 0; i < n; i++) {
-      const [ax, ay] = pts[i], [bx, by] = pts[(i + 1) % n];
-      const mx = (ax + bx) / 2 - cx, my = (ay + by) / 2 - cy;
-      const up = my / (Math.hypot(mx, my) || 1);
-      this.tq(T, [ax, ay, z0], [bx, by, z0], [bx, by, z1], [ax, ay, z1], shade(c, 0.92 + 0.12 * up), [mx, my, 0]);
-    }
-  }
-  /** Horizontal convex plan polygon [x,z] extruded from y0 to y1 (top face + sides). */
-  plan(T: Xf, pts: [number, number][], y0: number, y1: number, c: string): void {
-    const n = pts.length;
-    let cx = 0, cz = 0;
-    for (const [x, z] of pts) { cx += x / n; cz += z / n; }
-    for (let i = 1; i < n - 1; i++) this.tri(T([pts[0][0], y1, pts[0][1]]), T([pts[i][0], y1, pts[i][1]]), T([pts[i + 1][0], y1, pts[i + 1][1]]), shade(c, 1.05), dirOf(T, [0, 1, 0]));
-    for (let i = 0; i < n; i++) {
-      const [ax, az] = pts[i], [bx, bz] = pts[(i + 1) % n];
-      this.tq(T, [ax, y0, az], [bx, y0, bz], [bx, y1, bz], [ax, y1, az], c, [(ax + bx) / 2 - cx, 0, (az + bz) / 2 - cz]);
-    }
-  }
-  /** Straight member in the local XY plane from (x0,y0) to (x1,y1), width w, depth d (centred on z). */
-  strut(T: Xf, x0: number, y0: number, x1: number, y1: number, w: number, d: number, c: string, z = 0): void {
-    const l = Math.hypot(x1 - x0, y1 - y0) || 1, nx = (-(y1 - y0) / l) * (w / 2), ny = ((x1 - x0) / l) * (w / 2);
-    const Tz = (v: V3): V3 => T([v[0], v[1], v[2] + z]);
-    this.poly(Tz, [[x0 + nx, y0 + ny], [x1 + nx, y1 + ny], [x1 - nx, y1 - ny], [x0 - nx, y0 - ny]], -d / 2, d / 2, c);
-  }
-  /** Greek Doric column: fluted (alternating-radius facets) shaft with entasis, echinus and abacus. */
-  doric(T: Xf, x: number, y: number, z: number, r: number, h: number, c: string, n = 16): void {
-    const hs = h - r * 1.0, rows = [0, 0.45, 1];
-    const R = (t: number, j: number) => r * (1 - 0.2 * Math.pow(t, 1.4)) * (j % 2 ? 0.93 : 1);
-    const P = (t: number, j: number): V3 => { const a = (j / n) * TAU; return [x + Math.cos(a) * R(t, j), y + t * hs, z + Math.sin(a) * R(t, j)]; };
-    for (let i = 0; i < rows.length - 1; i++) for (let j = 0; j < n; j++) {
-      const am = ((j + 0.5) / n) * TAU;
-      this.tq(T, P(rows[i], j), P(rows[i], j + 1), P(rows[i + 1], j + 1), P(rows[i + 1], j), shade(c, j % 2 ? 0.94 : 1.02), [Math.cos(am), 0, Math.sin(am)]);
-    }
-    this.prism(T, x, y + hs, z, r * 0.8, r * 0.45, 12, shade(c, 1.03), r * 1.22, 0, false);
-    this.box(T, x, y + hs + r * 0.45, z, r * 2.5, r * 0.55, r * 2.5, shade(c, 1.06));
-  }
-  /**
-   * Wall panel w×h×d (centred on x, base y, thickness along z) pierced by one opening (width ow, sill oy above
-   * base, total height oh): round, pointed or rectangular head. Intrados is darkened so openings read as voids.
-   */
-  arch(T: Xf, x: number, y: number, w: number, h: number, d: number, ow: number, oy: number, oh: number, c: string,
-    k: 'arch' | 'pointed' | 'rect' = 'arch', n = 6, top = false, back = true): void {
-    const r = ow / 2, xl = x - r, xr = x + r, yt = y + h, z1 = d / 2, z0 = -d / 2;
-    const Q: [number, number][] = [];
-    if (k === 'rect') { Q.push([xl, y + oy + oh], [xr, y + oy + oh]); } else {
-      const R = k === 'pointed' ? ow * 0.85 : r, fa = Math.acos((r - R) / R), ap = R * Math.sin(fa), ys = y + oy + oh - ap, hn = Math.max(2, Math.round(n / 2));
-      for (let i = 0; i <= hn; i++) { const f = Math.PI - ((Math.PI - fa) * i) / hn; Q.push([xl + R + R * Math.cos(f), ys + R * Math.sin(f)]); }
-      for (let i = hn - 1; i >= 0; i--) { const f = Math.PI - ((Math.PI - fa) * i) / hn; Q.push([xr - R - R * Math.cos(f), ys + R * Math.sin(f)]); }
-    }
-    const ys = Q[0][1], ysill = y + oy, mid = Math.floor(Q.length / 2);
-    const faces: [number, string, number][] = [[z1, c, 1]];
-    if (back) faces.push([z0, shade(c, 0.9), -1]);
-    for (const [zz, cc, sg] of faces) {
-      const o: V3 = [0, 0, sg];
-      this.tq(T, [x - w / 2, y, zz], [xl, y, zz], [xl, yt, zz], [x - w / 2, yt, zz], cc, o);
-      this.tq(T, [xr, y, zz], [x + w / 2, y, zz], [x + w / 2, yt, zz], [xr, yt, zz], cc, o);
-      if (oy > 0) this.tq(T, [xl, y, zz], [xr, y, zz], [xr, ysill, zz], [xl, ysill, zz], cc, o);
-      for (let i = 0; i < Q.length - 1; i++) {
-        const cn: [number, number] = i < mid ? [xl, yt] : [xr, yt];
-        this.tri(T([Q[i][0], Q[i][1], zz]), T([Q[i + 1][0], Q[i + 1][1], zz]), T([cn[0], cn[1], zz]), cc, dirOf(T, o));
-      }
-      this.tri(T([xl, yt, zz]), T([Q[mid][0], Q[mid][1], zz]), T([xr, yt, zz]), cc, dirOf(T, o));
-    }
-    const ic = shade(c, 0.62);
-    for (let i = 0; i < Q.length - 1; i++) {
-      const [ax, ay] = Q[i], [bx, by] = Q[i + 1];
-      this.tq(T, [ax, ay, z0], [bx, by, z0], [bx, by, z1], [ax, ay, z1], ic, [by - ay, -(bx - ax), 0]);
-    }
-    if (ys > ysill) {
-      this.tq(T, [xl, ysill, z0], [xl, ys, z0], [xl, ys, z1], [xl, ysill, z1], shade(ic, 1.1), [1, 0, 0]);
-      this.tq(T, [xr, ysill, z0], [xr, ys, z0], [xr, ys, z1], [xr, ysill, z1], ic, [-1, 0, 0]);
-    }
-    if (oy > 0) this.tq(T, [xl, ysill, z0], [xr, ysill, z0], [xr, ysill, z1], [xl, ysill, z1], shade(c, 0.95), [0, 1, 0]);
-    if (top) this.tq(T, [x - w / 2, yt, z0], [x + w / 2, yt, z0], [x + w / 2, yt, z1], [x - w / 2, yt, z1], shade(c, 1.05), [0, 1, 0]);
-  }
-  build(p: THREE.Object3D, metal?: number): THREE.Mesh {
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3));
-    geo.setAttribute('color', new THREE.Float32BufferAttribute(this.col, 3));
-    geo.computeVertexNormals();
-    return add(p, geo, mat('#ffffff', { vc: true, flat: true, metal }), 0, 0, 0, 1, 1, 1);
-  }
-}
-
-/** Local frame: a child group at (x,y,z) turned by ry (local +z faces the direction (sin ry, cos ry)). */
-export function frame(p: THREE.Object3D, x: number, y: number, z: number, ry = 0): THREE.Group {
-  const f = new THREE.Group();
-  f.position.set(x, y, z);
-  f.rotation.y = ry;
-  p.add(f);
-  return f;
-}
 
 /** Equal-arc-length parameters θ_k (k = 0..n) around the ellipse x = a cosθ, z = b sinθ. */
 function ellipseStations(a: number, b: number, n: number, th0 = 0): number[] {
@@ -931,7 +783,7 @@ function corn2(m: Mesh3, T: Xf, yy: number, rr: number, c: string): void {
 // green-painted Westminster Bridge with a red bus.
 const GOLD = '#d2a845';
 /** Calls f with an outward-facing frame for each of the four faces of a square plan (half-size h) at (cx,cz). */
-export function faces4(cx: number, cz: number, h: number, f: (T: Xf, i: number) => void): void {
+function faces4(cx: number, cz: number, h: number, f: (T: Xf, i: number) => void): void {
   for (let i = 0; i < 4; i++) { const a = (i * Math.PI) / 2; f(xform(cx + Math.sin(a) * h, 0, cz + Math.cos(a) * h, a), i); }
 }
 const bigben: Builder = (gp) => {

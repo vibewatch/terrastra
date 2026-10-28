@@ -1,7 +1,7 @@
 import { type Builder, type Paint, type V3, lathe, tbox, shade, mix, fbm, hash3 } from '../prims.ts';
 import { island, strataSide, sstep } from '../nature.ts';
 import { pblob } from '../animals.ts';
-import { Mesh3, type Xf, xform, ID, frame } from './europe.ts';
+import { Mesh3, type Xf, xform, ID, frame } from '../kit/euro.ts';
 
 // Hero builders for the three oldest "postcard" landmarks: pyramids (Giza), eiffel, taj. Keyed by recipe.hero.
 // Everything rigid is emitted into one Mesh3 per model (flat, per-face coloured), which keeps the bake fast.
