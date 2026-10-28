@@ -219,8 +219,6 @@ a:hover { text-decoration: underline; }
 .lb-gridname.g-prime { color: rgba(125, 211, 252, 0.9); }
 .lb-gridname.g-arcticC, .lb-gridname.g-antarcticC { color: rgba(165, 243, 252, 0.85); }
 .loader { position: fixed; inset: 0; display: grid; place-content: center; text-align: center; background: var(--bg); z-index: var(--z-loader); }
-.spinner { font-size: 3.6rem; animation: spin 2.4s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
 .fatal { position: fixed; inset: 0; display: grid; place-content: center; text-align: center; padding: 24px; max-width: 520px; margin: auto; }
 
 /* ---- floating 3D object hover tooltip ---- */
@@ -371,7 +369,6 @@ a:hover { text-decoration: underline; }
 .seg-row { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 4px; }
 .aura-pill { font-size: 0.8rem; padding: 5px 10px; }
 .aura-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
-.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .switch-card {
   position: relative;
   display: flex;
@@ -891,10 +888,6 @@ body.gaming .topbar .tools, body.gaming .info { display: none !important; }
 .opt.right { border-color: var(--good); background: rgba(16, 185, 129, 0.22); } .opt.wrong { border-color: var(--bad); background: rgba(248, 113, 113, 0.22); }
 .feedback { min-height: 1.5em; }
 .scoreline { display: flex; gap: 12px; justify-content: center; color: var(--muted); margin-top: 10px; font-size: .86rem; font-family: var(--font-mono); }
-.podium { display: flex; align-items: flex-end; justify-content: center; gap: 8px; margin: 10px 0; }
-.podium .step { display: flex; flex-direction: column; align-items: center; background: var(--panel2); border: 1px solid var(--line); border-radius: 12px 12px 0 0; width: 104px; padding: 10px 8px; }
-.podium .s1 { order: 2; min-height: 130px; background: rgba(125, 211, 252, 0.18); border-color: var(--accent); } .podium .s2 { order: 1; min-height: 100px; } .podium .s3 { order: 3; min-height: 80px; }
-.podium .step span:first-child { font-size: 2rem; }
 .rank { width: 100%; border-collapse: collapse; margin: 8px 0 14px; } .rank td, .rank th { padding: 6px; border-bottom: 1px solid var(--line); }
 .daily-clue { text-align: center; } .daily-clue p { color: var(--muted); font-family: var(--font-mono); font-size: 0.82rem; }
 .daily-preview-wrap { display: flex; justify-content: center; margin: 6px 0; }

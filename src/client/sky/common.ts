@@ -7,6 +7,7 @@
 import * as THREE from 'three';
 import type { GeoPoint, Vec3 } from '../../shared/lib/astro/types.ts';
 import type { BodyId } from '../../shared/data/solar.ts';
+import { len, dot, cross, norm } from '../../shared/lib/vec3.ts';
 
 export const D2R = Math.PI / 180;
 export const R_EARTH = 6378.137;
@@ -44,10 +45,7 @@ export function toHorizon(p: Vec3, o: GeoPoint, at: Vec3): Vec3 {
 
 export const altOf = (v: Vec3) => Math.asin(v[1] / Math.hypot(v[0], v[1], v[2])) / D2R;
 export const azOf = (v: Vec3) => ((Math.atan2(v[0], -v[2]) / D2R) + 360) % 360;
-export const norm = (v: Vec3): Vec3 => { const l = Math.hypot(v[0], v[1], v[2]); return [v[0] / l, v[1] / l, v[2] / l]; };
-export const len = (v: Vec3) => Math.hypot(v[0], v[1], v[2]);
-const dot = (a: Vec3, b: Vec3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-const cross = (a: Vec3, b: Vec3): Vec3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+export { norm, len };
 /** Angle between two directions (radians), precise for tiny angles. */
 export const angle = (a: Vec3, b: Vec3) => Math.atan2(len(cross(a, b)), dot(a, b));
 

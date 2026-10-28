@@ -4,6 +4,7 @@
  * x toward the vernal equinox, z toward the north ecliptic pole. Distances in AU (planets) or km (moons).
  */
 import { BODY, type BodyId, type Kepler } from '../data/solar.ts';
+import { cross, norm } from './vec3.ts';
 
 const D2R = Math.PI / 180;
 export const AU_KM = 149_597_870.7;
@@ -105,9 +106,6 @@ export function distanceKm(a: BodyId, b: BodyId, d: number): number {
   const p = helioKm(a, d), q = helioKm(b, d);
   return Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
 }
-
-export function cross(a: Vec3, b: Vec3): Vec3 { return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]; }
-export function norm(a: Vec3): Vec3 { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; }
 
 /**
  * Display scale for the overview: real distances would put Neptune 80,000 Earth-radii away, so orbit radii are

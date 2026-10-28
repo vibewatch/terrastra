@@ -8,6 +8,7 @@
  */
 import * as THREE from 'three';
 import { gauss, rng, type Rnd } from '../cosmos-paint.ts';
+import { dot, cross, norm } from '../../../shared/lib/vec3.ts';
 
 export type NebulaTier = 'high' | 'medium' | 'low';
 export type V3 = [number, number, number];
@@ -30,12 +31,9 @@ export const hex = (h: string): C3 => { const v = parseInt(h.slice(1), 16); retu
 export const mix = (a: C3, b: C3, t: number): C3 => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 export const clamp = (v: number, a = 0, b = 1) => v < a ? a : v > b ? b : v;
 export const smooth = (a: number, b: number, v: number) => { const t = clamp((v - a) / (b - a)); return t * t * (3 - 2 * t); };
-const len = (v: V3) => Math.hypot(v[0], v[1], v[2]);
-export const norm = (v: V3): V3 => { const l = len(v) || 1; return [v[0] / l, v[1] / l, v[2] / l]; };
 export const add = (a: V3, b: V3, k = 1): V3 => [a[0] + b[0] * k, a[1] + b[1] * k, a[2] + b[2] * k];
 export const sub = (a: V3, b: V3): V3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
-export const dot = (a: V3, b: V3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-const cross = (a: V3, b: V3): V3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+export { norm, dot };
 export const scale = (a: V3, k: number): V3 => [a[0] * k, a[1] * k, a[2] * k];
 /** Rotation (degrees about X, then Y, then Z) as a function on points. */
 export function rot(ax: number, ay = 0, az = 0): (v: V3) => V3 {

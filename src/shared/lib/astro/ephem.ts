@@ -58,7 +58,7 @@ const DT_OBS = [64.69, 65.15, 65.78, 66.32, 66.91, 67.64, 68.59, 69.22, 69.36, 6
 /** ΔT = TT − UT in seconds. */
 export const deltaT = (ms: number) => deltaTYear(2000 + (jd(ms) - 2451545) / 365.25);
 /** Julian Ephemeris Day (TT). */
-export const jde = (ms: number) => jd(ms) + deltaT(ms) / 86400;
+const jde = (ms: number) => jd(ms) + deltaT(ms) / 86400;
 /** Julian centuries of TT since J2000.0. */
 export const centuries = (ms: number) => (jde(ms) - 2451545) / 36525;
 
