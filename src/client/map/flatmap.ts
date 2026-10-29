@@ -913,8 +913,10 @@ export class FlatMap {
     const ll = this.toLatLon(x, y);
     const c = ll ? countryAt(this.host.shapes(), ll[0], ll[1]) : null;
     this.picked = c && ll ? { c, lat: ll[0], lon: ll[1] } : null;
-    if (this.quiz && c && !this.revealed.has(countryKey(c))) {
-      this.revealed.add(countryKey(c));
+    if (this.quiz && c) {
+      // a tap flips the country: hidden names are revealed, revealed ones go back into hiding
+      const k = countryKey(c);
+      if (!this.revealed.delete(k)) this.revealed.add(k);
       this.renderBar();
       this.dirty = true;
     }

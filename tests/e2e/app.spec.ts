@@ -108,6 +108,14 @@ test('flat world map: projections, zoom, countries, pins, back to the globe', as
   await page.mouse.click(fx, fy);
   await expect(tag).toContainText('France');
   await expect(page.locator('.lb-revealed')).toHaveText('FRANCE');
+  // tapping a revealed country hides it again (re-read France: a quick second tap may also zoom)
+  [fx, fy] = await france();
+  await page.mouse.click(fx, fy);
+  await expect(page.locator('.lb-revealed')).toHaveCount(0);
+  await expect(tag).toBeHidden();
+  [fx, fy] = await france();
+  await page.mouse.click(fx, fy);
+  await expect(page.locator('.lb-revealed')).toHaveText('FRANCE');
   await page.getByTestId('map-quiz-reset').click();
   await expect(page.locator('.lb-revealed')).toHaveCount(0);
   await page.getByTestId('map-quiz').click();
