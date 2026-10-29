@@ -775,26 +775,27 @@ export class FlatMap {
     this.bar.replaceChildren(
       h('p', { class: 'fm-note' }, notes[this.proj],
         h('button', { class: 'fm-learn', 'data-testid': 'map-learn', html: icon('bulb', 14), onclick: () => this.host.learn() }, h('span', {}, t('mapLearn')))),
-      h('div', { class: 'fm-quiz' },
-        h('button', {
-          class: 'pill pill-sm' + (this.quiz ? ' active' : ''), 'aria-pressed': String(this.quiz), 'data-testid': 'map-quiz',
-          html: icon('eye', 14), onclick: () => this.setQuiz(!this.quiz),
-        }, h('span', {}, t('mapQuiz'))),
-        !this.quiz ? null
-          : this.revealed.size
-            ? h('button', { class: 'pill pill-sm', 'data-testid': 'map-quiz-reset', onclick: () => this.hideRevealed() }, t('mapQuizReset', { n: this.revealed.size }))
-            : h('span', { class: 'fm-quiz-hint' }, t('mapQuizHint'))),
-      h('div', { class: 'seg fm-proj', role: 'radiogroup', 'aria-label': t('mapProjection') },
-        ...PROJ_IDS.map(p => h('button', {
-          class: p === this.proj ? 'on' : '', role: 'radio', 'aria-checked': String(p === this.proj), 'data-testid': 'proj-' + p,
-          onclick: () => this.setProj(p),
-        }, names[p]))));
+      ...!this.quiz ? []
+        : this.revealed.size
+          ? [h('button', { class: 'pill pill-sm fm-quiz-reset', 'data-testid': 'map-quiz-reset', onclick: () => this.hideRevealed() }, t('mapQuizReset', { n: this.revealed.size }))]
+          : [h('span', { class: 'fm-quiz-hint' }, t('mapQuizHint'))],
+      h('div', { class: 'fm-row' },
+        h('label', { class: 'fm-switch' },
+          h('input', { type: 'checkbox', role: 'switch', 'data-testid': 'map-names', checked: !this.quiz, onchange: (e: Event) => this.setQuiz(!(e.target as HTMLInputElement).checked) }),
+          h('span', { class: 'fm-track', 'aria-hidden': 'true' }),
+          h('span', {}, t('mapNames'))),
+        h('div', { class: 'seg fm-proj', role: 'radiogroup', 'aria-label': t('mapProjection') },
+          ...PROJ_IDS.map(p => h('button', {
+            class: p === this.proj ? 'on' : '', role: 'radio', 'aria-checked': String(p === this.proj), 'data-testid': 'proj-' + p,
+            onclick: () => this.setProj(p),
+          }, names[p])))));
   }
 
   private setQuiz(on: boolean): void {
     this.quiz = on;
     save('mapQuiz', on);
     this.hideRevealed();
+    this.bar.querySelector<HTMLInputElement>('[data-testid="map-names"]')?.focus();
   }
 
   private hideRevealed(): void {

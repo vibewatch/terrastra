@@ -1309,16 +1309,27 @@ body.flatmap #globe { visibility: hidden; }
 .fm-hl-line { stroke: #fde047; stroke-width: 2px; fill: rgba(253, 224, 71, 0.12) !important; fill-rule: evenodd; }
 .fm-hl.broken .fm-hl-line { fill: none !important; }
 .flatmap .country-tag { z-index: 3; }
-/* the map's own controls sit in the bottom-left corner, stacked above the help button */
+/* the map's own controls share the bottom row with the help button, just to its right */
 .fm-bar {
-  position: absolute; left: 20px; bottom: 84px; z-index: 4;
-  display: flex; flex-direction: column; align-items: flex-start; gap: 8px; max-width: min(420px, calc(100vw - 120px));
+  position: absolute; left: 84px; bottom: 20px; z-index: 4;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 8px;
+  max-width: calc(50% - 84px - 130px); /* stays clear of the centred coordinate readout */
 }
+.fm-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .fm-proj { flex-wrap: nowrap; padding: 4px; background: var(--hud-panel); border: 1px solid var(--hud-line); }
 .seg.fm-proj button { padding: 5px 12px; font-size: .8rem; white-space: nowrap; }
 .fm-note { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: .78rem; color: #cbd5e1; text-shadow: 0 1px 4px #000; }
-.fm-quiz { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
-.fm-quiz .pill { display: inline-flex; align-items: center; gap: 5px; }
+.fm-switch {
+  position: relative; display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; cursor: pointer; white-space: nowrap;
+  background: var(--hud-panel); border: 1px solid var(--hud-line); font-size: .8rem; color: var(--hud-hi);
+}
+.fm-switch input { position: absolute; opacity: 0; pointer-events: none; }
+.fm-track { position: relative; flex: none; width: 30px; height: 16px; border-radius: 999px; background: rgba(148, 163, 184, .35); transition: background-color .15s; }
+.fm-track::after { content: ""; position: absolute; left: 2px; top: 2px; width: 12px; height: 12px; border-radius: 50%; background: #e2e8f0; transition: transform .15s; }
+.fm-switch input:checked + .fm-track { background: var(--accent); }
+.fm-switch input:checked + .fm-track::after { transform: translateX(14px); }
+.fm-switch:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.fm-quiz-reset { display: inline-flex; align-items: center; }
 .fm-quiz-hint { font-size: .78rem; color: #fde68a; text-shadow: 0 1px 4px #000; }
 .lb-revealed { color: #fde047 !important; }
 .fm-learn { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--hud-line); background: var(--hud-fill); color: var(--hud-hi); font-size: .78rem; }
@@ -1328,8 +1339,12 @@ body.flatmap #globe { visibility: hidden; }
 body.photo-mode :is(.fm-bar, .fm-scale, .fm-pins) { display: none !important; }
 body.immersive :is(.fm-bar, .fm-scale) { display: none !important; }
 @media (max-width: 760px) {
-  .fm-bar { left: 10px; bottom: 100px; gap: 6px; max-width: calc(100vw - 90px); }
+  /* the phone's bottom row is the help button, these controls and the zoom rail; the readout steps aside */
+  body.flatmap .coord-readout { display: none; }
+  .fm-bar { left: 66px; bottom: 10px; gap: 6px; max-width: calc(100vw - 66px - 64px); }
+  .fm-row { gap: 6px; }
   .fm-note { display: none; }
+  .fm-switch { padding: 6px 10px; font-size: .74rem; }
   .seg.fm-proj button { padding: 4px 8px; font-size: .72rem; }
-  .fm-scale { right: auto; left: 16px; bottom: 74px; }
+  .fm-scale { right: auto; left: 12px; bottom: 136px; }
 }
