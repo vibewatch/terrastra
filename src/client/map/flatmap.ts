@@ -192,6 +192,8 @@ function graticule(step: number): { seg: Float32Array; col: Float32Array } {
 }
 
 const gridStep = (z: number) => (z < 2 ? 30 : z < 4.5 ? 15 : z < 9 ? 10 : 5);
+/** Countries come from two resolutions (labels vs hit-testing), so match them by ISO code. */
+const countryKey = (c: CountryInfo) => c.a2 || c.name;
 const textW = (s: string, px: number) => (s.length + (s.match(/[\u3000-\u9fff]/g)?.length ?? 0) * 0.8) * px + 10;
 
 export class FlatMap {
@@ -236,6 +238,9 @@ export class FlatMap {
   private hoverC: CountryInfo | null = null;
   private picked: { c: CountryInfo; lat: number; lon: number } | null = null;
   private cursor: { x: number; y: number } | null = null;
+  /** Quiz mode: country and city names stay hidden until a country is tapped. */
+  private quiz = load<boolean>('mapQuiz', false);
+  private revealed = new Set<string>();
   private bar = h('div', { class: 'fm-bar', 'data-occludes': true });
   private scaleEl = h('div', { class: 'fm-scale', 'aria-hidden': 'true' });
 
@@ -581,9 +586,14 @@ export class FlatMap {
       if (this.onScreen(x, y, 20)) out.push({ text, cls, x, y, pri, corner });
     };
     if (grid) this.pushGridLabels(push, l);
+    if (this.quiz) {
+      for (const c of this.host.countries()) {
+        if (this.revealed.has(countryKey(c))) push(this.host.globe.countryLabel(c), 'lb-country lb-revealed', c.lat, c.lon, 1e6 + c.area);
+      }
+    }
     if (names) {
       const kd = this.v.k * D;
-      for (const c of this.host.countries()) {
+      for (const c of this.quiz ? [] : this.host.countries()) {
         if (!c.a2) continue;
         // projected area in px² (area is in square degrees of ground)
         const phi = c.lat * D, hs = xScale(this.proj, phi) / Math.max(0.05, Math.cos(phi));
@@ -592,13 +602,13 @@ export class FlatMap {
         push(this.host.globe.countryLabel(c), 'lb-country', c.lat, c.lon, 1000 + c.area);
       }
       const minPop = z < 1.4 ? 14 : z < 2.2 ? 6 : z < 3.5 ? 2.5 : z < 6 ? 1 : 0;
-      for (const [name, , la, lo, pop, cap] of CITIES) {
+      for (const [name, , la, lo, pop, cap] of this.quiz ? [] : CITIES) {
         if (pop < minPop && !(cap && z >= 2.6)) continue;
         push(cityName(name, l), cap ? 'lb-city lb-cap' : 'lb-city', la, lo, pop + (cap ? 5 : 0));
       }
       if (z < 5) for (const [, n, la, lo] of OCEANS) push(n[l] ?? n.en, 'lb-ocean', la, lo, 2000);
     }
-    const isC = (lb: L) => (lb.cls === 'lb-country' ? 1 : 0);
+    const isC = (lb: L) => (lb.cls.startsWith('lb-country') ? 1 : 0);
     out.sort((a, b) => isC(b) - isC(a) || b.pri - a.pri);
     // country names first, then the pins around them, then every other label in the gaps
     const boxes: [number, number, number, number][] = [];
@@ -606,7 +616,7 @@ export class FlatMap {
     let pinsDone = false;
     for (const lb of out) {
       if (!pinsDone && !isC(lb)) { pinsDone = true; this.layoutPins(z, boxes); boxes.push(...this.pinBoxes); }
-      const w = textW(lb.text, lb.cls === 'lb-country' ? 8 : 6.5), hh = 16;
+      const w = textW(lb.text, isC(lb) ? 8 : 6.5), hh = 16;
       const cx = lb.corner ? lb.x + w / 2 + 2 : lb.x, cy = lb.corner ? lb.y - hh / 2 - 1 : lb.y;
       const bx: [number, number, number, number] = [cx - w / 2, cy - hh / 2, cx + w / 2, cy + hh / 2];
       if (boxes.some(b => bx[0] < b[2] && bx[2] > b[0] && bx[1] < b[3] && bx[3] > b[1])) continue;
@@ -692,7 +702,7 @@ export class FlatMap {
     return el;
   }
 
-  private countryUi(): boolean { return this.host.globe.settings.borders && !this.host.globe.gameMode; }
+  private countryUi(): boolean { return (this.host.globe.settings.borders || this.quiz) && !this.host.globe.gameMode; }
 
   private shownCountry(): CountryInfo | null {
     return this.countryUi() ? this.hoverC ?? this.picked?.c ?? null : null;
@@ -732,7 +742,8 @@ export class FlatMap {
     let p: { x: number; y: number } | null = null;
     if (c && c === this.hoverC && this.cursor) p = this.cursor;
     else if (c && this.picked?.c === c) { const [x, y] = this.toScreen(this.picked.lat, this.picked.lon); p = { x, y }; }
-    if (!c || !p) { if (!tag.hidden) tag.hidden = true; return; }
+    // in quiz mode hovering only outlines the country; its name waits for a tap
+    if (!c || !p || (this.quiz && !this.revealed.has(countryKey(c)))) { if (!tag.hidden) tag.hidden = true; return; }
     const l = lang(), key = l + c.id;
     if (this.tagFor !== key) {
       this.tagFor = key;
@@ -762,13 +773,36 @@ export class FlatMap {
     const names: Record<ProjId, string> = { equalearth: t('projEqualEarth'), mercator: t('projMercator'), plate: t('projPlate') };
     const notes: Record<ProjId, string> = { equalearth: t('projEqualEarthNote'), mercator: t('projMercatorNote'), plate: t('projPlateNote') };
     this.bar.replaceChildren(
+      h('p', { class: 'fm-note' }, notes[this.proj],
+        h('button', { class: 'fm-learn', 'data-testid': 'map-learn', html: icon('bulb', 14), onclick: () => this.host.learn() }, h('span', {}, t('mapLearn')))),
+      h('div', { class: 'fm-quiz' },
+        h('button', {
+          class: 'pill pill-sm' + (this.quiz ? ' active' : ''), 'aria-pressed': String(this.quiz), 'data-testid': 'map-quiz',
+          html: icon('eye', 14), onclick: () => this.setQuiz(!this.quiz),
+        }, h('span', {}, t('mapQuiz'))),
+        !this.quiz ? null
+          : this.revealed.size
+            ? h('button', { class: 'pill pill-sm', 'data-testid': 'map-quiz-reset', onclick: () => this.hideRevealed() }, t('mapQuizReset', { n: this.revealed.size }))
+            : h('span', { class: 'fm-quiz-hint' }, t('mapQuizHint'))),
       h('div', { class: 'seg fm-proj', role: 'radiogroup', 'aria-label': t('mapProjection') },
         ...PROJ_IDS.map(p => h('button', {
           class: p === this.proj ? 'on' : '', role: 'radio', 'aria-checked': String(p === this.proj), 'data-testid': 'proj-' + p,
           onclick: () => this.setProj(p),
-        }, names[p]))),
-      h('p', { class: 'fm-note' }, notes[this.proj],
-        h('button', { class: 'fm-learn', 'data-testid': 'map-learn', html: icon('bulb', 14), onclick: () => this.host.learn() }, h('span', {}, t('mapLearn')))));
+        }, names[p]))));
+  }
+
+  private setQuiz(on: boolean): void {
+    this.quiz = on;
+    save('mapQuiz', on);
+    this.hideRevealed();
+  }
+
+  private hideRevealed(): void {
+    this.revealed.clear();
+    this.picked = null;
+    this.renderBar();
+    this.drawHighlight(); this.updateTag();
+    this.dirty = true;
   }
 
   // ---------- input ----------
@@ -879,6 +913,11 @@ export class FlatMap {
     const ll = this.toLatLon(x, y);
     const c = ll ? countryAt(this.host.shapes(), ll[0], ll[1]) : null;
     this.picked = c && ll ? { c, lat: ll[0], lon: ll[1] } : null;
+    if (this.quiz && c && !this.revealed.has(countryKey(c))) {
+      this.revealed.add(countryKey(c));
+      this.renderBar();
+      this.dirty = true;
+    }
     // on touch there is no hover: the tap is what shows the outline
     if (this.hoverC && this.hoverC !== c) this.hoverC = null;
     this.drawHighlight(); this.updateTag();

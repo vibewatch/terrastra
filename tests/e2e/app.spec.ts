@@ -98,6 +98,20 @@ test('flat world map: projections, zoom, countries, pins, back to the globe', as
   await page.mouse.move(fx + 1, fy);
   await expect(page.getByTestId('map-country-tag')).toContainText('France');
   await shot(page, 'desktop_05b_flatmap');
+  // "hide names": hovering only outlines a country, a tap reveals its name until "hide again"
+  const tag = page.getByTestId('map-country-tag');
+  await page.getByTestId('map-quiz').click();
+  await expect(page.getByTestId('map-quiz')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.fm-labels .lb-country:visible')).toHaveCount(0);
+  await expect(tag).toBeHidden();
+  [fx, fy] = await france();
+  await page.mouse.click(fx, fy);
+  await expect(tag).toContainText('France');
+  await expect(page.locator('.lb-revealed')).toHaveText('FRANCE');
+  await page.getByTestId('map-quiz-reset').click();
+  await expect(page.locator('.lb-revealed')).toHaveCount(0);
+  await page.getByTestId('map-quiz').click();
+  await expect(page.locator('.fm-labels .lb-country:visible').first()).toBeVisible();
   // a pin opens the same info card as on the globe
   const pin = page.getByTestId('map-pin').first();
   await expect(pin).toBeVisible();
