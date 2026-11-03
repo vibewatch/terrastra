@@ -53,7 +53,8 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: npm run build
-      - run: xvfb-run -a -s '-screen 0 1920x1080x24' npx playwright test tests/e2e/app.spec.ts tests/e2e/quality.spec.ts --project=desktop --grep 'account: magic link|a failed Solar System load can be retried|progress backup:'
+      - run: |
+          npx playwright test tests/e2e/app.spec.ts tests/e2e/quality.spec.ts --project=desktop --grep 'account: magic link|a failed Solar System load can be retried|progress backup:'
         env:
           SKIP_SCREENSHOTS: '1'
 
