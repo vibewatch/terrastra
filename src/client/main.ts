@@ -272,7 +272,7 @@ async function boot(): Promise<void> {
   let adminData: AdminData | null = null;
   let adminPending = false, adminFailed = false;
   function requestAdmin(attempt = 1): void {
-    if (adminData || adminPending || adminFailed) return;
+    if (!store.settings.states || adminData || adminPending || adminFailed) return;
     adminPending = true;
     void loadAdmin().then(data => {
       adminData = data;
@@ -280,13 +280,13 @@ async function boot(): Promise<void> {
       flatMap?.setAdminData(data);
     }, (error: unknown) => {
       console.error('Could not load administrative regions:', error);
-      if (!inMap && (inSolar || inSky || globe.zoom < ADMIN_GLOBE_ZOOM)) return;
+      if (!store.settings.states || (!inMap && (inSolar || inSky || globe.zoom < ADMIN_GLOBE_ZOOM))) return;
       adminFailed = true;
       showLoadError(t('adminRegions'), next => { adminFailed = false; requestAdmin(next); }, inMap ? 'map' : '', attempt);
     }).finally(() => { adminPending = false; });
   }
   function requestAdminAt(zoom: number, threshold: number): void {
-    if (zoom < threshold) { if (!adminPending) adminFailed = false; return; }
+    if (!store.settings.states || zoom < threshold) { if (!adminPending) adminFailed = false; return; }
     requestAdmin();
   }
   const openMap = async (attempt = 1) => {
@@ -489,6 +489,10 @@ async function boot(): Promise<void> {
     const s = store.settings;
     if (!gaming) shell.applySettings(s); else globe.applySettings({ ...s, names: globe.settings.names });
     if (s !== mapSettings) { mapSettings = s; flatMap?.markDirty(); }
+    if (s.states) {
+      if (inMap && flatMap) requestAdminAt(flatMap.zoom, ADMIN_MAP_ZOOM);
+      else if (!inSolar && !inSky && !gaming && !document.body.classList.contains('lessoning')) requestAdminAt(globe.zoom, ADMIN_GLOBE_ZOOM);
+    }
     if ((s.surfaceMode === 'political') !== (painted.mode === 'political') || s.borders !== painted.borders) {
       painted = { mode: s.surfaceMode, borders: s.borders };
       setTimeout(() => void repaint(), 0);

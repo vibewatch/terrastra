@@ -2,8 +2,9 @@ import { readFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
 import type { GeometryCollection, Topology } from 'topojson-specification';
 import { mesh } from 'topojson-client';
-import { readAdminData, type AdminData } from '../../src/client/globe/admin.ts';
+import { ADMIN_BORDER_COLOR, readAdminData, type AdminData } from '../../src/client/globe/admin.ts';
 import { lineLonLat } from '../../src/client/globe/borders.ts';
+import { DEFAULT_SETTINGS } from '../../src/client/globe/scene.ts';
 import { CHINA_CAPITALS } from '../../src/shared/data/china-capitals.ts';
 
 describe('administrative map data', () => {
@@ -14,6 +15,14 @@ describe('administrative map data', () => {
     data = readAdminData(topology);
   }, 60_000);
 
+  it('defaults state display to off and uses a distinct state border color', () => {
+    expect(DEFAULT_SETTINGS.states).toBe(false);
+    expect(ADMIN_BORDER_COLOR).toBe('#f59e0b');
+    expect(ADMIN_BORDER_COLOR).not.toBe('#f1f5f9');
+    expect(ADMIN_BORDER_COLOR).not.toBe('#7dd3fc');
+    expect(ADMIN_BORDER_COLOR).not.toBe('#fde047');
+  });
+
   it('covers Chinese provincial divisions and first-level regions across the world', () => {
     const codes = new Set(data.regions.filter(area => area.country === 'CN').map(area => area.code));
     const chineseDivisions = [
@@ -23,10 +32,12 @@ describe('administrative map data', () => {
       'CN-NM', 'CN-GX', 'CN-XZ', 'CN-NX', 'CN-XJ', 'CN-HK', 'CN-MO', 'CN-TW',
     ];
     for (const code of chineseDivisions) expect(codes.has(code), code).toBe(true);
+    for (const city of CHINA_CAPITALS) expect(codes.has(city.code), `${city.zh} (${city.code})`).toBe(true);
     expect(new Set(data.regions.map(area => area.country)).size).toBeGreaterThan(180);
     expect(data.regions.filter(area => area.country === 'GB').map(area => area.code).sort()).toEqual(['GB-ENG', 'GB-NIR', 'GB-SCT', 'GB-WLS']);
     expect(data.regions.filter(area => area.country === 'FR')).toHaveLength(18);
     expect(data.lineTiles.length).toBeGreaterThan(0);
+    expect('at' in data).toBe(false);
   });
 
   it('keeps every administrative border when partitioning it for rendering', () => {
@@ -49,28 +60,5 @@ describe('administrative map data', () => {
       const arcs = (region.type === 'Polygon' ? region.arcs.flat() : region.arcs.flat(2)).map(index => index < 0 ? ~index : index);
       expect(new Set(arcs).size, code).toBe(arcs.length);
     }
-  });
-
-  it('places each Chinese provincial capital inside the corresponding region', () => {
-    for (const city of CHINA_CAPITALS) {
-      expect(data.at(city.lat, city.lon)?.code, `${city.zh} (${city.code})`).toBe(city.code);
-    }
-  });
-
-  it.each([
-    [39.904, 116.407, 'CN-BJ'],
-    [31.2304, 121.4737, 'CN-SH'],
-    [22.3, 114.17, 'CN-HK'],
-    [22.1987, 113.5439, 'CN-MO'],
-    [37.7749, -122.4194, 'US-CA'],
-    [30.2672, -97.7431, 'US-TX'],
-    [43.6532, -79.3832, 'CA-ON'],
-    [51.5074, -0.1278, 'GB-ENG'],
-    [55.9533, -3.1883, 'GB-SCT'],
-    [51.4816, -3.1791, 'GB-WLS'],
-    [54.5973, -5.9301, 'GB-NIR'],
-    [48.8566, 2.3522, 'FR-IDF'],
-  ])('finds the region at (%f, %f)', (lat, lon, code) => {
-    expect(data.at(lat, lon)?.code).toBe(code);
   });
 });

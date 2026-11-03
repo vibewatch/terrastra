@@ -37,6 +37,4 @@ export const CHINA_CAPITALS: readonly ProvincialCapital[] = [
   { code: 'CN-TW', en: 'Taipei', zh: '台北', lat: 25.033, lon: 121.5654 },
 ];
 
-const byCode = new Map(CHINA_CAPITALS.map(city => [city.code, city]));
 export const CHINA_CAPITAL_NAMES = new Set(CHINA_CAPITALS.map(city => city.en));
-export const chinaCapital = (code: string): ProvincialCapital | undefined => byCode.get(code);

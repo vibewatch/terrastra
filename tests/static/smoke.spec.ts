@@ -20,10 +20,6 @@ test('static build works below a sub-path', async ({ page }) => {
   expect(blocked).toBe(true);
   // the map and the catalogue loaded: an item is on the globe
   await expect.poll(() => page.evaluate(() => (window as any).__pp.itemScreen('eiffel_tower') !== null || document.querySelectorAll('canvas').length > 0)).toBe(true);
-  const adminResponse = page.waitForResponse(r => r.url().endsWith('/terrastra/data/admin-1.json'));
-  await page.evaluate(() => (window as any).__pp.globe.setH(0.8));
-  expect((await adminResponse).ok()).toBe(true);
-  await expect.poll(() => page.evaluate(() => (window as any).__pp.globe.adminData?.regions.length ?? 0), { timeout: 60_000 }).toBeGreaterThan(4000);
   // no account UI in the static edition
   await page.locator('#btn-hub').click();
   await page.getByTestId('hub-tab-me').click();
@@ -31,6 +27,11 @@ test('static build works below a sub-path', async ({ page }) => {
   await expect(page.getByTestId('menu-account')).toHaveCount(0);
   await page.locator('#btn-menu').click();
   await expect(page.getByTestId('backup-export')).toBeVisible();
+  const adminResponse = page.waitForResponse(r => r.url().endsWith('/terrastra/data/admin-1.json'));
+  await page.locator('label.switch-card', { has: page.getByTestId('set-states') }).click();
+  await page.evaluate(() => (window as any).__pp.globe.setH(0.8));
+  expect((await adminResponse).ok()).toBe(true);
+  await expect.poll(() => page.evaluate(() => (window as any).__pp.globe.adminData?.regions.length ?? 0), { timeout: 60_000 }).toBeGreaterThan(4000);
 
   // deep link into a lazy scene (its chunk comes from the sub-path)
   await page.goto('?lowfx=1&notut#milkyway');

@@ -1,18 +1,16 @@
-import { feature, mesh } from 'topojson-client';
+import { mesh } from 'topojson-client';
 import type { GeometryCollection, Topology } from 'topojson-specification';
-import type { Feature, MultiPolygon, Polygon } from 'geojson';
-import { countryAt, lineLonLat } from './borders.ts';
+import { lineLonLat } from './borders.ts';
 import { url } from '../lib/env.ts';
-import { countryName, t } from '../lib/i18n.ts';
-import { chinaCapital } from '../../shared/data/china-capitals.ts';
 import type { Lang } from '../../shared/data/types.ts';
 import { latLonToVec } from '../../shared/lib/geo.ts';
 
 export const ADMIN_GLOBE_ZOOM = 9;
 export const ADMIN_MAP_ZOOM = 3;
 export const ADMIN_LINE_RADIUS = 1.0015;
+export const ADMIN_BORDER_COLOR = '#f59e0b';
 
-interface RegionProperties extends Record<string, unknown> {
+export interface AdminArea extends Record<string, unknown> {
   id: string;
   code: string;
   country: string;
@@ -21,10 +19,6 @@ interface RegionProperties extends Record<string, unknown> {
   lat: number;
   lon: number;
   area: number;
-}
-
-export interface AdminArea extends RegionProperties {
-  feature: Feature<Polygon | MultiPolygon>;
 }
 
 export interface AdminLineTile {
@@ -36,18 +30,11 @@ export interface AdminLineTile {
 export interface AdminData {
   regions: readonly AdminArea[];
   lineTiles: readonly AdminLineTile[];
-  at(lat: number, lon: number): AdminArea | null;
 }
 
 export const adminName = (area: AdminArea, lang: Lang): string => lang === 'zh' ? area.zh : area.name;
 
-export function adminSubtitle(area: AdminArea, lang: Lang): string {
-  const country = countryName(area.country, lang);
-  const capital = chinaCapital(area.code);
-  return capital ? `${country} · ${t('provinceCapital', {}, lang)}: ${capital[lang]}` : country;
-}
-
-function isProperties(p: Record<string, unknown> | null): p is RegionProperties {
+function isProperties(p: Record<string, unknown> | null | undefined): p is AdminArea {
   return !!p && ['id', 'code', 'country', 'name', 'zh'].every(k => typeof p[k] === 'string') &&
     ['lat', 'lon', 'area'].every(k => typeof p[k] === 'number' && Number.isFinite(p[k]));
 }
@@ -99,50 +86,24 @@ function lineTiles(lines: Float32Array): AdminLineTile[] {
   return [...buckets.values()].map(({ bounds, globeLines, mapLines }) => ({ bounds, globeLines, mapLines }));
 }
 
-/** Decode the shared topology once and index polygon bounds for hover and tap lookups. */
+/** Decode the shared topology once into region label anchors and tiled internal border segments. */
 export function readAdminData(topo: Topology): AdminData {
   const obj = topo.objects.regions;
   if (!obj || obj.type !== 'GeometryCollection') throw new Error('Missing administrative regions');
-  const collection = feature(topo, obj as GeometryCollection);
   const regions: AdminArea[] = [];
-  const cells = new Map<number, AdminArea[]>();
-  for (const f of collection.features) {
-    if (!isProperties(f.properties) || !f.geometry || (f.geometry.type !== 'Polygon' && f.geometry.type !== 'MultiPolygon')) {
+  for (const g of obj.geometries) {
+    const p = g.properties as Record<string, unknown> | undefined;
+    if (!isProperties(p) || (g.type !== 'Polygon' && g.type !== 'MultiPolygon')) {
       throw new Error('Invalid administrative region');
     }
-    const shape: Feature<Polygon | MultiPolygon> = { type: 'Feature', geometry: f.geometry, properties: f.properties, id: f.id };
-    const region: AdminArea = { ...f.properties, feature: shape };
-    regions.push(region);
-    const polygons = shape.geometry.type === 'Polygon' ? [shape.geometry.coordinates] : shape.geometry.coordinates;
-    const occupied = new Set<number>();
-    for (const rings of polygons) {
-      let west = 180, east = -180, south = 90, north = -90;
-      for (const [lon, lat] of rings[0]) {
-        west = Math.min(west, lon); east = Math.max(east, lon);
-        south = Math.min(south, lat); north = Math.max(north, lat);
-      }
-      const first = east - west > 180 ? 0 : col(west), last = east - west > 180 ? COLS - 1 : col(east);
-      for (let y = row(south); y <= row(north); y++) {
-        for (let x = first; x <= last; x++) occupied.add(y * COLS + x);
-      }
-    }
-    for (const key of occupied) {
-      let bucket = cells.get(key);
-      if (!bucket) cells.set(key, bucket = []);
-      bucket.push(region);
-    }
+    regions.push({ ...p });
   }
-  const borders = mesh(topo, obj as GeometryCollection<RegionProperties>, (a, b) =>
+  const borders = mesh(topo, obj as GeometryCollection<AdminArea>, (a, b) =>
     a !== b && !!a.properties && !!b.properties && 'country' in a.properties && 'country' in b.properties &&
     a.properties.country === b.properties.country);
   return {
     regions,
     lineTiles: lineTiles(lineLonLat(borders.coordinates)),
-    at(lat, lon) {
-      if (!Number.isFinite(lat) || !Number.isFinite(lon) || lat < -90 || lat > 90) return null;
-      const wrapped = ((lon + 180) % 360 + 360) % 360 - 180;
-      return countryAt(cells.get(row(lat) * COLS + col(wrapped)) ?? [], lat, wrapped);
-    },
   };
 }
 

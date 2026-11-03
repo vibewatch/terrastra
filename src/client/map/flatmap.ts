@@ -3,7 +3,7 @@ import { GRID_NAMES, OCEANS, type Globe } from '../globe/scene.ts';
 import type { CountryInfo } from '../globe/painter.ts';
 import type { Quality } from '../globe/quality.ts';
 import { countryAt } from '../globe/borders.ts';
-import { ADMIN_MAP_ZOOM, adminName, adminSubtitle, type AdminArea, type AdminData, type AdminLineTile } from '../globe/admin.ts';
+import { ADMIN_BORDER_COLOR, ADMIN_MAP_ZOOM, adminName, type AdminData, type AdminLineTile } from '../globe/admin.ts';
 import { CATALOGUE } from '../../shared/data/catalogue.ts';
 import { TYPE_META } from '../../shared/data/typemeta.ts';
 import { CITIES, cityName } from '../../shared/data/cities.ts';
@@ -45,7 +45,6 @@ export interface MapHost {
 }
 
 interface View { lon0: number; cy: number; k: number }
-type MapArea = CountryInfo | AdminArea;
 
 const LINE_VERT = /* glsl */ `
   attribute vec4 aSeg;
@@ -217,7 +216,6 @@ export class FlatMap {
   private adminCaseMat: THREE.ShaderMaterial;
   private adminTiles: { tile: AdminLineTile; line: THREE.Mesh; casing: THREE.Mesh }[] = [];
   private adminData: AdminData | null = null;
-  private adminWasVisible = false;
   private grid: THREE.Mesh;
   private gridStepNow = 0;
   private borderSrc: Float32Array | null = null;
@@ -245,8 +243,8 @@ export class FlatMap {
   private hlLine = document.createElementNS('http://www.w3.org/2000/svg', 'path');
   private tag = h('div', { class: 'country-tag', 'data-testid': 'map-country-tag', hidden: true });
   private tagFor = '';
-  private hoverC: MapArea | null = null;
-  private picked: { c: MapArea; lat: number; lon: number } | null = null;
+  private hoverC: CountryInfo | null = null;
+  private picked: { c: CountryInfo; lat: number; lon: number } | null = null;
   private cursor: { x: number; y: number } | null = null;
   /** Quiz mode: country and city names stay hidden until a country is tapped. */
   private quiz = load<boolean>('mapQuiz', false);
@@ -292,7 +290,7 @@ export class FlatMap {
     this.adminCase = new THREE.Group();
     this.adminLine = new THREE.Group();
     this.adminCaseMat = lineMat('#020617', 0.45);
-    this.adminLineMat = lineMat('#a5d8e8', 0.7);
+    this.adminLineMat = lineMat(ADMIN_BORDER_COLOR, 0.78);
     for (const [mesh, order] of [[this.grid, 1], [this.borderCase, 4], [this.borderLine, 5]] as const) {
       mesh.frustumCulled = false; mesh.renderOrder = order;
     }
@@ -324,7 +322,6 @@ export class FlatMap {
       this.adminCase.add(casing); this.adminLine.add(line);
       this.adminTiles.push({ tile, line, casing });
     }
-    this.adminWasVisible = false;
     this.dirty = true;
   }
 
@@ -588,7 +585,7 @@ export class FlatMap {
     this.grid.visible = s.graticule;
     const bw = 0.9 + 0.32 * Math.log2(z);
     this.borderLine.visible = this.borderCase.visible = s.borders;
-    this.adminLine.visible = this.adminCase.visible = s.borders && this.adminVisible();
+    this.adminLine.visible = this.adminCase.visible = this.adminVisible();
     if (this.adminLine.visible) {
       const view = { ...this.v, width: this.W, height: this.H };
       for (const { tile, line, casing } of this.adminTiles) {
@@ -608,15 +605,6 @@ export class FlatMap {
   // ---------- overlay ----------
   private layout(): void {
     const s = this.host.globe.settings, z = this.zoom;
-    const adminVisible = this.adminVisible();
-    if (adminVisible !== this.adminWasVisible) {
-      this.adminWasVisible = adminVisible;
-      if (this.cursor) this.hoverAt(this.cursor.x, this.cursor.y);
-      if (this.picked) {
-        const c = this.areaAt(this.picked.lat, this.picked.lon);
-        this.picked = c ? { ...this.picked, c } : null;
-      }
-    }
     this.layoutLabels(s.names, s.graticule, z);
     this.drawHighlight();
     this.updateTag();
@@ -780,12 +768,9 @@ export class FlatMap {
 
   private countryUi(): boolean { return (this.host.globe.settings.borders || this.quiz) && !this.host.globe.gameMode; }
 
-  private adminVisible(): boolean { return !!this.adminData && this.zoom >= ADMIN_MAP_ZOOM && !this.quiz && !this.host.globe.gameMode; }
-  private areaAt(lat: number, lon: number): MapArea | null {
-    return (this.adminVisible() ? this.adminData?.at(lat, lon) : null) ?? countryAt(this.host.shapes(), lat, lon);
-  }
+  private adminVisible(): boolean { return this.host.globe.settings.states && !!this.adminData && this.zoom >= ADMIN_MAP_ZOOM && !this.quiz && !this.host.globe.gameMode; }
 
-  private shownCountry(): MapArea | null {
+  private shownCountry(): CountryInfo | null {
     return this.countryUi() ? this.hoverC ?? this.picked?.c ?? null : null;
   }
 
@@ -824,19 +809,15 @@ export class FlatMap {
     if (c && c === this.hoverC && this.cursor) p = this.cursor;
     else if (c && this.picked?.c === c) { const [x, y] = this.toScreen(this.picked.lat, this.picked.lon); p = { x, y }; }
     // in quiz mode hovering only outlines the country; its name waits for a tap
-    if (!c || !p || (this.quiz && ('country' in c || !this.revealed.has(countryKey(c))))) { if (!tag.hidden) tag.hidden = true; return; }
+    if (!c || !p || (this.quiz && !this.revealed.has(countryKey(c)))) { if (!tag.hidden) tag.hidden = true; return; }
     const l = lang(), key = l + c.id;
     if (this.tagFor !== key) {
       this.tagFor = key;
-      if ('country' in c) {
-        tag.replaceChildren(document.createTextNode(adminName(c, l)), h('small', {}, adminSubtitle(c, l)));
-      } else {
-        let name = c.name;
-        if (c.a2 && c.a2 !== 'XK') try { name = new Intl.DisplayNames([l], { type: 'region' }).of(c.a2) ?? c.name; } catch { /* keep the English name */ }
-        tag.replaceChildren(document.createTextNode(name));
-        const cont = CONTINENT_NAMES[c.continent];
-        if (cont && c.a2 !== 'AQ') tag.append(h('small', {}, cont[l] ?? cont.en));
-      }
+      let name = c.name;
+      if (c.a2 && c.a2 !== 'XK') try { name = new Intl.DisplayNames([l], { type: 'region' }).of(c.a2) ?? c.name; } catch { /* keep the English name */ }
+      tag.replaceChildren(document.createTextNode(name));
+      const cont = CONTINENT_NAMES[c.continent];
+      if (cont && c.a2 !== 'AQ') tag.append(h('small', {}, cont[l] ?? cont.en));
     }
     tag.style.transform = `translate(${p.x.toFixed(1)}px,${(p.y - 14).toFixed(1)}px) translate(-50%,-100%)`;
     tag.hidden = false;
@@ -987,7 +968,7 @@ export class FlatMap {
   private hoverAt(x: number, y: number): void {
     if (!this.countryUi()) return;
     const ll = this.toLatLon(x, y);
-    const c = ll ? this.areaAt(ll[0], ll[1]) : null;
+    const c = ll ? countryAt(this.host.shapes(), ll[0], ll[1]) : null;
     this.cursor = { x, y };
     if (c !== this.hoverC) { this.hoverC = c; this.drawHighlight(); }
     this.updateTag();
@@ -997,9 +978,9 @@ export class FlatMap {
     this.host.hover(null, null);
     if (!this.countryUi()) return;
     const ll = this.toLatLon(x, y);
-    const c = ll ? this.areaAt(ll[0], ll[1]) : null;
+    const c = ll ? countryAt(this.host.shapes(), ll[0], ll[1]) : null;
     this.picked = c && ll ? { c, lat: ll[0], lon: ll[1] } : null;
-    if (this.quiz && c && !('country' in c)) {
+    if (this.quiz && c) {
       // a tap flips the country: hidden names are revealed, revealed ones go back into hiding
       const k = countryKey(c);
       if (!this.revealed.delete(k)) this.revealed.add(k);

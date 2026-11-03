@@ -392,7 +392,7 @@ export class Shell {
     const earth = this.space ? [] : [
       h('h3', {}, t('surfaceMode')), modeRow,
       h('h3', {}, t('auraPreset')), auraRow,
-      h('h3', {}, t('mLayers')), h('div', { class: 'chip-wrap' }, sw('names', 'tag'), sw('borders', 'globe'), sw('graticule', 'grid'), sw('shadows', 'contrast'), sw('clouds', 'cloud'), sw('aurora', 'aurora'), sw('tectonics', 'plates')),
+      h('h3', {}, t('mLayers')), h('div', { class: 'chip-wrap' }, sw('names', 'tag'), sw('borders', 'globe'), sw('states', 'map'), sw('graticule', 'grid'), sw('shadows', 'contrast'), sw('clouds', 'cloud'), sw('aurora', 'aurora'), sw('tectonics', 'plates')),
       h('h3', {}, t('mGlobe')), h('div', { class: 'chip-wrap' }, ...TYPE_ORDER.filter(ty => BY_TYPE[ty].length).map(ty => sw(TYPE_META[ty].layer, TYPE_ICON[ty]))),
     ];
     this.menu.classList.toggle('menu-space', this.space);

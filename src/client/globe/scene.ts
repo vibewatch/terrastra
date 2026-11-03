@@ -10,7 +10,7 @@ import { mat } from '../models/prims.ts';
 import { outdoorEnvironment, orientEnvironment } from '../models/environment.ts';
 import { paintNightLights, type CountryInfo } from './painter.ts';
 import { countryAt, outlinePositions } from './borders.ts';
-import { ADMIN_GLOBE_ZOOM, ADMIN_LINE_RADIUS, adminName, adminSubtitle, type AdminArea, type AdminData } from './admin.ts';
+import { ADMIN_BORDER_COLOR, ADMIN_GLOBE_ZOOM, ADMIN_LINE_RADIUS, adminName, type AdminData } from './admin.ts';
 import { CONTINENT_NAMES } from '../../shared/data/iso.ts';
 import { CITIES, cityName } from '../../shared/data/cities.ts';
 import { CHINA_CAPITALS, CHINA_CAPITAL_NAMES } from '../../shared/data/china-capitals.ts';
@@ -42,14 +42,14 @@ export const AURA_PRESETS: Record<AuraPreset, { label: string; colors: [string, 
 };
 
 export type Settings = Record<LayerKey, boolean> & {
-  names: boolean; borders: boolean; shadows: boolean; sfx: boolean; bgm: boolean;
+  names: boolean; borders: boolean; states: boolean; shadows: boolean; sfx: boolean; bgm: boolean;
   /** globe layers: plate boundaries, drifting clouds, polar aurora */
   tectonics: boolean; clouds: boolean; aurora: boolean; graticule: boolean;
   auraPreset: AuraPreset;
   surfaceMode: SurfaceMode;
 };
 export const DEFAULT_SETTINGS: Settings = {
-  names: true, borders: true, shadows: true,
+  names: true, borders: true, states: false, shadows: true,
   landmarks: true, animals: true, discoveries: true, vehicles: true,
   dinos: true, foods: true, festivals: true, space: true, plants: true, sports: true, volcanoes: true, migrations: true, voyages: true, people: true,
   tectonics: false, clouds: true, aurora: true, graticule: true,
@@ -66,7 +66,6 @@ const SHADOW_MAX_H = 0.6;
 const SHADOW_STRENGTH = 0.72;
 export const MAX_H = 4.5;
 const TIER_ZOOM = [0, 0, 4.3, 5.3];
-type MapArea = CountryInfo | AdminArea;
 // zoom readout: ×4.0 at the default altitude, proportional to 1/altitude.
 const zoomFromH = (h: number) => (4 * DEFAULT_H) / h;
 
@@ -372,16 +371,16 @@ export class Globe {
   private adminData: AdminData | null = null;
   private adminLines: THREE.Group | null = null;
   private adminTiles: { line: THREE.LineSegments; sphere: THREE.Sphere }[] = [];
-  private adminMat = new THREE.LineBasicMaterial({ color: '#a5d8e8', transparent: true, opacity: 0.6, depthWrite: false });
+  private adminMat = new THREE.LineBasicMaterial({ color: ADMIN_BORDER_COLOR, transparent: true, opacity: 0.65, depthWrite: false });
   private adminWasVisible = false;
   /** Border opacity [widest view, close up] for the current surface style. */
   private borderTone: [number, number] = [0.42, 0.85];
   /** Shapes for hover/tap lookups and highlight outlines: the 1:50m set once it has loaded, else the painted 1:110m one. */
   private borderShapes: CountryInfo[] | null = null;
-  private hoverCountry: MapArea | null = null;
-  private pickedCountry: { c: MapArea; at: THREE.Vector3 } | null = null;
+  private hoverCountry: CountryInfo | null = null;
+  private pickedCountry: { c: CountryInfo; at: THREE.Vector3 } | null = null;
   private cursor: { x: number; y: number } | null = null;
-  private hiShown: MapArea | null = null;
+  private hiShown: CountryInfo | null = null;
   private hiLines: THREE.LineSegments | null = null;
   private hiMat = new THREE.LineBasicMaterial({ color: '#fde047', transparent: true, opacity: 0.95, depthWrite: false });
   private countryTag: HTMLDivElement;
@@ -622,7 +621,7 @@ export class Globe {
     const p = this.pickedCountry;
     if (p) {
       const [la, lo] = vecToLatLon(p.at.x, p.at.y, p.at.z);
-      const c = this.areaAt(la, lo);
+      const c = countryAt(this.shapes(), la, lo);
       this.pickedCountry = c ? { c, at: p.at } : null;
     }
     this.dirty = true;
@@ -1136,7 +1135,7 @@ export class Globe {
     }
     const hit = this.pickAt(x, y);
     const ll = !hit && this.countryUi() ? this.screenToLatLon(x, y) : null;
-    const c = ll ? this.areaAt(ll[0], ll[1]) : null;
+    const c = ll ? countryAt(this.shapes(), ll[0], ll[1]) : null;
     this.pickedCountry = c && ll ? { c, at: new THREE.Vector3(...latLonToVec(ll[0], ll[1], 1.0025)) } : null;
     this.dirty = true;
     this.ev.onPick?.(hit);
@@ -1144,25 +1143,22 @@ export class Globe {
 
   private shapes(): readonly CountryInfo[] { return this.borderShapes ?? this.countries; }
   private adminVisible(): boolean {
-    return !!this.adminData && this.zoom >= ADMIN_GLOBE_ZOOM && !this.gameMode && !this.layerOverride && !this.ride;
-  }
-  private areaAt(lat: number, lon: number): MapArea | null {
-    return (this.adminVisible() ? this.adminData?.at(lat, lon) : null) ?? countryAt(this.shapes(), lat, lon);
+    return this.eff.states && !!this.adminData && this.zoom >= ADMIN_GLOBE_ZOOM && !this.gameMode && !this.layerOverride && !this.ride;
   }
   /** Country hover/tap highlighting: browsing with borders on (lessons, games and rides own the globe). */
   private countryUi(): boolean {
     return this.eff.borders && !this.gameMode && !this.captureTaps && !this.ride && !this.layerOverride && !this.isPaused;
   }
-  private shownCountry(): MapArea | null {
+  private shownCountry(): CountryInfo | null {
     return this.countryUi() ? this.hoverCountry ?? this.pickedCountry?.c ?? null : null;
   }
 
   /** Hovers the country under canvas point (x, y); `x = null` clears the hover. */
   private hoverCountryAt(x: number | null, y = 0): void {
-    let c: MapArea | null = null;
+    let c: CountryInfo | null = null;
     if (x !== null && this.countryUi()) {
       const ll = this.screenToLatLon(x, y);
-      if (ll) c = this.areaAt(ll[0], ll[1]);
+      if (ll) c = countryAt(this.shapes(), ll[0], ll[1]);
     }
     this.cursor = x === null ? null : { x, y };
     if (c !== this.hoverCountry) { this.hoverCountry = c; this.dirty = true; }
@@ -1184,8 +1180,8 @@ export class Globe {
     const key = this.lang + c.id;
     if (this.tagFor !== key) {
       this.tagFor = key;
-      tag.replaceChildren(document.createTextNode('country' in c ? adminName(c, this.lang) : this.countryName(c)));
-      const cont = 'country' in c ? adminSubtitle(c, this.lang) : c.a2 !== 'AQ' ? CONTINENT_NAMES[c.continent]?.[this.lang] : '';
+      tag.replaceChildren(document.createTextNode(this.countryName(c)));
+      const cont = c.a2 !== 'AQ' ? CONTINENT_NAMES[c.continent]?.[this.lang] : '';
       if (cont) {
         const sub = document.createElement('small');
         sub.textContent = cont;
@@ -1201,22 +1197,14 @@ export class Globe {
     const on = this.eff.borders;
     if (this.borderLines) this.borderLines.visible = on;
     const adminVisible = this.adminVisible();
-    if (this.adminLines) this.adminLines.visible = on && adminVisible;
-    if (on && adminVisible && (this.dirty || !this.adminWasVisible)) {
+    if (this.adminLines) this.adminLines.visible = adminVisible;
+    if (adminVisible && (this.dirty || !this.adminWasVisible)) {
       const direction = this.camera.position.clone(), distance = direction.length();
       direction.divideScalar(distance);
       const horizon = (1 - Math.sqrt((distance * distance - 1) * (ADMIN_LINE_RADIUS * ADMIN_LINE_RADIUS - 1))) / distance - 1e-4;
       for (const tile of this.adminTiles) tile.line.visible = direction.dot(tile.sphere.center) + tile.sphere.radius >= horizon;
     }
-    if (adminVisible !== this.adminWasVisible) {
-      this.adminWasVisible = adminVisible;
-      if (this.cursor) this.hoverCountryAt(this.cursor.x, this.cursor.y);
-      if (this.pickedCountry) {
-        const [lat, lon] = vecToLatLon(this.pickedCountry.at.x, this.pickedCountry.at.y, this.pickedCountry.at.z);
-        const c = this.areaAt(lat, lon);
-        this.pickedCountry = c ? { c, at: this.pickedCountry.at } : null;
-      }
-    }
+    this.adminWasVisible = adminVisible;
     // faint on the whole-planet view, crisp from about country scale inward
     const k = Math.max(0, Math.min(1, (Math.log(MAX_H) - Math.log(this.h)) / (Math.log(MAX_H) - Math.log(0.35))));
     const [far, near] = this.borderTone;

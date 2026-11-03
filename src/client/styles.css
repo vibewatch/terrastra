@@ -207,7 +207,7 @@ a:hover { text-decoration: underline; }
 .lb-city { color: #cbd5e1; font-size: 10px !important; font-weight: 500; }
 .lb-city::before { content: "•"; margin-right: 4px; color: var(--accent); }
 .lb-cap::before { content: "★"; color: var(--amber); margin-right: 4px; }
-.lb-admin { color: #b7e5f0; font-size: 10px !important; font-weight: 600; }
+.lb-admin { color: #fde68a; font-size: 10px !important; font-weight: 600; }
 .lb-provcap::before { content: "◆"; color: var(--amber); margin-right: 4px; }
 .lb-ocean {
   color: rgba(125, 211, 252, 0.50);
