@@ -22,7 +22,8 @@ import { api } from '../lib/api.ts';
 import { HAS_API, url } from '../lib/env.ts';
 import { sessionOnly } from '../lib/storage.ts';
 import type { SpaceHit } from '../solar/space-index.ts';
-import { searchAll, type SearchFilter } from '../lib/search.ts';
+import type { AdminArea } from '../globe/admin.ts';
+import { searchAll, type PlaceHit, type SearchFilter } from '../lib/search.ts';
 import { groupOf } from '../lib/compare.ts';
 import { narrate, narrationSupported, splitSentences, stopNarration, type Narration } from '../lib/narrate.ts';
 import { classroom, setClassroom, setStill, motion, onClassroom } from '../lib/classroom.ts';
@@ -52,6 +53,10 @@ interface ShellHooks {
   toggleMeter?: () => void;
   /** Something needs the 3D globe itself (a ride): leave the flat map. */
   toGlobe?: () => void;
+  /** Fly to a searched geographic place (country, state/province, or provincial capital). */
+  goToPlace?: (place: PlaceHit) => void;
+  /** Lazily loads administrative regions when searching places. */
+  loadAdminForSearch?: () => Promise<readonly AdminArea[]>;
   /** The selected item changed (null = none). */
   onSelect?: (it: CatalogueItem | null) => void;
   /** Last in line for Escape (true = handled). */
@@ -194,23 +199,45 @@ export class Shell {
     let filter: SearchFilter = 'all';
     const listEl = h('div', { class: 'dex-grid search-grid' });
     let space: SpaceHit[] | null = null;
+    let regions: readonly AdminArea[] = this.globe.adminRegions();
     void import('../solar/space-index.ts').then(m => { space = m.spaceIndex(); if (query.trim() || filter === 'space') renderList(); });
+    if (!regions.length && this.hooks.loadAdminForSearch) {
+      void this.hooks.loadAdminForSearch().then(r => { regions = r; if (query.trim() && filter === 'all') renderList(); }, () => {});
+    }
     const renderList = () => {
-      const hits = searchAll(query, l, space, filter);
+      const hits = searchAll(query, l, space, filter, { countries: this.globe.fineShapes(), regions });
       if (!hits.length) {
         listEl.replaceChildren(h('p', { class: 'muted' }, filter === 'space' && !space ? '…' : t('notFound')));
         return;
       }
       // Each result says where it lives (level) and what it is (type).
-      listEl.replaceChildren(...hits.slice(0, 400).map(r => r.kind === 'item'
-        ? h('button', { class: 'dex-card unlocked', onclick: () => { closeModal(); this.showItem(r.item, true); } },
-          h('span', { class: 'dex-emoji' }, r.item.emoji),
-          h('strong', {}, tr(r.item.name, l)),
-          h('small', {}, [t('lvEarth'), typeName(r.item.type), countryName(r.item.country, l)].filter(Boolean).join(' · ')))
-        : h('button', { class: 'dex-card unlocked', onclick: () => { closeModal(); location.hash = '#' + r.hit.hash; } },
+      listEl.replaceChildren(...hits.slice(0, 400).map(r => {
+        if (r.kind === 'item') {
+          return h('button', { class: 'dex-card unlocked', onclick: () => { closeModal(); this.showItem(r.item, true); } },
+            h('span', { class: 'dex-emoji' }, r.item.emoji),
+            h('strong', {}, tr(r.item.name, l)),
+            h('small', {}, [t('lvEarth'), typeName(r.item.type), countryName(r.item.country, l)].filter(Boolean).join(' · ')));
+        }
+        if (r.kind === 'place') {
+          return h('button', {
+            class: 'dex-card unlocked',
+            onclick: () => {
+              closeModal();
+              this.showItem(null);
+              if (r.hit.needsStates && !store.settings.states) updateSettings({ states: true });
+              if (this.hooks.goToPlace) this.hooks.goToPlace(r.hit);
+              else this.globe.flyTo(r.hit.lat, r.hit.lon, r.hit.h, 1400);
+            },
+          },
+            h('span', { class: 'dex-emoji' }, r.hit.emoji),
+            h('strong', {}, tr(r.hit.name, l)),
+            h('small', {}, [t('lvEarth'), tr(r.hit.sub, l)].filter(Boolean).join(' · ')));
+        }
+        return h('button', { class: 'dex-card unlocked', onclick: () => { closeModal(); location.hash = '#' + r.hit.hash; } },
           h('span', { class: 'dex-emoji' }, r.hit.emoji),
           h('strong', {}, tr(r.hit.name, l)),
-          h('small', {}, r.hit.kind === 'scaleIs' ? t('scaleIs') : tr(r.hit.level, l) + ' · ' + t(r.hit.kind)))));
+          h('small', {}, r.hit.kind === 'scaleIs' ? t('scaleIs') : tr(r.hit.level, l) + ' · ' + t(r.hit.kind)));
+      }));
     };
     const input = h('input', {
       type: 'search',

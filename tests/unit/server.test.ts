@@ -266,6 +266,27 @@ describe('rate limiter', () => {
       expect(limit('a')).toBe(true);
     } finally { clock.mockRestore(); }
   });
+
+  it('shares rate-limit buckets across SQLite-backed limiter instances and expires old windows', () => {
+    let now = 500;
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const sharedDb = openDb(':memory:');
+    try {
+      const workerA = limiter(2, 1000, 2, { db: sharedDb, scope: 'auth' });
+      const workerB = limiter(2, 1000, 2, { db: sharedDb, scope: 'auth' });
+      expect(workerA('ip-1')).toBe(true);
+      expect(workerB('ip-1')).toBe(true);
+      expect(workerA('ip-1')).toBe(false);
+      expect(workerB('ip-2')).toBe(true);
+      expect(workerA('ip-3')).toBe(false);
+      now += 1000;
+      expect(workerB('ip-3')).toBe(true);
+      expect(workerA('ip-1')).toBe(true);
+    } finally {
+      sharedDb.close();
+      clock.mockRestore();
+    }
+  });
 });
 
 describe('SQLite storage', () => {

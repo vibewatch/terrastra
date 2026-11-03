@@ -30,6 +30,7 @@ import { openTutorial } from './ui/tutorial.ts';
 import { ScaleRail, type RailLevel } from './ui/scales.ts';
 import { initTooltips } from './ui/tooltip.ts';
 import { lazy, withBusy, showLoadError } from './ui/lazy.ts';
+import { SceneModeController } from './lib/scene-mode.ts';
 import type { ScaleId } from '../shared/data/cosmos.ts';
 
 /** Panels not needed for the first screen load on first use (their chunks stay out of the entry). */
@@ -76,16 +77,30 @@ async function boot(): Promise<void> {
   const landPainted = paintOffThread(topo, countries, { political: political(), width: texWidth, nightW: quality.nightW });
   await Promise.race([document.fonts?.ready, new Promise(r => setTimeout(r, 150))]);
   let fineTopo: Topology | undefined;
-  /** Country shapes for hover/tap lookups: 1:110m, then 1:50m once loaded. */
+  /** Country shapes for hover/tap lookups and 1:50m land fills: 1:110m at boot, then 1:50m once loaded. */
   let shapes = countries;
-  const paint = () => paintEarth(topo, countries, { political: political(), borders: store.settings.borders, width: texWidth, borderTopo: fineTopo });
+  const paint = () => {
+    const activeTopo = fineTopo && hasLand(shapes, political(), texWidth) ? fineTopo : topo;
+    const activeCountries = activeTopo === fineTopo ? shapes : countries;
+    return paintEarth(activeTopo, activeCountries, { political: political(), borders: store.settings.borders, width: texWidth, borderTopo: fineTopo });
+  };
   let paintSeq = 0;
   const repaint = async () => {
     const my = ++paintSeq;
-    if (!hasLand(countries, political(), texWidth)) await paintOffThread(topo, countries, { political: political(), width: texWidth });
+    const targetTopo = fineTopo ?? topo, targetCountries = fineTopo ? shapes : countries;
+    if (!hasLand(targetCountries, political(), texWidth)) {
+      await paintOffThread(targetTopo, targetCountries, { political: political(), width: texWidth });
+    }
     if (my !== paintSeq) return;
-    earthCv = paint(); globe.setEarthTexture(earthCv); solar?.view.setEarthCanvas(earthCv);
+    earthCv = paint();
+    globe.setEarthTexture(earthCv);
+    solar?.view.setEarthCanvas(earthCv);
+    flatMap?.markDirty();
   };
+
+  // Background music follows the level the user is looking at.
+  const sceneMode = new SceneModeController(() => music.setLevel(sceneMode.musicLevel));
+  const isLessoning = () => document.body.classList.contains('lessoning');
 
   const globeEl = h('div', { id: 'globe' });
   app.append(globeEl);
@@ -95,7 +110,7 @@ async function boot(): Promise<void> {
     onHover: (it, scr) => shell?.showHover(it, scr),
     onView: (z, la, lo) => {
       shell.setZoom(z, la, lo);
-      if (!gaming && !document.body.classList.contains('lessoning')) requestAdminAt(z, ADMIN_GLOBE_ZOOM);
+      if (sceneMode.canLoadGlobeAdmin(isLessoning())) requestAdminAt(z, ADMIN_GLOBE_ZOOM);
     },
     onBeyond: () => void enterSolar(),
   }, lowfx, quality);
@@ -108,8 +123,8 @@ async function boot(): Promise<void> {
     app.replaceChildren(h('div', { class: 'fatal', role: 'alert' }, h('p', { class: 'big' }, '🌍'), h('p', {}, t('webglFail'))));
     return;
   }
-  // finer borders (and the small states missing from 1:110m) after the opening fly-in, in idle-time steps so the
-  // globe never stutters; the painted fills stay 1:110m
+  // finer borders and 1:50m land fills (including small island states missing from 1:110m) after the opening fly-in,
+  // in idle-time steps and a background worker so the globe never stutters
   const idle = () => new Promise<void>(ok => 'requestIdleCallback' in window ? requestIdleCallback(() => ok(), { timeout: 3000 }) : setTimeout(ok, 200));
   setTimeout(() => void (async () => {
     await idle();
@@ -123,15 +138,14 @@ async function boot(): Promise<void> {
     globe.setCountryShapes(shapes);
     await idle();
     fineTopo = t50;
-    if (store.settings.borders) void repaint();
+    void repaint();
   })().catch(() => { /* keep the 1:110m borders */ }), 4000);
 
-  let gaming = false;
   // a geography lesson owns the globe's layers while it runs: anything that leaves the globe ends it
-  const endLesson = () => { if (document.body.classList.contains('lessoning')) void import('./lessons/player.ts').then(m => m.stopLesson()); };
+  const endLesson = () => { if (isLessoning()) void import('./lessons/player.ts').then(m => m.stopLesson()); };
   const setGameMode = (on: boolean, names?: boolean) => {
-    gaming = on;
-    if (on) { navSeq++; endLesson(); closeMap(false); }
+    sceneMode.setGaming(on);
+    if (on) { endLesson(); closeMap(false); }
     globe.gameMode = on;
     if (on) { shell.showItem(null); shell.toggleMenu(false); shell.time.toggle(false); radio?.toggle(false); }
     document.body.classList.toggle('gaming', on);
@@ -144,7 +158,7 @@ async function boot(): Promise<void> {
   let radio: import('./ui/radio.ts').Radio | null = null;
   const loadRadio = lazy(() => import('./ui/radio.ts'));
   const toggleRadio = async () => {
-    if (gaming || inSolar || classroom()) return;
+    if (sceneMode.gaming || sceneMode.inSolar || classroom()) return;
     closeMap();
     // live radio can never work offline; say so instead of a failed connection
     if (!navigator.onLine && !radio?.active) { toast('📡 ' + t('radioOffline'), 4000); return; }
@@ -152,7 +166,7 @@ async function boot(): Promise<void> {
       const m = await withBusy(loadRadio());
       radio = await m.getRadio(globe, app);
     } catch { toast(t('radioLoadFail')); return; }
-    if (gaming || inSolar || inSky) return;
+    if (sceneMode.gaming || sceneMode.inSolar || sceneMode.inSky) return;
     if (!radio.active) shell.time.toggle(false);
     radio.toggle();
   };
@@ -162,14 +176,8 @@ async function boot(): Promise<void> {
 
   // ---- Solar System (lazy: its own renderer, loaded on first use) ----
   let solar: SolarUI | null = null;
-  let inSolar = false;
-  /** Bumped by every navigation, so a load that finishes after the user went elsewhere is dropped. */
-  let navSeq = 0;
-  let scaleNow: ScaleId = 'solar';
-  // Background music follows the level the user is looking at.
-  const tune = () => music.setLevel(inSky ? 'sky' : inSolar ? (scaleNow === 'stars' ? 'galaxy' : scaleNow) : 'earth');
   const loadSolarMod = lazy(() => import('./solar/ui.ts'));
-  const loadSolar = async () => solar ??= new (await loadSolarMod()).SolarUI(app, { quality, earthCanvas: () => earthCv, exit: leaveSolar, onScale: s => { rail.set(s); scaleNow = s; tune(); }, openSky: () => void openSky(), onMeter: on => shell.setMeterOpen(on) });
+  const loadSolar = async () => solar ??= new (await loadSolarMod()).SolarUI(app, { quality, earthCanvas: () => earthCv, exit: leaveSolar, onScale: s => { rail.set(s); sceneMode.setScale(s); }, openSky: () => void openSky(), onMeter: on => shell.setMeterOpen(on) });
   const routeOf = (o: { focus?: string; scale?: ScaleId }) => {
     const head = Object.keys(SCALE_ROUTES).find(k => SCALE_ROUTES[k] === (o.scale ?? 'solar'))!;
     return head + (o.focus && o.focus !== 'overview' ? '/' + o.focus : '');
@@ -179,20 +187,20 @@ async function boot(): Promise<void> {
     setTimeout(() => { fn(); requestAnimationFrame(() => document.body.classList.remove('fading')); }, lowfx ? 0 : 230);
   };
   const enterSolar = async (opts: { focus?: string; scale?: ScaleId } = {}, attempt = 1) => {
-    if (inSolar || gaming) return;
+    if (sceneMode.inSolar || sceneMode.gaming) return;
     endLesson();
-    const seq = ++navSeq;
+    const seq = sceneMode.beginNav();
     let ui: SolarUI;
     // its shaders compile in the background while the busy spinner shows, so the view opens without a stall
     try { ui = await withBusy(loadSolar().then(async u => { await u.view.warmed; return u; })); } catch (e) {
       console.error(e);
-      if (seq === navSeq) showLoadError(t('solarSystem'), n => void enterSolar(opts, n), routeOf(opts), attempt);
+      if (sceneMode.isCurrentNav(seq)) showLoadError(t('solarSystem'), n => void enterSolar(opts, n), routeOf(opts), attempt);
       return;
     }
     // the user went elsewhere (back to Earth, a game, another load) while this was loading
-    if (seq !== navSeq || inSolar || gaming) return;
+    if (!sceneMode.isCurrentNav(seq) || sceneMode.inSolar || sceneMode.gaming) return;
     closeMap(false);
-    inSolar = true;
+    sceneMode.enterSolar();
     radio?.suspend(true);
     shell.showItem(null); shell.toggleMenu(false); shell.time.toggle(false);
     fade(() => {
@@ -200,15 +208,12 @@ async function boot(): Promise<void> {
       document.body.classList.add('solar');
       shell.setSpace(true);
       ui.enter(opts.focus || opts.scale ? opts : { from: { lat: globe.lat, lon: globe.lon } });
-      tune();
+      music.setLevel(sceneMode.musicLevel);
     });
   };
   const leaveSolar = (lat: number, lon: number, then?: () => void) => {
-    if (!inSolar) return;
-    navSeq++;
-    inSolar = false;
-    tune();
-    if (!inSky) radio?.suspend(false);
+    if (!sceneMode.leaveSolar()) return;
+    if (!sceneMode.inSky) radio?.suspend(false);
     fade(() => {
       solar?.leave();
       rail.set('earth');
@@ -224,19 +229,18 @@ async function boot(): Promise<void> {
 
   // ---- Sky theatre (lazy): eclipses, meteor showers, planets, played out over the globe or the Solar System ----
   const loadSky = lazy(() => import('./sky/index.ts'));
-  let inSky = false;
   const openSky = async (id?: string, attempt = 1): Promise<import('./sky/theatre.ts').Theatre | null> => {
-    if (gaming) return null;
-    const seq = ++navSeq;
+    if (sceneMode.gaming) return null;
+    const seq = sceneMode.beginNav();
     let m: typeof import('./sky/index.ts');
     try { m = await withBusy(loadSky()); } catch (e) {
       console.error(e);
-      if (seq === navSeq) showLoadError(t('skyEvents'), n => void openSky(id, n), 'sky' + (id ? '/' + id : ''), attempt);
+      if (sceneMode.isCurrentNav(seq)) showLoadError(t('skyEvents'), n => void openSky(id, n), 'sky' + (id ? '/' + id : ''), attempt);
       return null;
     }
-    if (seq !== navSeq || gaming) return null;
+    if (!sceneMode.isCurrentNav(seq) || sceneMode.gaming) return null;
     closeMap(false);
-    if (!inSky) { shell.toggleMenu(false); shell.time.toggle(false); }
+    if (!sceneMode.inSky) { shell.toggleMenu(false); shell.time.toggle(false); }
     // replacing an open theatre runs its onClose first, so the "in the sky" state is set after the swap
     const th = m.openSky(document.body, {
       id, lowfx, dprMax: quality.dprMax, msaa: quality.msaa,
@@ -244,20 +248,18 @@ async function boot(): Promise<void> {
       onClose: () => {
         if (sky !== th) return;
         sky = null;
-        inSky = false;
-        tune();
-        if (!inSolar) radio?.suspend(false);
-        if (inSolar) solar?.view.suspend(false); else globe.paused = false;
+        sceneMode.leaveSky();
+        if (!sceneMode.inSolar) radio?.suspend(false);
+        if (sceneMode.inSolar) solar?.view.suspend(false); else globe.paused = false;
       },
       onPhoto: () => openPhoto(),
       onSolar: (focus, ms) => {
-        if (inSolar && solar) { solar.showAt(ms, focus); return; }
+        if (sceneMode.inSolar && solar) { solar.showAt(ms, focus); return; }
         void withBusy(loadSolar()).then(ui => { ui.showAt(ms); void enterSolar({ focus }); }, () => showLoadError(t('solarSystem'), n => void enterSolar({ focus }, n), 'solar/' + (focus ?? '')));
       },
     });
     sky = th;
-    inSky = true;
-    tune();
+    sceneMode.enterSky();
     radio?.suspend(true);
     globe.paused = true;
     solar?.view.suspend(true);
@@ -267,7 +269,6 @@ async function boot(): Promise<void> {
   // ---- flat world map (lazy: its own renderer): the globe pauses underneath it ----
   const loadMap = lazy(() => import('./map/flatmap.ts'));
   let flatMap: import('./map/flatmap.ts').FlatMap | null = null;
-  let inMap = false;
   const loadAdmin = lazy(fetchAdminData);
   let adminData: AdminData | null = null;
   let adminPending = false, adminFailed = false;
@@ -280,9 +281,9 @@ async function boot(): Promise<void> {
       flatMap?.setAdminData(data);
     }, (error: unknown) => {
       console.error('Could not load administrative regions:', error);
-      if (!store.settings.states || (!inMap && (inSolar || inSky || globe.zoom < ADMIN_GLOBE_ZOOM))) return;
+      if (!store.settings.states || (!sceneMode.inMap && (!sceneMode.canLoadGlobeAdmin(isLessoning()) || globe.zoom < ADMIN_GLOBE_ZOOM))) return;
       adminFailed = true;
-      showLoadError(t('adminRegions'), next => { adminFailed = false; requestAdmin(next); }, inMap ? 'map' : '', attempt);
+      showLoadError(t('adminRegions'), next => { adminFailed = false; requestAdmin(next); }, sceneMode.inMap ? 'map' : '', attempt);
     }).finally(() => { adminPending = false; });
   }
   function requestAdminAt(zoom: number, threshold: number): void {
@@ -290,15 +291,15 @@ async function boot(): Promise<void> {
     requestAdmin();
   }
   const openMap = async (attempt = 1) => {
-    if (inMap || gaming || inSolar || inSky) return;
-    const seq = ++navSeq;
+    if (sceneMode.inMap || sceneMode.gaming || sceneMode.inSolar || sceneMode.inSky) return;
+    const seq = sceneMode.beginNav();
     let m: typeof import('./map/flatmap.ts');
     try { m = await withBusy(loadMap()); } catch (e) {
       console.error(e);
-      if (seq === navSeq) showLoadError(t('flatMap'), n => void openMap(n), 'map', attempt);
+      if (sceneMode.isCurrentNav(seq)) showLoadError(t('flatMap'), n => void openMap(n), 'map', attempt);
       return;
     }
-    if (seq !== navSeq || inMap || gaming || inSolar || inSky) return;
+    if (!sceneMode.isCurrentNav(seq) || sceneMode.inMap || sceneMode.gaming || sceneMode.inSolar || sceneMode.inSky) return;
     endLesson();
     flatMap ??= new m.FlatMap({
       globe, quality, lowfx,
@@ -314,7 +315,7 @@ async function boot(): Promise<void> {
     });
     if (adminData) flatMap.setAdminData(adminData);
     if (!flatMap.el.isConnected) globeEl.after(flatMap.el);
-    inMap = true;
+    sceneMode.enterMap();
     if (globe.ride) shell.exitRide();
     shell.time.toggle(false);
     shell.toggleMenu(false);
@@ -326,39 +327,38 @@ async function boot(): Promise<void> {
   };
   /** Back to the globe; `follow` turns it to where the map was looking. */
   function closeMap(follow = true): void {
-    if (!inMap || !flatMap) return;
-    inMap = false;
+    if (!flatMap || !sceneMode.leaveMap()) return;
     const [lat, lon] = flatMap.center();
     flatMap.close();
     document.body.classList.remove('flatmap');
     shell.setMapOpen(false);
     globe.paused = false;
-    if (!inSky && !inSolar) radio?.suspend(false);
+    if (!sceneMode.inSky && !sceneMode.inSolar) radio?.suspend(false);
     if (follow) globe.flyTo(lat, lon, globe.h, 900);
   }
 
   // ---- guided tours (lazy): they drive the same navigation a user would ----
   const toursMod = later(() => import('./ui/tours.ts'), () => t('tours'));
   const navTo = (hash: string) => {
-    if (inSky) sky?.close();
+    if (sceneMode.inSky) sky?.close();
     if (location.hash === '#' + hash) route(); else location.hash = hash;
   };
   const tourHost: import('./ui/tours.ts').TourHost = {
     earth: (lat, lon, hh) => {
-      if (gaming) return;
-      if (inSky) sky?.close();
+      if (sceneMode.gaming) return;
+      if (sceneMode.inSky) sky?.close();
       closeMap(false);
       shell.showItem(null);
       if (location.hash) history.replaceState(null, '', location.pathname + location.search);
-      if (inSolar) leaveSolar(lat, lon, () => globe.flyTo(lat, lon, hh, 1400)); else globe.flyTo(lat, lon, hh, 1600);
+      if (sceneMode.inSolar) leaveSolar(lat, lon, () => globe.flyTo(lat, lon, hh, 1400)); else globe.flyTo(lat, lon, hh, 1600);
     },
     go: hash => navTo(hash),
     sky: (id, view) => void openSky(id).then(th => { if (th && view) th.show(view); }),
-    path: pts => { if (!inSolar && !inSky) pts.slice(1).forEach((p, i) => globe.showFlightArc(pts[i], p, i > 0)); },
+    path: pts => { if (!sceneMode.inSolar && !sceneMode.inSky) pts.slice(1).forEach((p, i) => globe.showFlightArc(pts[i], p, i > 0)); },
     item: key => navTo(key),
     solarAt: (focus, ms) => {
-      if (inSky) sky?.close();
-      if (inSolar && solar) { solar.showAt(ms, focus); return; }
+      if (sceneMode.inSky) sky?.close();
+      if (sceneMode.inSolar && solar) { solar.showAt(ms, focus); return; }
       void withBusy(loadSolar()).then(ui => { ui.showAt(ms); void enterSolar({ focus }); }, () => showLoadError(t('solarSystem'), n => void enterSolar({ focus }, n), 'solar/' + focus));
     },
   };
@@ -369,14 +369,14 @@ async function boot(): Promise<void> {
   const lessonHost: import('./lessons/player.ts').LessonHost = {
     globe, low: quality.tier === 'low',
     toEarth: then => {
-      if (inSky) sky?.close();
+      if (sceneMode.inSky) sky?.close();
       closeMap(false);
       shell.showItem(null); shell.toggleMenu(false);
       if (location.hash) history.replaceState(null, '', location.pathname + location.search);
-      if (inSolar) leaveSolar(globe.lat, globe.lon, then); else then();
+      if (sceneMode.inSolar) leaveSolar(globe.lat, globe.lon, then); else then();
     },
     sky: id => tourHost.sky(id, 'model'),
-    blocked: () => gaming,
+    blocked: () => sceneMode.gaming,
   };
   const openLessons = () => lessonsMod(m => m.openLessons(lessonHost));
   const openAstro = () => lessonsMod(m => m.openLessons(lessonHost, 'astro'));
@@ -388,11 +388,11 @@ async function boot(): Promise<void> {
   const cmpMod = later(() => import('./ui/compare.ts'), () => t('compare'));
   const bmMod = later(() => import('./ui/bookmarks.ts'), () => t('bookmarks'));
   const currentView = async (): Promise<Bookmark | null> => {
-    if (gaming) return null;
+    if (sceneMode.gaming) return null;
     let route: string;
     try { route = parseView(decodeURIComponent(location.hash.slice(1)).trim()).route; } catch { return null; }
     const at = Date.now();
-    if (inSky) {
+    if (sceneMode.inSky) {
       const id = route.split('/')[1];
       if (!id) return { route: 'sky', label: { en: t('skyEvents'), zh: t('skyEvents') }, at };
       const [{ findEvent }, { eventTitle }] = await Promise.all([import('./sky/panel.ts'), import('./sky/acts.ts')]);
@@ -401,13 +401,13 @@ async function boot(): Promise<void> {
       const name = `${eventTitle(ev)} · ${new Date(ev.t).toLocaleDateString(lang() === 'zh' ? 'zh-CN' : 'en')}`;
       return { route: 'sky/' + id, label: { en: name, zh: name }, at };
     }
-    if (inSolar) {
+    if (sceneMode.inSolar) {
       if (!route) return null;
       const { spaceIndex } = await import('./solar/space-index.ts');
       const hit = spaceIndex().find(x => x.hash === route);
       return { route, label: hit?.name ?? { en: route, zh: route }, at };
     }
-    const [mlat, mlon] = inMap && flatMap ? flatMap.center() : [globe.lat, globe.lon];
+    const [mlat, mlon] = sceneMode.inMap && flatMap ? flatMap.center() : [globe.lat, globe.lon];
     const cam = { lat: mlat, lon: mlon, h: globe.h };
     if (shell.current) return { route: shell.current.key, cam, label: shell.current.name, at };
     const where = `${Math.abs(cam.lat).toFixed(1)}°${cam.lat >= 0 ? 'N' : 'S'} ${Math.abs(cam.lon).toFixed(1)}°${cam.lon >= 0 ? 'E' : 'W'}`;
@@ -415,8 +415,8 @@ async function boot(): Promise<void> {
   };
   // ---- photos from every scene (F06): each one captures its own canvas and says how faithful the view is ----
   const photoShot = (): import('./ui/photo.ts').Shot => {
-    if (inSky && sky) { const th = sky; return { capture: () => th.capture(), caption: () => th.caption() }; }
-    if (inSolar && solar) {
+    if (sceneMode.inSky && sky) { const th = sky; return { capture: () => th.capture(), caption: () => th.caption() }; }
+    if (sceneMode.inSolar && solar) {
       const v = solar.view;
       return {
         capture: () => v.capture(),
@@ -431,13 +431,13 @@ async function boot(): Promise<void> {
         },
       };
     }
-    if (inMap && flatMap) {
+    if (sceneMode.inMap && flatMap) {
       const fm = flatMap;
       return { capture: async () => fm.capture(), caption: () => ({ title: shell.current ? tr(shell.current.name, lang()) : '', level: t('flatMap').replace(/\s*\(M\)$/, ''), note: t('photoNoteMap') }) };
     }
     return { capture: async () => globe.capture(), caption: () => ({ title: shell.current ? tr(shell.current.name, lang()) : '', level: t('lvEarth'), note: t('photoNoteEarth') }) };
   };
-  const openPhoto = () => { if (!gaming) photoMod(m => m.openPhotoMode(photoShot())); };
+  const openPhoto = () => { if (!sceneMode.gaming) photoMod(m => m.openPhotoMode(photoShot())); };
   const openBookmarks = () => bmMod(m => m.openBookmarks({ current: currentView, open: navTo }));
   const startTour = (id: string) => { endLesson(); toursMod(m => m.startTour(id, tourHost)); };
 
@@ -446,7 +446,7 @@ async function boot(): Promise<void> {
     here: () => shell.current ? [shell.current.lat, shell.current.lon] : [globe.lat, globe.lon],
     travel: (it, from) => { shell.showItem(it); if (Math.abs(from[0] - it.lat) + Math.abs(from[1] - it.lon) > 2) globe.showFlightArc(from, [it.lat, it.lon]); },
   }));
-  const openGame = (kind: 'daily' | 'placeit' | 'quiz') => { if (!gaming && !inSolar) gamesMod(m => m.startGame(host, kind)); };
+  const openGame = (kind: 'daily' | 'placeit' | 'quiz') => { if (!sceneMode.gaming && !sceneMode.inSolar) gamesMod(m => m.startGame(host, kind)); };
   shell = new Shell(app, globe, {
     openPhoto,
     openCollection: showCollection,
@@ -459,25 +459,45 @@ async function boot(): Promise<void> {
     openSolar: () => void enterSolar(),
     openSky: () => void openSky(),
     openRadio: () => void toggleRadio(),
-    toEarth: it => { if (!inSolar) return false; leaveSolar(it.lat, it.lon, () => shell.showItem(it)); return true; },
+    toEarth: it => { if (!sceneMode.inSolar) return false; leaveSolar(it.lat, it.lon, () => shell.showItem(it)); return true; },
     zoom: inward => {
-      if (inMap && flatMap) { flatMap.zoomBy(inward ? 1.6 : 1 / 1.6); return true; }
-      if (!inSolar) return false;
+      if (sceneMode.inMap && flatMap) { flatMap.zoomBy(inward ? 1.6 : 1 / 1.6); return true; }
+      if (!sceneMode.inSolar) return false;
       solar?.zoom(inward); return true;
     },
-    toggleMap: () => { if (inMap) closeMap(); else void openMap(); },
+    toggleMap: () => { if (sceneMode.inMap) closeMap(); else void openMap(); },
     toggleMeter: () => solar?.toggleMeter(),
     toGlobe: () => closeMap(false),
-    onSelect: it => { if (it && inMap) flatMap?.focus(it); },
-    escape: () => { if (!inMap) return false; closeMap(); return true; },
+    goToPlace: place => {
+      if (sceneMode.inSky) sky?.close();
+      if (sceneMode.inSolar) {
+        leaveSolar(place.lat, place.lon, () => globe.flyTo(place.lat, place.lon, place.h, 1400));
+        return;
+      }
+      if (sceneMode.inMap && flatMap) {
+        globe.lat = place.lat; globe.lon = place.lon; globe.h = place.h;
+        flatMap.focusAt(place.lat, place.lon, place.placeKind === 'country' ? 2.5 : 4.5);
+        return;
+      }
+      globe.flyTo(place.lat, place.lon, place.h, 1400);
+    },
+    loadAdminForSearch: async () => {
+      const data = await loadAdmin();
+      adminData = data;
+      globe.setAdminData(data);
+      flatMap?.setAdminData(data);
+      return data.regions;
+    },
+    onSelect: it => { if (it && sceneMode.inMap) flatMap?.focus(it); },
+    escape: () => { if (!sceneMode.inMap) return false; closeMap(); return true; },
     overview: () => solar?.overview(),
-    toHome: () => { if (inSolar) leaveSolar(globe.lat, globe.lon); },
+    toHome: () => { if (sceneMode.inSolar) leaveSolar(globe.lat, globe.lon); },
   });
   shell.mount();
   // One ladder for the whole system: universe → … → Solar System → Earth.
   const rail = new ScaleRail((l: RailLevel) => {
-    if (l === 'earth') { navSeq++; if (inSolar) leaveSolar(20, 10); return; }
-    if (!inSolar) void enterSolar({ scale: l });
+    if (l === 'earth') { sceneMode.beginNav(); if (sceneMode.inSolar) leaveSolar(20, 10); return; }
+    if (!sceneMode.inSolar) void enterSolar({ scale: l });
     else solar?.goScale(l);
   });
   shell.levelSlot.append(rail.el);
@@ -487,11 +507,11 @@ async function boot(): Promise<void> {
   let mapSettings = store.settings;
   subscribe(() => {
     const s = store.settings;
-    if (!gaming) shell.applySettings(s); else globe.applySettings({ ...s, names: globe.settings.names });
+    if (!sceneMode.gaming) shell.applySettings(s); else globe.applySettings({ ...s, names: globe.settings.names });
     if (s !== mapSettings) { mapSettings = s; flatMap?.markDirty(); }
     if (s.states) {
-      if (inMap && flatMap) requestAdminAt(flatMap.zoom, ADMIN_MAP_ZOOM);
-      else if (!inSolar && !inSky && !gaming && !document.body.classList.contains('lessoning')) requestAdminAt(globe.zoom, ADMIN_GLOBE_ZOOM);
+      if (sceneMode.inMap && flatMap) requestAdminAt(flatMap.zoom, ADMIN_MAP_ZOOM);
+      else if (sceneMode.canLoadGlobeAdmin(isLessoning())) requestAdminAt(globe.zoom, ADMIN_GLOBE_ZOOM);
     }
     if ((s.surfaceMode === 'political') !== (painted.mode === 'political') || s.borders !== painted.borders) {
       painted = { mode: s.surfaceMode, borders: s.borders };
@@ -524,13 +544,13 @@ async function boot(): Promise<void> {
     if (view.bad) toast('🧭 ' + t('linkView'));
     if (!hsh) {
       // back/forward to the bare page: show the Earth
-      if (inSky) sky?.close();
+      if (sceneMode.inSky) sky?.close();
       if (cam) {
         closeMap(false);
         history.replaceState(null, '', location.pathname + location.search);
         const go = () => globe.flyTo(cam.lat, cam.lon, cam.h, 1400);
-        if (inSolar) leaveSolar(cam.lat, cam.lon, go); else go();
-      } else if (inSolar) leaveSolar(globe.lat, globe.lon);
+        if (sceneMode.inSolar) leaveSolar(cam.lat, cam.lon, go); else go();
+      } else if (sceneMode.inSolar) leaveSolar(globe.lat, globe.lon);
       return;
     }
     const [head, rest = ''] = hsh.split('/');
@@ -543,7 +563,7 @@ async function boot(): Promise<void> {
     const scale = SCALE_ROUTES[head];
     if (scale) {
       const focus = rest || (scale === 'solar' ? 'overview' : '');
-      if (!inSolar) void enterSolar({ focus, scale }); else solar?.goTo(focus, scale);
+      if (!sceneMode.inSolar) void enterSolar({ focus, scale }); else solar?.goTo(focus, scale);
       return;
     }
     // one-shot notices from the sign-in redirect: clear them so a reload does not repeat them
@@ -552,7 +572,7 @@ async function boot(): Promise<void> {
     else {
       const it = BY_KEY.get(hsh);
       const show = () => { shell.showItem(it!, !cam); if (cam) globe.flyTo(cam.lat, cam.lon, cam.h, 1400); };
-      if (it) { if (inSolar) leaveSolar(it.lat, it.lon, show); else show(); }
+      if (it) { if (sceneMode.inSolar) leaveSolar(it.lat, it.lon, show); else show(); }
       else { toast('🧭 ' + t('linkUnknown')); history.replaceState(null, '', location.pathname + location.search); }
     }
   };

@@ -4,11 +4,11 @@ import type { CountryInfo } from '../globe/painter.ts';
 import type { Quality } from '../globe/quality.ts';
 import { countryAt } from '../globe/borders.ts';
 import { ADMIN_BORDER_COLOR, ADMIN_MAP_ZOOM, adminName, type AdminData, type AdminLineTile } from '../globe/admin.ts';
+import { NAMED_PARALLELS, fillCountryTag, formatDeg, labelRank, renderLabelPool, type MapLabel } from '../globe/overlay.ts';
 import { CATALOGUE } from '../../shared/data/catalogue.ts';
 import { TYPE_META } from '../../shared/data/typemeta.ts';
 import { CITIES, cityName } from '../../shared/data/cities.ts';
 import { CHINA_CAPITALS, CHINA_CAPITAL_NAMES } from '../../shared/data/china-capitals.ts';
-import { CONTINENT_NAMES } from '../../shared/data/iso.ts';
 import { tr, type CatalogueItem } from '../../shared/data/types.ts';
 import { t, lang, fmtNum, onLang } from '../lib/i18n.ts';
 import { load, save } from '../lib/storage.ts';
@@ -196,7 +196,6 @@ function graticule(step: number): { seg: Float32Array; col: Float32Array } {
 const gridStep = (z: number) => (z < 2 ? 30 : z < 4.5 ? 15 : z < 9 ? 10 : 5);
 /** Countries come from two resolutions (labels vs hit-testing), so match them by ISO code. */
 const countryKey = (c: CountryInfo) => c.a2 || c.name;
-const textW = (s: string, px: number) => (s.length + (s.match(/[\u3000-\u9fff]/g)?.length ?? 0) * 0.8) * px + 10;
 
 export class FlatMap {
   readonly el: HTMLElement;
@@ -375,6 +374,16 @@ export class FlatMap {
     const off = this.W > 900 ? 190 : 0;
     to.cy = yOf(this.proj, it.lat * D);
     to.lon0 = wrapPi(it.lon * D - off / (to.k * xScale(this.proj, it.lat * D)));
+    this.clamp(to);
+    this.tween(to, 650);
+  }
+
+  /** Centres a geographic coordinate on the flat map at at least `minZoom`. */
+  focusAt(lat: number, lon: number, minZoom = 2.6): void {
+    const to = { ...this.target() };
+    to.k = Math.min(this.kMin() * MAX_ZOOM, Math.max(to.k, this.kMin() * minZoom));
+    to.cy = yOf(this.proj, lat * D);
+    to.lon0 = wrapPi(lon * D);
     this.clamp(to);
     this.tween(to, 650);
   }
@@ -621,8 +630,7 @@ export class FlatMap {
   }
 
   private layoutLabels(names: boolean, grid: boolean, z: number): void {
-    type L = { text: string; cls: string; x: number; y: number; pri: number; corner?: boolean };
-    const out: L[] = [];
+    const out: MapLabel[] = [];
     const l = lang();
     const push = (text: string, cls: string, lat: number, lon: number, pri: number, corner = false) => {
       const [x, y] = this.toScreen(lat, lon);
@@ -664,8 +672,7 @@ export class FlatMap {
       }
       if (z < 5) for (const [, n, la, lo] of OCEANS) push(n[l] ?? n.en, 'lb-ocean', la, lo, 2000);
     }
-    const labelRank = (lb: L) => lb.cls.includes('lb-provcap') ? 3 : lb.cls.startsWith('lb-country') ? 2 : lb.cls.startsWith('lb-admin') ? 1 : 0;
-    const distance = (lb: L) => (lb.x - this.W / 2) ** 2 + (lb.y - this.H / 2) ** 2;
+    const distance = (lb: MapLabel) => (lb.x - this.W / 2) ** 2 + (lb.y - this.H / 2) ** 2;
     out.sort((a, b) => {
       const rank = labelRank(b) - labelRank(a);
       if (rank) return rank;
@@ -675,27 +682,10 @@ export class FlatMap {
       return b.pri - a.pri;
     });
     // country names first, then the pins around them, then every other label in the gaps
-    const boxes: [number, number, number, number][] = [];
-    let used = 0;
-    let pinsDone = false;
-    for (const lb of out) {
-      if (!pinsDone && !labelRank(lb)) { pinsDone = true; this.layoutPins(z, boxes); boxes.push(...this.pinBoxes); }
-      const w = textW(lb.text, lb.cls.startsWith('lb-country') ? 8 : 6.5), hh = 16;
-      const cx = lb.corner ? lb.x + w / 2 + 2 : lb.x, cy = lb.corner ? lb.y - hh / 2 - 1 : lb.y;
-      const bx: [number, number, number, number] = [cx - w / 2, cy - hh / 2, cx + w / 2, cy + hh / 2];
-      if (boxes.some(b => bx[0] < b[2] && bx[2] > b[0] && bx[1] < b[3] && bx[3] > b[1])) continue;
-      boxes.push(bx);
-      let el = this.labelPool[used];
-      if (!el) { el = document.createElement('span'); this.labelsEl.append(el); this.labelPool.push(el); }
-      if (el.textContent !== lb.text) el.textContent = lb.text;
-      if (el.className !== lb.cls) el.className = lb.cls;
-      el.style.display = '';
-      el.style.transform = `translate(${lb.x.toFixed(1)}px,${lb.y.toFixed(1)}px) ` + (lb.corner ? 'translate(3px,-100%)' : 'translate(-50%,-50%)');
-      used++;
-      if (used > 160) break;
-    }
-    if (!pinsDone) this.layoutPins(z, boxes);
-    for (let i = used; i < this.labelPool.length; i++) this.labelPool[i].style.display = 'none';
+    renderLabelPool(this.labelsEl, this.labelPool, out, 160, boxes => {
+      this.layoutPins(z, boxes);
+      boxes.push(...this.pinBoxes);
+    });
   }
 
   private pushGridLabels(push: (text: string, cls: string, lat: number, lon: number, pri: number, corner?: boolean) => void, l: 'en' | 'zh'): void {
@@ -704,11 +694,9 @@ export class FlatMap {
     const snap = (v: number) => Math.round(v / step) * step;
     const lonC = ((snap(clon) + 540) % 360) - 180;
     const latC = Math.abs(clat) < step * 2.5 ? 0 : Math.max(-75, Math.min(75, snap(clat)));
-    const fmt = (v: number, pos: string, neg: string) => (v === 0 ? '0°' : `${Math.abs(v)}°${v > 0 ? pos : neg}`);
-    for (let la = -90 + step; la < 90; la += step) if (la !== latC) push(fmt(la, 'N', 'S'), 'lb-grid', la, lonC, 40, true);
-    for (let lo = -180; lo < 180; lo += step) if (this.onMap(lo)) push(Math.abs(lo) === 180 ? '180°' : fmt(lo, 'E', 'W'), 'lb-grid', latC, lo, 40, true);
-    const named: [string, number][] = [['equator', 0], ['tropicN', 23.436], ['tropicS', -23.436], ['arcticC', 66.564], ['antarcticC', -66.564]];
-    for (const [k, la] of named) push(GRID_NAMES[k][l] ?? GRID_NAMES[k].en, 'lb-grid lb-gridname g-' + k, la, lonC + step * 0.5, 600, true);
+    for (let la = -90 + step; la < 90; la += step) if (la !== latC) push(formatDeg(la, 'N', 'S'), 'lb-grid', la, lonC, 40, true);
+    for (let lo = -180; lo < 180; lo += step) if (this.onMap(lo)) push(Math.abs(lo) === 180 ? '180°' : formatDeg(lo, 'E', 'W'), 'lb-grid', latC, lo, 40, true);
+    for (const [k, la] of NAMED_PARALLELS) push(GRID_NAMES[k][l] ?? GRID_NAMES[k].en, 'lb-grid lb-gridname g-' + k, la, lonC + step * 0.5, 600, true);
     if (this.onMap(0)) push(GRID_NAMES.prime[l] ?? GRID_NAMES.prime.en, 'lb-grid lb-gridname g-prime', Math.max(-60, Math.min(60, clat + step * 0.5)), 0, 600, true);
   }
 
@@ -813,11 +801,7 @@ export class FlatMap {
     const l = lang(), key = l + c.id;
     if (this.tagFor !== key) {
       this.tagFor = key;
-      let name = c.name;
-      if (c.a2 && c.a2 !== 'XK') try { name = new Intl.DisplayNames([l], { type: 'region' }).of(c.a2) ?? c.name; } catch { /* keep the English name */ }
-      tag.replaceChildren(document.createTextNode(name));
-      const cont = CONTINENT_NAMES[c.continent];
-      if (cont && c.a2 !== 'AQ') tag.append(h('small', {}, cont[l] ?? cont.en));
+      fillCountryTag(tag, c, l);
     }
     tag.style.transform = `translate(${p.x.toFixed(1)}px,${(p.y - 14).toFixed(1)}px) translate(-50%,-100%)`;
     tag.hidden = false;

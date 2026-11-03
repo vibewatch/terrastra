@@ -5,7 +5,7 @@
  */
 import { audioAllowed, audioCtx } from './sfx.ts';
 
-type MusicLevel = 'earth' | 'sky' | 'solar' | 'galaxy' | 'group' | 'laniakea' | 'universe';
+export type MusicLevel = 'earth' | 'sky' | 'solar' | 'galaxy' | 'group' | 'laniakea' | 'universe';
 
 interface Mood {
   /** Tonic (Hz). */

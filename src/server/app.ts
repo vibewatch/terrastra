@@ -103,9 +103,9 @@ export function createApp(o: AppOptions): express.Express {
     next();
   });
 
-  const authLimit = limiter(5, 10 * 60_000);
-  const postLimit = limiter(5, 60_000);
-  const reportLimit = limiter(10, 60 * 60_000);
+  const authLimit = limiter(5, 10 * 60_000, 10_000, { db, scope: 'auth' });
+  const postLimit = limiter(5, 60_000, 10_000, { db, scope: 'post' });
+  const reportLimit = limiter(10, 60 * 60_000, 10_000, { db, scope: 'report' });
 
   app.get('/api/health', (_req, res) => { res.json({ ok: true }); });
 

@@ -38,6 +38,10 @@ export function openDb(path: string): DB {
     CREATE INDEX IF NOT EXISTS guestbook_reports_visitor ON guestbook_reports(visitor);
     CREATE TABLE IF NOT EXISTS app_secrets (
       name TEXT PRIMARY KEY, value TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS rate_limits (
+      scope TEXT NOT NULL, key TEXT NOT NULL, count INTEGER NOT NULL, reset INTEGER NOT NULL,
+      PRIMARY KEY (scope, key));
+    CREATE INDEX IF NOT EXISTS rate_limits_reset ON rate_limits(scope, reset);
   `);
   return db;
 }

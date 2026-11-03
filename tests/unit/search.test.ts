@@ -65,4 +65,28 @@ describe('search', () => {
     expect(searchAll('', 'en', space, 'space').every(h => h.kind === 'space')).toBe(true);
     expect(searchAll('', 'en', space, 'space').length).toBe(space.length);
   });
+
+  it('indexes countries, states/provinces, and Chinese provincial capitals when places are supplied', () => {
+    const places = {
+      countries: [
+        { a2: 'CN', name: 'China', continent: 'AS', lat: 35, lon: 105, area: 900 },
+        { a2: 'FR', name: 'France', continent: 'EU', lat: 46, lon: 2, area: 60 },
+      ],
+      regions: [
+        { id: 'cn-sc', code: 'CN-SC', country: 'CN', name: 'Sichuan', zh: '四川省', lat: 30.6, lon: 102.7, area: 48 },
+        { id: 'us-ca', code: 'US-CA', country: 'US', name: 'California', zh: '加利福尼亚', lat: 37.2, lon: -119.5, area: 42 },
+      ],
+    };
+    const cnHits = searchAll('四川省', 'zh', space, 'all', places);
+    expect(cnHits[0]).toMatchObject({ kind: 'place', hit: { key: 'state:CN-SC', placeKind: 'state', needsStates: true } });
+
+    const stateHits = searchAll('California', 'en', space, 'all', places);
+    expect(stateHits[0]).toMatchObject({ kind: 'place', hit: { key: 'state:US-CA', placeKind: 'state', needsStates: true } });
+
+    const capHits = searchAll('成都', 'zh', space, 'all', places);
+    expect(capHits.some(h => h.kind === 'place' && h.hit.placeKind === 'capital' && h.hit.name.zh === '成都' && h.hit.needsStates)).toBe(true);
+
+    const countryHits = searchAll('France', 'en', space, 'all', places);
+    expect(countryHits.some(h => h.kind === 'place' && h.hit.placeKind === 'country' && h.hit.key === 'country:FR' && !h.hit.needsStates)).toBe(true);
+  });
 });

@@ -10,8 +10,8 @@ import { mat } from '../models/prims.ts';
 import { outdoorEnvironment, orientEnvironment } from '../models/environment.ts';
 import { paintNightLights, type CountryInfo } from './painter.ts';
 import { countryAt, outlinePositions } from './borders.ts';
-import { ADMIN_BORDER_COLOR, ADMIN_GLOBE_ZOOM, ADMIN_LINE_RADIUS, adminName, type AdminData } from './admin.ts';
-import { CONTINENT_NAMES } from '../../shared/data/iso.ts';
+import { ADMIN_BORDER_COLOR, ADMIN_GLOBE_ZOOM, ADMIN_LINE_RADIUS, adminName, type AdminArea, type AdminData } from './admin.ts';
+import { NAMED_PARALLELS, countryMapLabel, fillCountryTag, formatDeg, renderLabelPool, type MapLabel } from './overlay.ts';
 import { CITIES, cityName } from '../../shared/data/cities.ts';
 import { CHINA_CAPITALS, CHINA_CAPITAL_NAMES } from '../../shared/data/china-capitals.ts';
 import { TYPE_META, type LayerKey } from '../../shared/data/typemeta.ts';
@@ -470,6 +470,7 @@ export class Globe {
   countryShapes(): readonly CountryInfo[] { return this.countries; }
   /** The finest country shapes loaded so far (1:50m, with the small island states, once they arrive). */
   fineShapes(): readonly CountryInfo[] { return this.shapes(); }
+  adminRegions(): readonly AdminArea[] { return this.adminData?.regions ?? []; }
   /** Temporary layer switches on top of the user's settings (lessons hide clouds, labels…); never saved. */
   private layerOverride: Partial<Settings> | null = null;
   private effective: Settings | null = null;
@@ -1165,11 +1166,6 @@ export class Globe {
     this.updateTag();
   }
 
-  private countryName(c: CountryInfo): string {
-    if (!c.a2 || c.a2 === 'XK') return c.name;
-    try { return new Intl.DisplayNames([this.lang], { type: 'region' }).of(c.a2) ?? c.name; } catch { return c.name; }
-  }
-
   /** The name tag of the highlighted country: at the cursor while hovering, else where it was tapped. */
   private updateTag(): void {
     const c = this.shownCountry(), tag = this.countryTag;
@@ -1180,13 +1176,7 @@ export class Globe {
     const key = this.lang + c.id;
     if (this.tagFor !== key) {
       this.tagFor = key;
-      tag.replaceChildren(document.createTextNode(this.countryName(c)));
-      const cont = c.a2 !== 'AQ' ? CONTINENT_NAMES[c.continent]?.[this.lang] : '';
-      if (cont) {
-        const sub = document.createElement('small');
-        sub.textContent = cont;
-        tag.append(sub);
-      }
+      fillCountryTag(tag, c, this.lang);
     }
     tag.hidden = false;
     tag.style.transform = `translate(${Math.round(p.x)}px, ${Math.round(p.y)}px) translate(-50%, calc(-100% - 14px))`;
@@ -1600,8 +1590,7 @@ export class Globe {
   private updateLabels(): void {
     if (!this.eff.names || this.ride) { for (const s of this.labelPool) s.style.display = 'none'; return; }
     const z = this.zoom;
-    type L = { text: string; cls: string; x: number; y: number; pri: number; corner?: boolean };
-    const out: L[] = [];
+    const out: MapLabel[] = [];
     const { clientWidth: width, clientHeight: height } = this.renderer.domElement;
     const push = (text: string, cls: string, lat: number, lon: number, pri: number, corner = false) => {
       const s = this.project(new THREE.Vector3(...latLonToVec(lat, lon, 1.002)));
@@ -1637,24 +1626,7 @@ export class Globe {
       if (z < 12) for (const [, n, la, lo] of OCEANS) push(n[this.lang] ?? n.en, 'lb-ocean', la, lo, 2000);
     }
     out.sort((a, b) => b.pri - a.pri);
-    const boxes: [number, number, number, number][] = [];
-    let used = 0;
-    for (const l of out) {
-      const w = (l.text.length + (l.text.match(/[\u3000-\u9fff]/g)?.length ?? 0) * 0.8) * (l.cls === 'lb-country' ? 8 : 6.5) + 10, h = 16;
-      const cx = l.corner ? l.x + w / 2 + 2 : l.x, cy = l.corner ? l.y - h / 2 - 1 : l.y;
-      const bx: [number, number, number, number] = [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2];
-      if (boxes.some(b => bx[0] < b[2] && bx[2] > b[0] && bx[1] < b[3] && bx[3] > b[1])) continue;
-      boxes.push(bx);
-      let el = this.labelPool[used];
-      if (!el) { el = document.createElement('span'); this.labelsEl.append(el); this.labelPool.push(el); }
-      if (el.textContent !== l.text) el.textContent = l.text;
-      if (el.className !== l.cls) el.className = l.cls;
-      el.style.display = '';
-      el.style.transform = `translate(${l.x.toFixed(1)}px,${l.y.toFixed(1)}px) ` + (l.corner ? 'translate(3px,-100%)' : 'translate(-50%,-50%)');
-      used++;
-      if (used > 140) break;
-    }
-    for (let i = used; i < this.labelPool.length; i++) this.labelPool[i].style.display = 'none';
+    renderLabelPool(this.labelsEl, this.labelPool, out, 140);
   }
 
   /** Degree labels where the grid crosses the meridian/parallel nearest the view centre, plus named circles. */
@@ -1663,31 +1635,21 @@ export class Globe {
     const snap = (v: number) => Math.round(v / step) * step;
     const lonC = ((snap(this.lon) + 540) % 360) - 180;
     const latC = Math.abs(this.lat) < step * 2.5 ? 0 : Math.max(-75, Math.min(75, snap(this.lat)));
-    const fmt = (v: number, pos: string, neg: string) => v === 0 ? '0°' : `${Math.abs(v)}°${v > 0 ? pos : neg}`;
-    for (let la = -75; la <= 75; la += step) if (la !== latC) push(fmt(la, 'N', 'S'), 'lb-grid', la, lonC, 40, true);
+    for (let la = -75; la <= 75; la += step) if (la !== latC) push(formatDeg(la, 'N', 'S'), 'lb-grid', la, lonC, 40, true);
     for (let k = -180 / step; k < 180 / step; k++) {
       const lo = snap(this.lon) + k * step;
       if (Math.abs(lo - this.lon) > 95) continue;
       const w = ((lo + 540) % 360) - 180;
-      push(Math.abs(w) === 180 ? '180°' : fmt(w, 'E', 'W'), 'lb-grid', latC, w, 40, true);
+      push(Math.abs(w) === 180 ? '180°' : formatDeg(w, 'E', 'W'), 'lb-grid', latC, w, 40, true);
     }
-    const named: [string, number][] = [['equator', 0], ['tropicN', 23.436], ['tropicS', -23.436], ['arcticC', 66.564], ['antarcticC', -66.564]];
     const off = step * 0.5;
-    for (const [k, la] of named) push(GRID_NAMES[k][this.lang] ?? GRID_NAMES[k].en, 'lb-grid lb-gridname g-' + k, la, lonC + off, 600, true);
+    for (const [k, la] of NAMED_PARALLELS) push(GRID_NAMES[k][this.lang] ?? GRID_NAMES[k].en, 'lb-grid lb-gridname g-' + k, la, lonC + off, 600, true);
     if (Math.abs(this.lon) < 100) push(GRID_NAMES.prime[this.lang] ?? GRID_NAMES.prime.en, 'lb-grid lb-gridname g-prime', Math.max(-60, Math.min(60, this.lat + step * 0.5)), 0, 600, true);
   }
 
   private names = new Map<string, string>();
   countryLabel(c: CountryInfo): string {
-    const k = this.lang + c.a2;
-    let s = this.names.get(k);
-    if (!s) {
-      try { s = new Intl.DisplayNames([this.lang], { type: 'region' }).of(c.a2) ?? c.name; } catch { s = c.name; }
-      if (c.a2 === 'XK') s = c.name;
-      if (this.lang === 'en') s = s.toUpperCase();
-      this.names.set(k, s);
-    }
-    return s;
+    return countryMapLabel(c, this.lang, this.names);
   }
 
   private frame(): void {
