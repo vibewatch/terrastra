@@ -3,9 +3,11 @@ import { GRID_NAMES, OCEANS, type Globe } from '../globe/scene.ts';
 import type { CountryInfo } from '../globe/painter.ts';
 import type { Quality } from '../globe/quality.ts';
 import { countryAt } from '../globe/borders.ts';
+import { ADMIN_MAP_ZOOM, adminName, adminSubtitle, type AdminArea, type AdminData, type AdminLineTile } from '../globe/admin.ts';
 import { CATALOGUE } from '../../shared/data/catalogue.ts';
 import { TYPE_META } from '../../shared/data/typemeta.ts';
 import { CITIES, cityName } from '../../shared/data/cities.ts';
+import { CHINA_CAPITALS, CHINA_CAPITAL_NAMES } from '../../shared/data/china-capitals.ts';
 import { CONTINENT_NAMES } from '../../shared/data/iso.ts';
 import { tr, type CatalogueItem } from '../../shared/data/types.ts';
 import { t, lang, fmtNum, onLang } from '../lib/i18n.ts';
@@ -15,7 +17,7 @@ import { loadRelief } from '../lib/relief.ts';
 import { url } from '../lib/env.ts';
 import { h } from '../ui/dom.ts';
 import { icon } from '../ui/icons.ts';
-import { EXTENT, PROJ_GLSL, PROJ_IDS, PROJ_INDEX, forward, inverse, phiOf, wrapPi, wraps, xScale, yOf, type ProjId } from './proj.ts';
+import { EXTENT, PROJ_GLSL, PROJ_IDS, PROJ_INDEX, boundsInView, forward, inverse, phiOf, wrapPi, wraps, xScale, yOf, type ProjId } from './proj.ts';
 
 const D = Math.PI / 180;
 const R_KM = 6371;
@@ -43,6 +45,7 @@ export interface MapHost {
 }
 
 interface View { lon0: number; cy: number; k: number }
+type MapArea = CountryInfo | AdminArea;
 
 const LINE_VERT = /* glsl */ `
   attribute vec4 aSeg;
@@ -208,6 +211,13 @@ export class FlatMap {
   private mapU: Record<string, THREE.IUniform>;
   private borderLine: THREE.Mesh;
   private borderCase: THREE.Mesh;
+  private adminLine: THREE.Group;
+  private adminCase: THREE.Group;
+  private adminLineMat: THREE.ShaderMaterial;
+  private adminCaseMat: THREE.ShaderMaterial;
+  private adminTiles: { tile: AdminLineTile; line: THREE.Mesh; casing: THREE.Mesh }[] = [];
+  private adminData: AdminData | null = null;
+  private adminWasVisible = false;
   private grid: THREE.Mesh;
   private gridStepNow = 0;
   private borderSrc: Float32Array | null = null;
@@ -235,8 +245,8 @@ export class FlatMap {
   private hlLine = document.createElementNS('http://www.w3.org/2000/svg', 'path');
   private tag = h('div', { class: 'country-tag', 'data-testid': 'map-country-tag', hidden: true });
   private tagFor = '';
-  private hoverC: CountryInfo | null = null;
-  private picked: { c: CountryInfo; lat: number; lon: number } | null = null;
+  private hoverC: MapArea | null = null;
+  private picked: { c: MapArea; lat: number; lon: number } | null = null;
   private cursor: { x: number; y: number } | null = null;
   /** Quiz mode: country and city names stay hidden until a country is tapped. */
   private quiz = load<boolean>('mapQuiz', false);
@@ -279,8 +289,14 @@ export class FlatMap {
     this.grid = new THREE.Mesh(empty, lineMat('#ffffff', 1, true));
     this.borderCase = new THREE.Mesh(empty, lineMat('#020617', 0.5));
     this.borderLine = new THREE.Mesh(empty, lineMat('#f1f5f9', 0.85));
-    [this.grid, this.borderCase, this.borderLine].forEach((m, i) => { m.frustumCulled = false; m.renderOrder = i + 1; });
-    this.scene.add(quad, this.grid, this.borderCase, this.borderLine);
+    this.adminCase = new THREE.Group();
+    this.adminLine = new THREE.Group();
+    this.adminCaseMat = lineMat('#020617', 0.45);
+    this.adminLineMat = lineMat('#a5d8e8', 0.7);
+    for (const [mesh, order] of [[this.grid, 1], [this.borderCase, 4], [this.borderLine, 5]] as const) {
+      mesh.frustumCulled = false; mesh.renderOrder = order;
+    }
+    this.scene.add(quad, this.grid, this.adminCase, this.adminLine, this.borderCase, this.borderLine);
     void warmShaders(this.renderer, this.scene, this.cam).then(() => { this.shadersReady = true; });
 
     this.renderBar();
@@ -290,6 +306,27 @@ export class FlatMap {
   }
 
   get isOpen(): boolean { return this.shown; }
+
+  markDirty(): void { this.dirty = true; }
+
+  setAdminData(data: AdminData): void {
+    if (this.adminData === data) return;
+    this.adminData = data;
+    for (const tile of this.adminTiles) tile.line.geometry.dispose();
+    this.adminTiles = [];
+    this.adminLine.clear(); this.adminCase.clear();
+    for (const tile of data.lineTiles) {
+      const geometry = lineGeometry(tile.mapLines);
+      const casing = new THREE.Mesh(geometry, this.adminCaseMat);
+      const line = new THREE.Mesh(geometry, this.adminLineMat);
+      casing.frustumCulled = line.frustumCulled = false;
+      casing.renderOrder = 2; line.renderOrder = 3;
+      this.adminCase.add(casing); this.adminLine.add(line);
+      this.adminTiles.push({ tile, line, casing });
+    }
+    this.adminWasVisible = false;
+    this.dirty = true;
+  }
 
   /** Shows the map centred on (lat, lon); the zoom is kept from last time. */
   open(lat: number, lon: number): void {
@@ -551,9 +588,18 @@ export class FlatMap {
     this.grid.visible = s.graticule;
     const bw = 0.9 + 0.32 * Math.log2(z);
     this.borderLine.visible = this.borderCase.visible = s.borders;
+    this.adminLine.visible = this.adminCase.visible = s.borders && this.adminVisible();
+    if (this.adminLine.visible) {
+      const view = { ...this.v, width: this.W, height: this.H };
+      for (const { tile, line, casing } of this.adminTiles) {
+        line.visible = casing.visible = boundsInView(this.proj, tile.bounds, view);
+      }
+    }
     const lm = this.borderLine.material as THREE.ShaderMaterial, cm = this.borderCase.material as THREE.ShaderMaterial;
     lm.uniforms.uWidth.value = bw;
     cm.uniforms.uWidth.value = bw + 1.8;
+    this.adminLineMat.uniforms.uWidth.value = Math.max(0.7, bw - 0.25);
+    this.adminCaseMat.uniforms.uWidth.value = bw + 1;
     (lm.uniforms.uColor.value as THREE.Vector4).set(...(mode === 'minimal' ? [0.49, 0.83, 0.99] : [0.95, 0.96, 0.98]) as [number, number, number], mode === 'political' ? 0.9 : 0.8);
     (this.grid.material as THREE.ShaderMaterial).uniforms.uWidth.value = 1;
     this.renderer.render(this.scene, this.cam);
@@ -562,6 +608,15 @@ export class FlatMap {
   // ---------- overlay ----------
   private layout(): void {
     const s = this.host.globe.settings, z = this.zoom;
+    const adminVisible = this.adminVisible();
+    if (adminVisible !== this.adminWasVisible) {
+      this.adminWasVisible = adminVisible;
+      if (this.cursor) this.hoverAt(this.cursor.x, this.cursor.y);
+      if (this.picked) {
+        const c = this.areaAt(this.picked.lat, this.picked.lon);
+        this.picked = c ? { ...this.picked, c } : null;
+      }
+    }
     this.layoutLabels(s.names, s.graticule, z);
     this.drawHighlight();
     this.updateTag();
@@ -601,22 +656,43 @@ export class FlatMap {
         if (c.area * kd * kd * hs * vs < 700) continue;
         push(this.host.globe.countryLabel(c), 'lb-country', c.lat, c.lon, 1000 + c.area);
       }
+      const showAdmin = this.adminVisible();
+      if (showAdmin && this.adminData) {
+        for (const area of this.adminData.regions) {
+          if (z < 10) {
+            const phi = area.lat * D, hs = xScale(this.proj, phi) / Math.max(0.05, Math.cos(phi));
+            const vs = (yOf(this.proj, phi + 0.01) - yOf(this.proj, phi - 0.01)) / 0.02;
+            if (area.area * kd * kd * hs * vs < 500) continue;
+          }
+          push(adminName(area, l), 'lb-admin', area.lat, area.lon, 1000 + area.area);
+        }
+        for (const city of CHINA_CAPITALS) push(city[l], 'lb-city lb-provcap', city.lat, city.lon, 6000);
+      }
       const minPop = z < 1.4 ? 14 : z < 2.2 ? 6 : z < 3.5 ? 2.5 : z < 6 ? 1 : 0;
       for (const [name, , la, lo, pop, cap] of this.quiz ? [] : CITIES) {
+        if (showAdmin && CHINA_CAPITAL_NAMES.has(name)) continue;
         if (pop < minPop && !(cap && z >= 2.6)) continue;
         push(cityName(name, l), cap ? 'lb-city lb-cap' : 'lb-city', la, lo, pop + (cap ? 5 : 0));
       }
       if (z < 5) for (const [, n, la, lo] of OCEANS) push(n[l] ?? n.en, 'lb-ocean', la, lo, 2000);
     }
-    const isC = (lb: L) => (lb.cls.startsWith('lb-country') ? 1 : 0);
-    out.sort((a, b) => isC(b) - isC(a) || b.pri - a.pri);
+    const labelRank = (lb: L) => lb.cls.includes('lb-provcap') ? 3 : lb.cls.startsWith('lb-country') ? 2 : lb.cls.startsWith('lb-admin') ? 1 : 0;
+    const distance = (lb: L) => (lb.x - this.W / 2) ** 2 + (lb.y - this.H / 2) ** 2;
+    out.sort((a, b) => {
+      const rank = labelRank(b) - labelRank(a);
+      if (rank) return rank;
+      if (z >= 10 && a.cls === 'lb-admin' && b.cls === 'lb-admin') {
+        return distance(a) - distance(b) || b.pri - a.pri;
+      }
+      return b.pri - a.pri;
+    });
     // country names first, then the pins around them, then every other label in the gaps
     const boxes: [number, number, number, number][] = [];
     let used = 0;
     let pinsDone = false;
     for (const lb of out) {
-      if (!pinsDone && !isC(lb)) { pinsDone = true; this.layoutPins(z, boxes); boxes.push(...this.pinBoxes); }
-      const w = textW(lb.text, isC(lb) ? 8 : 6.5), hh = 16;
+      if (!pinsDone && !labelRank(lb)) { pinsDone = true; this.layoutPins(z, boxes); boxes.push(...this.pinBoxes); }
+      const w = textW(lb.text, lb.cls.startsWith('lb-country') ? 8 : 6.5), hh = 16;
       const cx = lb.corner ? lb.x + w / 2 + 2 : lb.x, cy = lb.corner ? lb.y - hh / 2 - 1 : lb.y;
       const bx: [number, number, number, number] = [cx - w / 2, cy - hh / 2, cx + w / 2, cy + hh / 2];
       if (boxes.some(b => bx[0] < b[2] && bx[2] > b[0] && bx[1] < b[3] && bx[3] > b[1])) continue;
@@ -704,7 +780,12 @@ export class FlatMap {
 
   private countryUi(): boolean { return (this.host.globe.settings.borders || this.quiz) && !this.host.globe.gameMode; }
 
-  private shownCountry(): CountryInfo | null {
+  private adminVisible(): boolean { return !!this.adminData && this.zoom >= ADMIN_MAP_ZOOM && !this.quiz && !this.host.globe.gameMode; }
+  private areaAt(lat: number, lon: number): MapArea | null {
+    return (this.adminVisible() ? this.adminData?.at(lat, lon) : null) ?? countryAt(this.host.shapes(), lat, lon);
+  }
+
+  private shownCountry(): MapArea | null {
     return this.countryUi() ? this.hoverC ?? this.picked?.c ?? null : null;
   }
 
@@ -743,15 +824,19 @@ export class FlatMap {
     if (c && c === this.hoverC && this.cursor) p = this.cursor;
     else if (c && this.picked?.c === c) { const [x, y] = this.toScreen(this.picked.lat, this.picked.lon); p = { x, y }; }
     // in quiz mode hovering only outlines the country; its name waits for a tap
-    if (!c || !p || (this.quiz && !this.revealed.has(countryKey(c)))) { if (!tag.hidden) tag.hidden = true; return; }
+    if (!c || !p || (this.quiz && ('country' in c || !this.revealed.has(countryKey(c))))) { if (!tag.hidden) tag.hidden = true; return; }
     const l = lang(), key = l + c.id;
     if (this.tagFor !== key) {
       this.tagFor = key;
-      let name = c.name;
-      if (c.a2 && c.a2 !== 'XK') try { name = new Intl.DisplayNames([l], { type: 'region' }).of(c.a2) ?? c.name; } catch { /* keep the English name */ }
-      tag.replaceChildren(document.createTextNode(name));
-      const cont = CONTINENT_NAMES[c.continent];
-      if (cont && c.a2 !== 'AQ') tag.append(h('small', {}, cont[l] ?? cont.en));
+      if ('country' in c) {
+        tag.replaceChildren(document.createTextNode(adminName(c, l)), h('small', {}, adminSubtitle(c, l)));
+      } else {
+        let name = c.name;
+        if (c.a2 && c.a2 !== 'XK') try { name = new Intl.DisplayNames([l], { type: 'region' }).of(c.a2) ?? c.name; } catch { /* keep the English name */ }
+        tag.replaceChildren(document.createTextNode(name));
+        const cont = CONTINENT_NAMES[c.continent];
+        if (cont && c.a2 !== 'AQ') tag.append(h('small', {}, cont[l] ?? cont.en));
+      }
     }
     tag.style.transform = `translate(${p.x.toFixed(1)}px,${(p.y - 14).toFixed(1)}px) translate(-50%,-100%)`;
     tag.hidden = false;
@@ -902,7 +987,7 @@ export class FlatMap {
   private hoverAt(x: number, y: number): void {
     if (!this.countryUi()) return;
     const ll = this.toLatLon(x, y);
-    const c = ll ? countryAt(this.host.shapes(), ll[0], ll[1]) : null;
+    const c = ll ? this.areaAt(ll[0], ll[1]) : null;
     this.cursor = { x, y };
     if (c !== this.hoverC) { this.hoverC = c; this.drawHighlight(); }
     this.updateTag();
@@ -912,9 +997,9 @@ export class FlatMap {
     this.host.hover(null, null);
     if (!this.countryUi()) return;
     const ll = this.toLatLon(x, y);
-    const c = ll ? countryAt(this.host.shapes(), ll[0], ll[1]) : null;
+    const c = ll ? this.areaAt(ll[0], ll[1]) : null;
     this.picked = c && ll ? { c, lat: ll[0], lon: ll[1] } : null;
-    if (this.quiz && c) {
+    if (this.quiz && c && !('country' in c)) {
       // a tap flips the country: hidden names are revealed, revealed ones go back into hiding
       const k = countryKey(c);
       if (!this.revealed.delete(k)) this.revealed.add(k);

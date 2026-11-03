@@ -58,8 +58,8 @@ test('keyboard: Tab stays inside a dialog and focus shows the tooltip', async ({
 });
 
 test('a failed Solar System load can be retried', async ({ page }) => {
-  let blocked = 0;
-  await page.route(/\/assets\/ui-[^/]+\.js$/, route => { if (blocked++ === 0) return route.abort(); return route.continue(); });
+  const solarChunk = /\/assets\/ui-[^/]+\.js$/;
+  await page.route(solarChunk, route => route.abort());
   await openApp(page);
   await page.getByTestId('level-switch').click();
   await page.getByTestId('rail-solar').click();
@@ -68,14 +68,22 @@ test('a failed Solar System load can be retried', async ({ page }) => {
   // the Earth is still usable
   await expect(page.locator('#btn-zoom-in')).toBeEnabled();
   await page.getByTestId('load-retry').click();
-  // a browser may cache the failed module: then the second failure offers a reload that keeps the place
-  const ok = await page.locator('body.solar').waitFor({ state: 'attached', timeout: 30_000 }).then(() => true, () => false);
-  if (!ok) {
-    await expect(page.getByTestId('load-reload')).toBeVisible();
-    await page.getByTestId('load-reload').click();
-    await expect(page.locator('body.solar')).toHaveCount(1, { timeout: 90_000 });
-  }
-  expect(await page.evaluate(() => document.body.classList.contains('solar'))).toBe(true);
+  await expect(page.getByTestId('load-reload')).toBeVisible({ timeout: 30_000 });
+  await page.unroute(solarChunk);
+  await page.getByTestId('load-reload').click();
+  await expect(page.locator('body.solar')).toHaveCount(1, { timeout: 90_000 });
+});
+
+test('sky theatre works without storage and remembers the observer for the session', async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(window, 'localStorage', { configurable: true, get: () => { throw new DOMException('Denied', 'SecurityError'); } });
+  });
+  await openApp(page, '/?lowfx=1&notut#sky');
+  await expect(page.getByTestId('sky')).toBeVisible({ timeout: 60_000 });
+  await pickOption(page, 'sky-site', 'beijing');
+  await page.getByTestId('sky-close').click();
+  await fromHub(page, 'look', 'menu-sky');
+  await expect(page.getByTestId('sky-site')).toHaveAttribute('data-value', 'beijing', { timeout: 60_000 });
 });
 
 test('links: lowfx=0 wins over reduced motion; an unknown hash falls back to the Earth', async ({ page }) => {
@@ -151,6 +159,14 @@ test('progress backup: save a file, then load it back through a preview', async 
   await page.getByTestId('backup-file').setInputFiles({ name: 'b.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(saved)) });
   await expect(page.getByTestId('backup-preview')).toBeVisible();
   await page.getByTestId('backup-merge').click();
+  await expect(page.getByTestId('backup-preview')).toHaveCount(0);
+  expect(await page.evaluate(() => Object.keys(JSON.parse(localStorage.getItem('pp.progress') ?? '{}').seen ?? {}))).toContain('an_tiger');
+
+  saved.progress.seen = Object.fromEntries(Array.from({ length: 5000 }, (_, i) => [`extra-${i}`, 1]));
+  if (!(await page.getByTestId('backup-import').isVisible())) await page.locator('#btn-menu').click();
+  await page.getByTestId('backup-import').click();
+  await page.getByTestId('backup-file').setInputFiles({ name: 'large.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(saved)) });
+  await expect(page.locator('#toast')).toContainText('too large');
   await expect(page.getByTestId('backup-preview')).toHaveCount(0);
   expect(await page.evaluate(() => Object.keys(JSON.parse(localStorage.getItem('pp.progress') ?? '{}').seen ?? {}))).toContain('an_tiger');
 });
@@ -261,9 +277,14 @@ test('photos from every scene: Solar System and sky theatre save captioned postc
   await expect(page.locator('#toast')).toContainText(/album/i);
   await page.getByTestId('photo-album').click();
   await expect(page.getByTestId('album-grid').locator('img')).toHaveCount(2);
-  const places = await page.evaluate(() => new Promise<string[]>(res => {
+  const places = await page.evaluate(() => new Promise<string[]>((res, rej) => {
     const r = indexedDB.open('pp-photos');
-    r.onsuccess = () => { const q = r.result.transaction('photos').objectStore('photos').getAll(); q.onsuccess = () => res(q.result.map((p: { place: string }) => p.place)); };
+    r.onerror = () => rej(r.error);
+    r.onsuccess = () => {
+      const db = r.result, tx = db.transaction('photos'), q = tx.objectStore('photos').getAll();
+      tx.oncomplete = () => { db.close(); res(q.result.map((p: { place: string }) => p.place)); };
+      tx.onerror = () => { db.close(); rej(tx.error); };
+    };
   }));
   expect(places[0]).toBe('Mars');
   expect(places[1]).toMatch(/\d{4}/);
@@ -272,6 +293,14 @@ test('photos from every scene: Solar System and sky theatre save captioned postc
   await expect.poll(() => first.evaluate((i: HTMLImageElement) => i.naturalWidth)).toBeGreaterThan(0);
   const [w, h] = await first.evaluate((i: HTMLImageElement) => [i.naturalWidth, i.naturalHeight]);
   expect(h / w).toBeGreaterThan(800 / 1280);
+  const deleted = await page.evaluate(() => new Promise<string>(resolve => {
+    const r = indexedDB.deleteDatabase('pp-photos');
+    r.onsuccess = () => resolve('deleted');
+    r.onerror = () => resolve('error');
+    r.onblocked = () => resolve('blocked');
+    setTimeout(() => resolve('timeout'), 3000);
+  }));
+  expect(deleted).toBe('deleted');
 });
 
 test('compare bench: one measure per group, true scale vs clearly marked enlarged view', async ({ page }) => {

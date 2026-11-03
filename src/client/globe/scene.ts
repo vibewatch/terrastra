@@ -10,8 +10,10 @@ import { mat } from '../models/prims.ts';
 import { outdoorEnvironment, orientEnvironment } from '../models/environment.ts';
 import { paintNightLights, type CountryInfo } from './painter.ts';
 import { countryAt, outlinePositions } from './borders.ts';
+import { ADMIN_GLOBE_ZOOM, ADMIN_LINE_RADIUS, adminName, adminSubtitle, type AdminArea, type AdminData } from './admin.ts';
 import { CONTINENT_NAMES } from '../../shared/data/iso.ts';
 import { CITIES, cityName } from '../../shared/data/cities.ts';
+import { CHINA_CAPITALS, CHINA_CAPITAL_NAMES } from '../../shared/data/china-capitals.ts';
 import { TYPE_META, type LayerKey } from '../../shared/data/typemeta.ts';
 import { subsolar } from '../../shared/lib/sun.ts';
 import { GlobeLayers, RENDER_ORDER, graticuleStep } from './layers.ts';
@@ -64,6 +66,7 @@ const SHADOW_MAX_H = 0.6;
 const SHADOW_STRENGTH = 0.72;
 export const MAX_H = 4.5;
 const TIER_ZOOM = [0, 0, 4.3, 5.3];
+type MapArea = CountryInfo | AdminArea;
 // zoom readout: ×4.0 at the default altitude, proportional to 1/altitude.
 const zoomFromH = (h: number) => (4 * DEFAULT_H) / h;
 
@@ -366,14 +369,19 @@ export class Globe {
   };
   private borderLines: THREE.LineSegments | null = null;
   private borderMat = new THREE.LineBasicMaterial({ color: '#f1f5f9', transparent: true, opacity: 0.5, depthWrite: false });
+  private adminData: AdminData | null = null;
+  private adminLines: THREE.Group | null = null;
+  private adminTiles: { line: THREE.LineSegments; sphere: THREE.Sphere }[] = [];
+  private adminMat = new THREE.LineBasicMaterial({ color: '#a5d8e8', transparent: true, opacity: 0.6, depthWrite: false });
+  private adminWasVisible = false;
   /** Border opacity [widest view, close up] for the current surface style. */
   private borderTone: [number, number] = [0.42, 0.85];
   /** Shapes for hover/tap lookups and highlight outlines: the 1:50m set once it has loaded, else the painted 1:110m one. */
   private borderShapes: CountryInfo[] | null = null;
-  private hoverCountry: CountryInfo | null = null;
-  private pickedCountry: { c: CountryInfo; at: THREE.Vector3 } | null = null;
+  private hoverCountry: MapArea | null = null;
+  private pickedCountry: { c: MapArea; at: THREE.Vector3 } | null = null;
   private cursor: { x: number; y: number } | null = null;
-  private hiShown: CountryInfo | null = null;
+  private hiShown: MapArea | null = null;
   private hiLines: THREE.LineSegments | null = null;
   private hiMat = new THREE.LineBasicMaterial({ color: '#fde047', transparent: true, opacity: 0.95, depthWrite: false });
   private countryTag: HTMLDivElement;
@@ -421,13 +429,16 @@ export class Globe {
   private isPaused = false;
   get paused(): boolean { return this.isPaused; }
   set paused(v: boolean) {
+    if (this.isPaused === v) return;
     this.isPaused = v;
     if (v) {
+      if (this.frameRequest) cancelAnimationFrame(this.frameRequest);
+      this.frameRequest = 0;
       this.hoverCountry = null; this.cursor = null; this.countryTag.hidden = true;
       if (this.renderer) releaseWhenHidden(this.renderer, () => this.isPaused, () => { this.released = true; });
-    } else if (this.released) {
-      this.released = false;
-      this.resize();
+    } else {
+      if (this.released) { this.released = false; this.resize(); }
+      if (this.renderer && !this.frameRequest) this.frameRequest = requestAnimationFrame(this.animationLoop);
     }
     this.dirty = true;
   }
@@ -454,8 +465,6 @@ export class Globe {
   readonly frameHooks = new Set<(dt: number) => void>();
   /** Taps on the globe go to `ev.onGlobeTap` instead of picking (lesson "find it on the globe" questions). */
   captureTaps = false;
-  /** Lessons: keep a top-down, map-like view at every height (no pitch toward the horizon when zoomed in). */
-  flatView = false;
   /** Where the globe's centre is drawn, in px from the canvas centre (eased), so a side card does not cover it. */
   private shift = { x: 0, y: 0, tx: 0, ty: 0 };
   setViewShift(x: number, y: number): void { this.shift.tx = x; this.shift.ty = y; this.dirty = true; }
@@ -481,6 +490,13 @@ export class Globe {
   private lastBudget = -1e9;
   private lastRender = 0;
   private adapt: AdaptiveResolution | null = null;
+  private frameRequest = 0;
+  private animationLoop = (): void => {
+    this.frameRequest = 0;
+    if (this.paused) return;
+    if (this.shadersReady) this.frame();
+    if (!this.paused && !this.frameRequest) this.frameRequest = requestAnimationFrame(this.animationLoop);
+  };
 
   /** lowfx = reduced motion (frozen animations); quality = resolution / detail tier for this device. */
   constructor(private container: HTMLElement, public ev: GlobeEvents, private lowfx = false,
@@ -579,8 +595,7 @@ export class Globe {
     new ResizeObserver(() => this.resize()).observe(this.container);
     this.bindInput(r.domElement);
     this.warmed = warmShaders(r, this.scene, this.camera).then(() => { this.shadersReady = true; });
-    const loop = () => { if (!this.paused && this.shadersReady) this.frame(); requestAnimationFrame(loop); };
-    requestAnimationFrame(loop);
+    if (!this.paused) this.frameRequest = requestAnimationFrame(this.animationLoop);
     return true;
   }
 
@@ -607,7 +622,7 @@ export class Globe {
     const p = this.pickedCountry;
     if (p) {
       const [la, lo] = vecToLatLon(p.at.x, p.at.y, p.at.z);
-      const c = countryAt(shapes, la, lo);
+      const c = this.areaAt(la, lo);
       this.pickedCountry = c ? { c, at: p.at } : null;
     }
     this.dirty = true;
@@ -623,6 +638,30 @@ export class Globe {
     this.borderLines = new THREE.LineSegments(geo, this.borderMat);
     this.borderLines.visible = this.eff.borders;
     this.scene.add(this.borderLines);
+    this.dirty = true;
+  }
+
+  setAdminData(data: AdminData): void {
+    if (this.adminData === data) return;
+    this.adminData = data;
+    if (this.adminLines) {
+      this.scene.remove(this.adminLines);
+      for (const tile of this.adminTiles) tile.line.geometry.dispose();
+    }
+    this.adminTiles = [];
+    this.adminLines = new THREE.Group();
+    for (const tile of data.lineTiles) {
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(tile.globeLines, 3));
+      geo.computeBoundingSphere();
+      if (!geo.boundingSphere) throw new Error('Missing administrative tile bounds');
+      const line = new THREE.LineSegments(geo, this.adminMat);
+      this.adminTiles.push({ line, sphere: geo.boundingSphere });
+      this.adminLines.add(line);
+    }
+    this.adminLines.visible = false;
+    this.scene.add(this.adminLines);
+    this.adminWasVisible = false;
     this.dirty = true;
   }
 
@@ -1097,27 +1136,33 @@ export class Globe {
     }
     const hit = this.pickAt(x, y);
     const ll = !hit && this.countryUi() ? this.screenToLatLon(x, y) : null;
-    const c = ll ? countryAt(this.shapes(), ll[0], ll[1]) : null;
+    const c = ll ? this.areaAt(ll[0], ll[1]) : null;
     this.pickedCountry = c && ll ? { c, at: new THREE.Vector3(...latLonToVec(ll[0], ll[1], 1.0025)) } : null;
     this.dirty = true;
     this.ev.onPick?.(hit);
   }
 
   private shapes(): readonly CountryInfo[] { return this.borderShapes ?? this.countries; }
+  private adminVisible(): boolean {
+    return !!this.adminData && this.zoom >= ADMIN_GLOBE_ZOOM && !this.gameMode && !this.layerOverride && !this.ride;
+  }
+  private areaAt(lat: number, lon: number): MapArea | null {
+    return (this.adminVisible() ? this.adminData?.at(lat, lon) : null) ?? countryAt(this.shapes(), lat, lon);
+  }
   /** Country hover/tap highlighting: browsing with borders on (lessons, games and rides own the globe). */
   private countryUi(): boolean {
     return this.eff.borders && !this.gameMode && !this.captureTaps && !this.ride && !this.layerOverride && !this.isPaused;
   }
-  private shownCountry(): CountryInfo | null {
+  private shownCountry(): MapArea | null {
     return this.countryUi() ? this.hoverCountry ?? this.pickedCountry?.c ?? null : null;
   }
 
   /** Hovers the country under canvas point (x, y); `x = null` clears the hover. */
   private hoverCountryAt(x: number | null, y = 0): void {
-    let c: CountryInfo | null = null;
+    let c: MapArea | null = null;
     if (x !== null && this.countryUi()) {
       const ll = this.screenToLatLon(x, y);
-      if (ll) c = countryAt(this.shapes(), ll[0], ll[1]);
+      if (ll) c = this.areaAt(ll[0], ll[1]);
     }
     this.cursor = x === null ? null : { x, y };
     if (c !== this.hoverCountry) { this.hoverCountry = c; this.dirty = true; }
@@ -1139,11 +1184,11 @@ export class Globe {
     const key = this.lang + c.id;
     if (this.tagFor !== key) {
       this.tagFor = key;
-      const cont = CONTINENT_NAMES[c.continent];
-      tag.replaceChildren(document.createTextNode(this.countryName(c)));
-      if (cont && c.a2 !== 'AQ') {
+      tag.replaceChildren(document.createTextNode('country' in c ? adminName(c, this.lang) : this.countryName(c)));
+      const cont = 'country' in c ? adminSubtitle(c, this.lang) : c.a2 !== 'AQ' ? CONTINENT_NAMES[c.continent]?.[this.lang] : '';
+      if (cont) {
         const sub = document.createElement('small');
-        sub.textContent = cont[this.lang] ?? cont.en;
+        sub.textContent = cont;
         tag.append(sub);
       }
     }
@@ -1155,6 +1200,23 @@ export class Globe {
   private styleBorders(): void {
     const on = this.eff.borders;
     if (this.borderLines) this.borderLines.visible = on;
+    const adminVisible = this.adminVisible();
+    if (this.adminLines) this.adminLines.visible = on && adminVisible;
+    if (on && adminVisible && (this.dirty || !this.adminWasVisible)) {
+      const direction = this.camera.position.clone(), distance = direction.length();
+      direction.divideScalar(distance);
+      const horizon = (1 - Math.sqrt((distance * distance - 1) * (ADMIN_LINE_RADIUS * ADMIN_LINE_RADIUS - 1))) / distance - 1e-4;
+      for (const tile of this.adminTiles) tile.line.visible = direction.dot(tile.sphere.center) + tile.sphere.radius >= horizon;
+    }
+    if (adminVisible !== this.adminWasVisible) {
+      this.adminWasVisible = adminVisible;
+      if (this.cursor) this.hoverCountryAt(this.cursor.x, this.cursor.y);
+      if (this.pickedCountry) {
+        const [lat, lon] = vecToLatLon(this.pickedCountry.at.x, this.pickedCountry.at.y, this.pickedCountry.at.z);
+        const c = this.areaAt(lat, lon);
+        this.pickedCountry = c ? { c, at: this.pickedCountry.at } : null;
+      }
+    }
     // faint on the whole-planet view, crisp from about country scale inward
     const k = Math.max(0, Math.min(1, (Math.log(MAX_H) - Math.log(this.h)) / (Math.log(MAX_H) - Math.log(0.35))));
     const [far, near] = this.borderTone;
@@ -1382,14 +1444,9 @@ export class Globe {
     this.camera.updateProjectionMatrix();
 
     const T = new THREE.Vector3(...latLonToVec(this.lat, this.lon));
-    const N = T.clone();
     const north = this.northAt(this.lat, this.lon);
-    // Smoothly pitch toward the horizon as the user zooms in from orbital view.
-    const z = this.zoom;
-    const tilt = this.flatView || z <= 4.15 ? 0 : Math.min(0.86, Math.pow(Math.min(1, (z - 4.15) / 8.5), 0.72) * 0.86);
-    const dir = N.clone().multiplyScalar(Math.cos(tilt)).add(north.clone().multiplyScalar(-Math.sin(tilt)));
-    this.camera.position.copy(T).add(dir.multiplyScalar(this.h));
-    this.camera.up.copy(north.clone().multiplyScalar(Math.cos(tilt)).add(N.clone().multiplyScalar(Math.sin(tilt))));
+    this.camera.position.copy(T).addScaledVector(T, this.h);
+    this.camera.up.copy(north);
     this.camera.lookAt(T);
     this.camera.updateMatrixWorld();
   }
@@ -1557,9 +1614,12 @@ export class Globe {
     const z = this.zoom;
     type L = { text: string; cls: string; x: number; y: number; pri: number; corner?: boolean };
     const out: L[] = [];
+    const { clientWidth: width, clientHeight: height } = this.renderer.domElement;
     const push = (text: string, cls: string, lat: number, lon: number, pri: number, corner = false) => {
       const s = this.project(new THREE.Vector3(...latLonToVec(lat, lon, 1.002)));
-      if (s) out.push({ text, cls, x: s.x, y: s.y, pri, corner });
+      if (s && s.x >= -160 && s.x <= width + 160 && s.y >= -160 && s.y <= height + 160) {
+        out.push({ text, cls, x: s.x, y: s.y, pri, corner });
+      }
     };
     if (this.eff.graticule) this.pushGridLabels(push);
     if (!this.gameMode || z > 0) {
@@ -1568,8 +1628,20 @@ export class Globe {
         push(this.countryLabel(c), 'lb-country', c.lat, c.lon, 1000 + c.area);
       }
       if (!this.gameMode) {
+        const showAdmin = this.adminVisible();
+        if (showAdmin && this.adminData) {
+          const horizon = Math.acos(1 / (1 + this.h)) * 180 / Math.PI + 1;
+          for (const area of this.adminData.regions) {
+            // At close zoom even tiny regions need names, regardless of whether their area can contain the text.
+            if (area.area * z * z >= 80 || (z >= 50 && Math.abs(area.lat - this.lat) <= horizon)) {
+              push(adminName(area, this.lang), 'lb-admin', area.lat, area.lon, 2000 + area.area);
+            }
+          }
+          for (const city of CHINA_CAPITALS) push(city[this.lang], 'lb-city lb-provcap', city.lat, city.lon, 6000);
+        }
         const minPop = z < 3 ? Infinity : z < 5 ? 12 : z < 8 ? 4 : z < 15 ? 1.2 : 0;
         for (const [name, , la, lo, pop, cap] of CITIES) {
+          if (showAdmin && CHINA_CAPITAL_NAMES.has(name)) continue;
           if (pop < minPop && !(cap && z >= 6)) continue;
           push(cityName(name, this.lang), cap ? 'lb-city lb-cap' : 'lb-city', la, lo, pop + (cap ? 5 : 0));
         }

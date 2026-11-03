@@ -24,7 +24,7 @@ export default defineConfig({
   ],
   webServer: {
     command: `node src/server/index.ts`,
-    env: { PORT: String(PORT), DB_PATH: `/tmp/pp-e2e-${Date.now()}.db`, DEV_LOGIN: '1' },
+    env: { PORT: String(PORT), BASE_URL: `http://localhost:${PORT}`, DB_PATH: `/tmp/pp-e2e-${Date.now()}.db`, DEV_LOGIN: '1', INSECURE_COOKIES: '1' },
     url: `http://localhost:${PORT}/api/health`,
     reuseExistingServer: false,
     timeout: 30_000,

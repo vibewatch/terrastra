@@ -3,7 +3,7 @@ import { t } from '../lib/i18n.ts';
 import { sfx } from '../lib/sfx.ts';
 import { icon } from './icons.ts';
 
-export interface Photo { id: number; at: number; url: string; place: string }
+interface Photo { id: number; at: number; url: string; place: string }
 const DB = 'pp-photos', STORE = 'photos';
 
 function db(): Promise<IDBDatabase> {
@@ -17,18 +17,19 @@ function db(): Promise<IDBDatabase> {
 /** Resolves once the transaction has committed (not just when the request succeeded). */
 async function tx<T>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest<T>): Promise<T> {
   const d = await db();
-  return new Promise((res, rej) => {
-    const x = d.transaction(STORE, mode), q = fn(x.objectStore(STORE));
-    x.oncomplete = () => res(q.result);
-    x.onerror = x.onabort = () => rej(x.error ?? q.error);
-  });
+  try {
+    return await new Promise((res, rej) => {
+      const x = d.transaction(STORE, mode), q = fn(x.objectStore(STORE));
+      x.oncomplete = () => res(q.result);
+      x.onerror = x.onabort = () => rej(x.error ?? q.error);
+    });
+  } finally { d.close(); }
 }
-export const photos = {
+const photos = {
   /** Rejects when the album can't be read (not the same as an empty album). */
   all: () => tx<Photo[]>('readonly', s => s.getAll() as IDBRequest<Photo[]>).then(a => a.sort((x, y) => y.at - x.at)),
   add: (p: Omit<Photo, 'id'>) => tx('readwrite', s => s.add(p)),
   del: (id: number) => tx('readwrite', s => s.delete(id)),
-  count: () => tx<number>('readonly', s => s.count()).catch(() => 0),
 };
 
 /** What any scene offers the camera: a fresh frame and what the picture shows. */
@@ -37,10 +38,10 @@ export interface Shot {
   caption: () => Caption | Promise<Caption>;
 }
 /** Title (the object), where in the app it is, and an honest note about scale. */
-export interface Caption { title: string; level: string; note?: string }
+interface Caption { title: string; level: string; note?: string }
 
 /** Draw a caption band under the frame so a saved picture explains itself (a small science postcard). */
-export async function postcard(url: string, c: Caption, when = new Date()): Promise<string> {
+async function postcard(url: string, c: Caption, when = new Date()): Promise<string> {
   const img = new Image();
   img.src = url;
   await img.decode();
@@ -49,7 +50,7 @@ export async function postcard(url: string, c: Caption, when = new Date()): Prom
   const cv = document.createElement('canvas');
   cv.width = W; cv.height = H + band;
   const g = cv.getContext('2d');
-  if (!g) return url;
+  if (!g) throw new Error('Cannot create postcard');
   g.drawImage(img, 0, 0);
   g.fillStyle = '#050b14'; g.fillRect(0, H, W, band);
   g.fillStyle = '#f5b544'; g.fillRect(0, H, Math.round(64 * u), Math.max(2, Math.round(3 * u)));

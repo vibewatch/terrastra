@@ -16,15 +16,25 @@ export interface Progress {
   updatedAt: number;
 }
 
+export const MAX_SYNC_REQUEST_BYTES = 256 * 1024;
+
+/** Match the byte limit on the complete JSON request, including its wrapper. */
+export function fitsSyncRequest(progress: Progress): boolean {
+  return new TextEncoder().encode(JSON.stringify({ progress })).byteLength <= MAX_SYNC_REQUEST_BYTES;
+}
+
 export function emptyProgress(): Progress {
   return { v: 1, dex: {}, logs: {}, likes: {}, visited: {}, stickers: {}, found: {}, seen: {}, placeit: {}, quiz: { answered: 0, correct: 0, bySet: {} },
     daily: { ...EMPTY_STATS, dist: [...EMPTY_STATS.dist] }, updatedAt: 0 };
 }
 
 function unionEarliest(a: Stamp = {}, b: Stamp = {}): Stamp {
-  const out: Stamp = { ...a };
-  for (const [k, v] of Object.entries(b)) out[k] = k in out ? Math.min(out[k], v) : v;
-  return out;
+  const out = new Map(Object.entries(a));
+  for (const [k, v] of Object.entries(b)) {
+    const previous = out.get(k);
+    out.set(k, previous === undefined ? v : Math.min(previous, v));
+  }
+  return Object.fromEntries(out);
 }
 
 /**
@@ -36,9 +46,12 @@ export const countOn = (m: Stamp | undefined): number => Object.values(m ?? {}).
 
 /** per key, the latest switch wins (whichever side it came from) */
 function latestToggle(a: Stamp = {}, b: Stamp = {}): Stamp {
-  const out: Stamp = { ...a };
-  for (const [k, v] of Object.entries(b)) if (!(k in out) || Math.abs(v) > Math.abs(out[k])) out[k] = v;
-  return out;
+  const out = new Map(Object.entries(a));
+  for (const [k, v] of Object.entries(b)) {
+    const previous = out.get(k);
+    if (previous === undefined || Math.abs(v) > Math.abs(previous)) out.set(k, v);
+  }
+  return Object.fromEntries(out);
 }
 
 /**
@@ -47,13 +60,13 @@ function latestToggle(a: Stamp = {}, b: Stamp = {}): Stamp {
  * likes/visited are toggles: the latest switch of each key wins.
  */
 export function mergeProgress(a: Progress, b: Progress): Progress {
-  const placeit: Record<string, PlaceItRecord> = { ...a.placeit };
+  const placeit = new Map(Object.entries(a.placeit ?? {}));
   for (const [k, r] of Object.entries(b.placeit ?? {})) {
-    const p = placeit[k];
-    placeit[k] = p ? { best: Math.max(p.best, r.best), plays: Math.max(p.plays, r.plays) } : r;
+    const p = placeit.get(k);
+    placeit.set(k, p ? { best: Math.max(p.best, r.best), plays: Math.max(p.plays, r.plays) } : r);
   }
-  const bySet: Record<string, number> = { ...a.quiz?.bySet };
-  for (const [k, v] of Object.entries(b.quiz?.bySet ?? {})) bySet[k] = Math.max(bySet[k] ?? 0, v);
+  const bySet = new Map(Object.entries(a.quiz?.bySet ?? {}));
+  for (const [k, v] of Object.entries(b.quiz?.bySet ?? {})) bySet.set(k, Math.max(bySet.get(k) ?? 0, v));
   const da = a.daily ?? EMPTY_STATS, db = b.daily ?? EMPTY_STATS;
   const dailyNewer = (da.lastWonDay ?? -1) >= (db.lastWonDay ?? -1) ? da : db;
   return {
@@ -61,8 +74,8 @@ export function mergeProgress(a: Progress, b: Progress): Progress {
     dex: unionEarliest(a.dex, b.dex), logs: unionEarliest(a.logs, b.logs), stickers: unionEarliest(a.stickers, b.stickers),
     found: unionEarliest(a.found, b.found), seen: unionEarliest(a.seen, b.seen),
     likes: latestToggle(a.likes, b.likes), visited: latestToggle(a.visited, b.visited),
-    placeit,
-    quiz: { answered: Math.max(a.quiz?.answered ?? 0, b.quiz?.answered ?? 0), correct: Math.max(a.quiz?.correct ?? 0, b.quiz?.correct ?? 0), bySet },
+    placeit: Object.fromEntries(placeit),
+    quiz: { answered: Math.max(a.quiz?.answered ?? 0, b.quiz?.answered ?? 0), correct: Math.max(a.quiz?.correct ?? 0, b.quiz?.correct ?? 0), bySet: Object.fromEntries(bySet) },
     daily: {
       played: Math.max(da.played, db.played), won: Math.max(da.won, db.won), streak: dailyNewer.streak,
       maxStreak: Math.max(da.maxStreak, db.maxStreak), lastWonDay: dailyNewer.lastWonDay,
@@ -92,8 +105,8 @@ export function isProgress(x: unknown): x is Progress {
   if (!x || typeof x !== 'object') return false;
   const p = x as Progress;
   return p.v === 1 && STAMPS.every(k => isStamp(p[k], k === 'dex' || k === 'logs' || k === 'stickers'))
-    && (p.placeit === undefined || (!!p.placeit && typeof p.placeit === 'object' && Object.keys(p.placeit).length <= 100
-      && Object.values(p.placeit).every(r => !!r && Number.isFinite(r.best) && Number.isFinite(r.plays))))
+    && (p.placeit === undefined || (!!p.placeit && typeof p.placeit === 'object' && !Array.isArray(p.placeit) && Object.keys(p.placeit).length <= 100
+      && Object.entries(p.placeit).every(([k, r]) => k.length <= 64 && !!r && Number.isFinite(r.best) && Number.isFinite(r.plays))))
     && (p.quiz === undefined || (!!p.quiz && Number.isFinite(p.quiz.answered) && Number.isFinite(p.quiz.correct) && isStamp(p.quiz.bySet, false)))
     && (p.daily === undefined || isDaily(p.daily))
     && (p.updatedAt === undefined || Number.isFinite(p.updatedAt));

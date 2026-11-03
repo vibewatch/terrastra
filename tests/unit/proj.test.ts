@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { EXTENT, MERC_MAX, PROJ_IDS, forward, inverse, wrapPi, xScale, yOf } from '../../src/client/map/proj.ts';
+import { EXTENT, MERC_MAX, PROJ_IDS, boundsInView, forward, inverse, wrapPi, xScale, yOf } from '../../src/client/map/proj.ts';
 
 const D = Math.PI / 180;
 
@@ -40,5 +40,27 @@ describe('map projections', () => {
   it('wraps longitudes into -π…π', () => {
     expect(wrapPi(3 * Math.PI / 2)).toBeCloseTo(-Math.PI / 2, 12);
     expect(wrapPi(-7 * Math.PI / 4)).toBeCloseTo(Math.PI / 4, 12);
+  });
+
+  it('culls distant tiles without dropping visible points near poles or the date line', () => {
+    for (const p of PROJ_IDS) {
+      for (const [lat, lon, k] of [[0, 0, 1000], [65, 179, 500], [-75, -179, 120]] as const) {
+        const view = { lon0: lon * D, cy: yOf(p, lat * D), k, width: 800, height: 600 };
+        for (let west = -180; west < 180; west += 10) {
+          for (let south = -90; south < 90; south += 10) {
+            const bounds = [west, south, west + 10, south + 10] as const;
+            let containsVisiblePoint = false;
+            for (const x of [west, west + 5, west + 10]) for (const y of [south, south + 5, south + 10]) {
+              const [px, py] = forward(p, wrapPi(x * D - view.lon0), y * D);
+              if (Math.abs(px * k) <= view.width / 2 && Math.abs((py - view.cy) * k) <= view.height / 2) containsVisiblePoint = true;
+            }
+            if (containsVisiblePoint) expect(boundsInView(p, bounds, view), `${p} ${bounds} near ${lat},${lon}`).toBe(true);
+          }
+        }
+      }
+      const view = { lon0: 0, cy: 0, k: 1000, width: 800, height: 600 };
+      expect(boundsInView(p, [-5, -5, 5, 5], view)).toBe(true);
+      expect(boundsInView(p, [90, -5, 100, 5], view)).toBe(false);
+    }
   });
 });

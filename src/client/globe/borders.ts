@@ -22,27 +22,29 @@ function pushLine(out: number[], line: Position[], r: number): void {
 
 const meshCache = new WeakMap<Topology, Float32Array>();
 
+/** Line segments on the globe, with long edges split to follow the sphere. */
+export function linePositions(lines: readonly Position[][], radius = 1.0015): Float32Array {
+  const out: number[] = [];
+  for (const line of lines) pushLine(out, line, radius);
+  return new Float32Array(out);
+}
+
 /** Line segments `[x1,y1,z1, x2,y2,z2, …]` of the land borders between countries (no coastlines). */
 export function borderPositions(topo: Topology, radius = 1.0015): Float32Array {
   const hit = meshCache.get(topo);
   if (hit) return hit;
   const m = mesh(topo, topo.objects.countries as GeometryCollection as never, (a, b) => a !== b);
-  const out: number[] = [];
-  for (const line of m.coordinates) pushLine(out, line, radius);
-  const pos = new Float32Array(out);
+  const pos = linePositions(m.coordinates, radius);
   meshCache.set(topo, pos);
   return pos;
 }
 
 const llCache = new WeakMap<Topology, Float32Array>();
 
-/** The same land borders as flat-map segments `[lon1,lat1, lon2,lat2, …]` in degrees, ≤ 1° each. */
-export function borderLonLat(topo: Topology): Float32Array {
-  const hit = llCache.get(topo);
-  if (hit) return hit;
-  const m = mesh(topo, topo.objects.countries as GeometryCollection as never, (a, b) => a !== b);
+/** Flat-map segments `[lon1,lat1, lon2,lat2, …]` in degrees, ≤ 1° each. */
+export function lineLonLat(lines: readonly Position[][]): Float32Array {
   const out: number[] = [];
-  for (const line of m.coordinates) {
+  for (const line of lines) {
     for (let i = 0; i < line.length - 1; i++) {
       const [lon1, lat1] = line[i], [lon2, lat2] = line[i + 1];
       if (Math.abs(lon1 - lon2) > 90) continue;
@@ -52,7 +54,15 @@ export function borderLonLat(topo: Topology): Float32Array {
       }
     }
   }
-  const ll = new Float32Array(out);
+  return new Float32Array(out);
+}
+
+/** The same land borders as flat-map segments in degrees. */
+export function borderLonLat(topo: Topology): Float32Array {
+  const hit = llCache.get(topo);
+  if (hit) return hit;
+  const m = mesh(topo, topo.objects.countries as GeometryCollection as never, (a, b) => a !== b);
+  const ll = lineLonLat(m.coordinates);
   llCache.set(topo, ll);
   return ll;
 }

@@ -127,9 +127,10 @@ reactions        (visitor TEXT, item TEXT, kind TEXT CHECK IN ('like','visited')
 guestbook        (id INTEGER PK, user_id → users ON DELETE CASCADE, body TEXT, created_at TEXT,
                   reports INTEGER DEFAULT 0, hidden INTEGER DEFAULT 0)
 guestbook_reports(entry_id → guestbook ON DELETE CASCADE, visitor TEXT, PK (entry_id, visitor))
+app_secrets      (name TEXT PK, value TEXT)
 ```
 Rules: the handle must match `^[A-Za-z0-9_가-힣ぁ-ヿ一-鿿]{2,16}$`, be unique case-insensitively and pass the kind-words filter. Guestbook bodies are cleaned
-(control chars removed, URLs → 🔗), limited to ≤ 200 chars and 5 posts/min/user, and hidden at 3 distinct reports.
+(control chars removed, URLs → 🔗), limited to ≤ 200 chars and 5 posts/min/user, and hidden at 3 distinct reports. Report markers deduplicate each device and signed-in account; anonymous reports also use a keyed, message-scoped address hash. Account markers are removed when the account is deleted.
 
 ## 4. Key data flows
 
@@ -150,12 +151,12 @@ Rules: the handle must match `^[A-Za-z0-9_가-힣ぁ-ヿ一-鿿]{2,16}$`, be uni
 6. **Reactions:** `POST /api/reactions {key, kind, on}` → `pp_vid` visitor cookie set if missing → counts returned.
 
 ## 5. Security & privacy
-* No third-party scripts, fonts, trackers or ads. The only PII is the email, and only for optional accounts. `DELETE /api/me` cascades.
+* No third-party scripts, fonts, trackers or ads. Optional accounts store email, nickname and progress. Anonymous reports retain a keyed, message-scoped IP-address hash until the message is deleted. `DELETE /api/me` cascades.
 * Login tokens (24 random bytes, 15 min, single use) and sessions (32 bytes, 60 days) are stored as SHA-256 hashes.
 * Cookies are httpOnly, SameSite=Lax, and Secure in production.
-* CSRF: mutating `/api` calls need a JSON content type (except DELETE). Any `Origin` must match `Host` (malformed/`null` → 403).
-* Rate limits: auth 5/10 min per IP and per IP+email; guestbook 5/min/user.
-* Headers: `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `X-Frame-Options: SAMEORIGIN`. No `x-powered-by`.
+* CSRF: mutating `/api` calls need a JSON content type (except DELETE). Any `Origin` must match the request or configured public origin, including its scheme (malformed/`null` → 403).
+* Rate limits: auth 5/10 min per IP and per IP+email; guestbook 5/min/user; reports 10/hour/IP. These limits are per process.
+* Headers: `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `X-Frame-Options: SAMEORIGIN`. No `x-powered-by`. Generated HTML embeds a content security policy with hashes for its own inline scripts.
 * All input is validated server-side (email, handle, progress shape, catalogue key, reaction kind, ids). The client renders
   all dynamic/user text via text nodes. `innerHTML` is used only for three trusted, bundled i18n hint strings.
-* *Backlog:* Content-Security-Policy header (B-13) and a production mail transport (B-12).
+* Active moderation and operational monitoring are still required; static hosting should also send a `frame-ancestors` response header.

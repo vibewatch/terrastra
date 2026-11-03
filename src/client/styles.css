@@ -172,6 +172,7 @@ a:hover { text-decoration: underline; }
   box-shadow: var(--shadow);
 }
 .round-btn:hover { color: var(--text); background: rgba(40, 40, 46, 0.85); }
+.round-btn.active { color: var(--accent); border-color: var(--accent); }
 
 /* ---- globe ---- */
 #app { position: fixed; inset: 0; }
@@ -206,6 +207,8 @@ a:hover { text-decoration: underline; }
 .lb-city { color: #cbd5e1; font-size: 10px !important; font-weight: 500; }
 .lb-city::before { content: "•"; margin-right: 4px; color: var(--accent); }
 .lb-cap::before { content: "★"; color: var(--amber); margin-right: 4px; }
+.lb-admin { color: #b7e5f0; font-size: 10px !important; font-weight: 600; }
+.lb-provcap::before { content: "◆"; color: var(--amber); margin-right: 4px; }
 .lb-ocean {
   color: rgba(125, 211, 252, 0.50);
   font-family: var(--font-mono);
@@ -300,6 +303,8 @@ a:hover { text-decoration: underline; }
   padding: 0;
 }
 .tool:hover, .tool.active { background: var(--hover); color: var(--text); }
+.tool-lang { display: flex; justify-content: center; gap: 2px; font-size: .68rem; font-weight: 600; }
+.tool-lang [data-lang].active { color: var(--accent); }
 .tools-sep { width: 1px; height: 18px; background: var(--line); margin: 0 3px; }
 .bl { position: absolute; left: 20px; bottom: 20px; display: flex; align-items: flex-end; gap: 10px; z-index: 5; }
 .br { position: absolute; right: 20px; bottom: 20px; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; z-index: 5; }
@@ -626,7 +631,7 @@ a:hover { text-decoration: underline; }
   box-shadow: var(--shadow);
 }
 .ride-bar .tip { color: var(--muted); font-size: .8rem; }
-body.riding .topbar .tools, body.riding .bl { visibility: hidden; }
+body.riding .topbar .tools, body.riding .bl, body.riding #btn-map { visibility: hidden; }
 
 /* ---- time machine ---- */
 .time-bar {
@@ -868,7 +873,7 @@ body.photo-mode .topbar, body.photo-mode .bl, body.photo-mode .br, body.photo-mo
 .game-hud p { margin: 2px 0; font-size: 0.82rem; }
 .hint-text { display: block; color: var(--accent); font-size: 0.8rem; font-family: var(--font-mono); }
 .result b { color: var(--accent); font-size: 1.05rem; }
-body.gaming .topbar .tools, body.gaming .info { display: none !important; }
+body.gaming .topbar .tools, body.gaming .info, body.gaming #btn-map { display: none !important; }
 .results { text-align: center; }
 .big-score { font-size: 3rem; margin: 6px 0; color: var(--accent); font-family: var(--font-mono); font-weight: 650; } .big-score small { font-size: 1rem; color: var(--muted); }
 .record { color: var(--good); font-size: 1.15rem; }

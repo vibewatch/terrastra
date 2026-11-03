@@ -1,9 +1,8 @@
 import { h, closeModal, openModal, toast, $ } from './dom.ts';
-import { Select } from './select.ts';
 import { t, lang, setLang, countryName, fmtNum, onLang } from '../lib/i18n.ts';
 import { store, updateProgress, updateSettings, resetSettings, subscribe } from '../store.ts';
 import { isOn } from '../../shared/lib/progress.ts';
-import { tr, LANGS, type CatalogueItem, type Lang } from '../../shared/data/types.ts';
+import { tr, type CatalogueItem } from '../../shared/data/types.ts';
 import { CATALOGUE, BY_TYPE } from '../../shared/data/catalogue.ts';
 import { TYPE_META, TYPE_ORDER } from '../../shared/data/typemeta.ts';
 import { CONTINENT_NAMES } from '../../shared/data/iso.ts';
@@ -30,7 +29,6 @@ import { classroom, setClassroom, setStill, motion, onClassroom } from '../lib/c
 import { renderHub, hubTab, type HubTab } from './hub.ts';
 
 const DEX_ZOOM = 10;
-const LANG_LABEL: Record<Lang, string> = { en: 'English', zh: '中文' };
 const typeName = (ty: CatalogueItem['type']) => tr(TYPE_META[ty].one, lang());
 const AURA_ORDER: AuraPreset[] = ['waves', 'aurora', 'ember', 'dusk', 'sculpture'];
 
@@ -101,17 +99,21 @@ export class Shell {
       h('nav', { class: 'tools', 'data-occludes': true, 'aria-label': t('tools'), 'data-i18n-aria': 'tools' },
         tool('btn-search', 'search', 'searchKbd', () => this.openSearch()),
         tool('btn-photo', 'camera', 'photo', this.hooks.openPhoto),
-        this.mapBtn = tool('btn-map', 'map', 'flatMap', () => this.hooks.toggleMap?.(), 'earth-only'),
         this.meterBtn = tool('btn-measure', 'ruler', 'meter', () => this.hooks.toggleMeter?.(), 'space-only'),
         h('span', { class: 'tools-sep', 'aria-hidden': 'true' }),
         tool('btn-hub', 'collection', 'hub', () => this.toggleHub(), 'tool-hub'),
+        this.langBtn = h('button', { class: 'tool tool-lang', id: 'btn-language', 'data-testid': 'btn-language', onclick: () => { sfx.tap(); setLang(lang() === 'en' ? 'zh' : 'en'); } },
+          h('span', { lang: 'zh', 'data-lang': 'zh' }, '中'), h('span', { 'aria-hidden': 'true' }, '/'), h('span', { lang: 'en', 'data-lang': 'en' }, 'EN')),
         tool('btn-menu', 'sliders', 'settings', () => this.toggleMenu())));
     this.setMeterOpen(false);
+    this.relabelLanguage();
     const bottomLeft = h('div', { class: 'bl', 'data-occludes': true }, this.hints,
       h('button', { class: 'round-btn help', id: 'btn-help', 'aria-label': t('help'), 'data-i18n-aria': 'help', 'aria-expanded': 'false', html: icon('help', 19), onclick: () => this.toggleHints() }));
     const zoom = (inward: boolean) => { if (!this.hooks.zoom?.(inward)) this.globe.zoomBy(inward ? 1.6 : 1 / 1.6); };
     const bottomRight = h('div', { class: 'br', 'data-occludes': true },
       h('button', { class: 'round-btn', 'aria-label': t('fullscreen'), title: t('fullscreen'), 'data-i18n-aria': 'fullscreen', 'data-i18n-title': 'fullscreen', html: icon('expand', 17), onclick: () => this.fullscreen() }),
+      this.mapBtn = h('button', { class: 'round-btn earth-only', id: 'btn-map', 'data-testid': 'btn-map', 'aria-pressed': 'false', title: t('flatMap'), html: icon('map', 19), onclick: () => { sfx.tap(); this.hooks.toggleMap?.(); } },
+        h('span', { class: 'sr-only', 'data-i18n': 'flatMap' }, t('flatMap'))),
       h('button', { class: 'round-btn space-only', 'data-testid': 'btn-overview', 'aria-label': t('overviewScale'), title: t('overviewScale'), 'data-i18n-aria': 'overviewScale', 'data-i18n-title': 'overviewScale', html: icon('sun', 17), onclick: () => { sfx.tap(); this.hooks.overview?.(); } }),
       h('div', { class: 'zoom-ctl' },
         h('button', { id: 'btn-zoom-in', 'aria-label': t('zoomIn'), 'data-i18n-aria': 'zoomIn', html: icon('plus', 17), onclick: () => zoom(true) }),
@@ -241,6 +243,7 @@ export class Shell {
     document.querySelectorAll<HTMLElement>('[data-i18n-title]').forEach(el => (el.title = t(el.dataset.i18nTitle!)));
     document.querySelectorAll<HTMLElement>('[data-i18n-aria]').forEach(el => el.setAttribute('aria-label', t(el.dataset.i18nAria!)));
     document.title = t('title');
+    this.relabelLanguage();
     this.renderHints();
     if (this.mapBtn) this.mapBtn.title = t(this.mapBtn.getAttribute('aria-pressed') === 'true' ? 'backToGlobe' : 'flatMap');
     this.globe.lang = lang(); this.globe.markDirty();
@@ -265,7 +268,14 @@ export class Shell {
   }
 
   private mapBtn: HTMLButtonElement | null = null;
+  private langBtn: HTMLButtonElement | null = null;
   private meterBtn: HTMLButtonElement | null = null;
+  private relabelLanguage(): void {
+    if (!this.langBtn) return;
+    this.langBtn.setAttribute('aria-label', t('switchLanguage'));
+    this.langBtn.title = t('switchLanguage');
+    this.langBtn.querySelectorAll<HTMLElement>('[data-lang]').forEach(el => el.classList.toggle('active', el.dataset.lang === lang()));
+  }
   /** Marks the toolbar's ruler as on while the space distance meter is open. */
   setMeterOpen(on: boolean): void {
     this.meterBtn?.setAttribute('aria-pressed', String(on));
@@ -277,6 +287,7 @@ export class Shell {
     if (!b) return;
     const key = on ? 'backToGlobe' : 'flatMap';
     b.setAttribute('aria-pressed', String(on));
+    b.classList.toggle('active', on);
     b.title = t(key);
     b.querySelector('.ico')?.remove();
     b.insertAdjacentHTML('afterbegin', icon(on ? 'globe' : 'map', 19));
@@ -377,7 +388,6 @@ export class Shell {
         )
       )
     );
-    const sel = new Select({ label: t('language'), testid: 'lang-select', value: lang(), options: LANGS.map(l => ({ value: l, label: LANG_LABEL[l] })), onChange: v => setLang(v as Lang) }).el;
     // Globe options belong to the Earth scene only; in space the menu keeps just the app-wide settings.
     const earth = this.space ? [] : [
       h('h3', {}, t('surfaceMode')), modeRow,
@@ -394,7 +404,6 @@ export class Shell {
       h('div', { class: 'chip-wrap' }, sw('sfx', 'sound'), sw('bgm', 'music'),
         flag('set-classroom', 'bulb', 'classroom', classroom(), v => { setClassroom(v); if (v) this.toggleReader(false); }, t('classroomNote')),
         ...(classroom() ? [flag('set-still', 'pause', 'pauseMotion', motion.still, setStill)] : [])),
-      h('div', { class: 'menu-line' }, h('span', { class: 'sw-emoji', html: icon('language', 15) }), h('span', { class: 'grow' }, t('language')), sel),
       h('div', { class: 'menu-line' }, h('span', { class: 'sw-emoji', html: icon('download', 15) }), h('span', { class: 'grow' }, t('backup')),
         small('backup-export', 'download', t('backupExport'), () => void import('./backup.ts').then(m => m.exportProgress(), () => toast('⚠️ ' + t('loadFail', { s: t('backup') })))),
         small('backup-import', 'upload', t('backupImport'), () => void import('./backup.ts').then(m => m.importProgress(), () => toast('⚠️ ' + t('loadFail', { s: t('backup') }))))),

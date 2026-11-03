@@ -12,10 +12,11 @@ import { DEFAULT_H, MAX_H } from './globe/scene.ts';
 import { hasLand, loadCountries, paintEarth, paintedLand } from './globe/painter.ts';
 import { paintOffThread } from './globe/paint-offthread.ts';
 import { borderPositions, borderLonLat } from './globe/borders.ts';
+import { ADMIN_GLOBE_ZOOM, ADMIN_MAP_ZOOM, fetchAdminData, type AdminData } from './globe/admin.ts';
 import { CATALOGUE, BY_KEY } from '../shared/data/catalogue.ts';
 import { Shell } from './ui/shell.ts';
 import { h, toast, confetti } from './ui/dom.ts';
-import { store, subscribe, setStickerHandler, setSyncer, setMe, replaceProgress } from './store.ts';
+import { store, subscribe, setStickerHandler, setSyncer, setMe, getAccountEpoch, replaceProgress, ProgressLimitError } from './store.ts';
 import { t, lang, onLang } from './lib/i18n.ts';
 import { tr } from '../shared/data/types.ts';
 import { STICKERS } from '../shared/lib/stickers.ts';
@@ -92,7 +93,10 @@ async function boot(): Promise<void> {
   const globe = new Globe(globeEl, {
     onPick: it => shell.showItem(it),
     onHover: (it, scr) => shell?.showHover(it, scr),
-    onView: (z, la, lo) => shell.setZoom(z, la, lo),
+    onView: (z, la, lo) => {
+      shell.setZoom(z, la, lo);
+      if (!gaming && !document.body.classList.contains('lessoning')) requestAdminAt(z, ADMIN_GLOBE_ZOOM);
+    },
     onBeyond: () => void enterSolar(),
   }, lowfx, quality);
   globe.lang = lang();
@@ -174,7 +178,7 @@ async function boot(): Promise<void> {
     document.body.classList.add('fading');
     setTimeout(() => { fn(); requestAnimationFrame(() => document.body.classList.remove('fading')); }, lowfx ? 0 : 230);
   };
-  const enterSolar = async (opts: { focus?: string; scale?: ScaleId } = {}) => {
+  const enterSolar = async (opts: { focus?: string; scale?: ScaleId } = {}, attempt = 1) => {
     if (inSolar || gaming) return;
     endLesson();
     const seq = ++navSeq;
@@ -182,7 +186,7 @@ async function boot(): Promise<void> {
     // its shaders compile in the background while the busy spinner shows, so the view opens without a stall
     try { ui = await withBusy(loadSolar().then(async u => { await u.view.warmed; return u; })); } catch (e) {
       console.error(e);
-      if (seq === navSeq) showLoadError(t('solarSystem'), () => void enterSolar(opts), routeOf(opts));
+      if (seq === navSeq) showLoadError(t('solarSystem'), n => void enterSolar(opts, n), routeOf(opts), attempt);
       return;
     }
     // the user went elsewhere (back to Earth, a game, another load) while this was loading
@@ -221,13 +225,13 @@ async function boot(): Promise<void> {
   // ---- Sky theatre (lazy): eclipses, meteor showers, planets, played out over the globe or the Solar System ----
   const loadSky = lazy(() => import('./sky/index.ts'));
   let inSky = false;
-  const openSky = async (id?: string): Promise<import('./sky/theatre.ts').Theatre | null> => {
+  const openSky = async (id?: string, attempt = 1): Promise<import('./sky/theatre.ts').Theatre | null> => {
     if (gaming) return null;
     const seq = ++navSeq;
     let m: typeof import('./sky/index.ts');
     try { m = await withBusy(loadSky()); } catch (e) {
       console.error(e);
-      if (seq === navSeq) showLoadError(t('skyEvents'), () => void openSky(id), 'sky' + (id ? '/' + id : ''));
+      if (seq === navSeq) showLoadError(t('skyEvents'), n => void openSky(id, n), 'sky' + (id ? '/' + id : ''), attempt);
       return null;
     }
     if (seq !== navSeq || gaming) return null;
@@ -248,7 +252,7 @@ async function boot(): Promise<void> {
       onPhoto: () => openPhoto(),
       onSolar: (focus, ms) => {
         if (inSolar && solar) { solar.showAt(ms, focus); return; }
-        void withBusy(loadSolar()).then(ui => { ui.showAt(ms); void enterSolar({ focus }); }, () => showLoadError(t('solarSystem'), () => void enterSolar({ focus }), 'solar/' + (focus ?? '')));
+        void withBusy(loadSolar()).then(ui => { ui.showAt(ms); void enterSolar({ focus }); }, () => showLoadError(t('solarSystem'), n => void enterSolar({ focus }, n), 'solar/' + (focus ?? '')));
       },
     });
     sky = th;
@@ -264,13 +268,34 @@ async function boot(): Promise<void> {
   const loadMap = lazy(() => import('./map/flatmap.ts'));
   let flatMap: import('./map/flatmap.ts').FlatMap | null = null;
   let inMap = false;
-  const openMap = async () => {
+  const loadAdmin = lazy(fetchAdminData);
+  let adminData: AdminData | null = null;
+  let adminPending = false, adminFailed = false;
+  function requestAdmin(attempt = 1): void {
+    if (adminData || adminPending || adminFailed) return;
+    adminPending = true;
+    void loadAdmin().then(data => {
+      adminData = data;
+      globe.setAdminData(data);
+      flatMap?.setAdminData(data);
+    }, (error: unknown) => {
+      console.error('Could not load administrative regions:', error);
+      if (!inMap && (inSolar || inSky || globe.zoom < ADMIN_GLOBE_ZOOM)) return;
+      adminFailed = true;
+      showLoadError(t('adminRegions'), next => { adminFailed = false; requestAdmin(next); }, inMap ? 'map' : '', attempt);
+    }).finally(() => { adminPending = false; });
+  }
+  function requestAdminAt(zoom: number, threshold: number): void {
+    if (zoom < threshold) { if (!adminPending) adminFailed = false; return; }
+    requestAdmin();
+  }
+  const openMap = async (attempt = 1) => {
     if (inMap || gaming || inSolar || inSky) return;
     const seq = ++navSeq;
     let m: typeof import('./map/flatmap.ts');
     try { m = await withBusy(loadMap()); } catch (e) {
       console.error(e);
-      if (seq === navSeq) showLoadError(t('flatMap'), () => void openMap(), 'map');
+      if (seq === navSeq) showLoadError(t('flatMap'), n => void openMap(n), 'map', attempt);
       return;
     }
     if (seq !== navSeq || inMap || gaming || inSolar || inSky) return;
@@ -284,9 +309,10 @@ async function boot(): Promise<void> {
       selected: () => shell.current,
       pick: it => shell.showItem(it, false),
       hover: (it, at) => shell.showHover(it, at),
-      onView: (z, la, lo) => shell.setReadout(z, la, lo),
+      onView: (z, la, lo) => { shell.setReadout(z, la, lo); requestAdminAt(z, ADMIN_MAP_ZOOM); },
       learn: () => { closeMap(false); startLesson('projections'); },
     });
+    if (adminData) flatMap.setAdminData(adminData);
     if (!flatMap.el.isConnected) globeEl.after(flatMap.el);
     inMap = true;
     if (globe.ride) shell.exitRide();
@@ -333,7 +359,7 @@ async function boot(): Promise<void> {
     solarAt: (focus, ms) => {
       if (inSky) sky?.close();
       if (inSolar && solar) { solar.showAt(ms, focus); return; }
-      void withBusy(loadSolar()).then(ui => { ui.showAt(ms); void enterSolar({ focus }); }, () => showLoadError(t('solarSystem'), () => void enterSolar({ focus }), 'solar/' + focus));
+      void withBusy(loadSolar()).then(ui => { ui.showAt(ms); void enterSolar({ focus }); }, () => showLoadError(t('solarSystem'), n => void enterSolar({ focus }, n), 'solar/' + focus));
     },
   };
   const openTours = () => toursMod(m => m.openTours(tourHost));
@@ -458,9 +484,11 @@ async function boot(): Promise<void> {
   shell.applySettings(store.settings);
 
   let painted = { mode: store.settings.surfaceMode, borders: store.settings.borders };
+  let mapSettings = store.settings;
   subscribe(() => {
     const s = store.settings;
     if (!gaming) shell.applySettings(s); else globe.applySettings({ ...s, names: globe.settings.names });
+    if (s !== mapSettings) { mapSettings = s; flatMap?.markDirty(); }
     if ((s.surfaceMode === 'political') !== (painted.mode === 'political') || s.borders !== painted.borders) {
       painted = { mode: s.surfaceMode, borders: s.borders };
       setTimeout(() => void repaint(), 0);
@@ -475,7 +503,10 @@ async function boot(): Promise<void> {
     confetti(30); sfx.good();
   });
   onSessionOnly(() => toast('⚠️ ' + t('sessionOnly'), 6000));
-  setSyncer(async () => { await (await accountMod()).syncNow(true); });
+  setSyncer(async () => {
+    try { await (await accountMod()).syncNow(true); }
+    catch (err) { console.error('[sync] could not load account:', err); toast('⚠️ ' + t('accountUnavailable'), 4000); }
+  });
 
   // ---- routing ----
   let sky: import('./sky/theatre.ts').Theatre | null = null;
@@ -537,12 +568,14 @@ async function boot(): Promise<void> {
   void api.me().then(async me => {
     if (!me) return;
     setMe(me);
+    const epoch = getAccountEpoch();
     try {
       const { progress } = await api.getProgress();
+      if (getAccountEpoch() !== epoch) return;
       if (progress) replaceProgress(mergeProgress(store.progress, progress));
       await (await accountMod()).syncNow(true);
-    } catch { /* offline */ }
-  });
+    } catch (err) { console.error('[sync] could not load progress:', err); toast('⚠️ ' + t(err instanceof ProgressLimitError ? 'syncLimit' : 'accountUnavailable'), 4000); }
+  }).catch(err => { console.error('[account] could not load session:', err); toast('⚠️ ' + t('accountUnavailable'), 4000); });
 
   const deepLink = !!location.hash;
   route();

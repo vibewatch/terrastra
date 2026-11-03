@@ -40,8 +40,25 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: npm run test:static
 
+  server-smoke:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run build
+      - run: xvfb-run -a -s '-screen 0 1920x1080x24' npx playwright test tests/e2e/app.spec.ts tests/e2e/quality.spec.ts --project=desktop --grep 'account: magic link|a failed Solar System load can be retried|progress backup:'
+        env:
+          SKIP_SCREENSHOTS: '1'
+
   build:
-    needs: [test, static-smoke]
+    needs: [test, static-smoke, server-smoke]
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:

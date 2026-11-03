@@ -22,19 +22,32 @@ function mailBody(link: string): { subject: string; text: string; html: string }
 
 /** Picks a transport from the environment, or explains what is missing. */
 export function mailerFromEnv(env: Env): { send: SendMail } | { error: string } {
-  const from = env.MAIL_FROM;
+  if (env.MAIL_FROM && /[\r\n]/.test(env.MAIL_FROM)) return { error: 'MAIL_FROM must not contain line breaks' };
+  const from = env.MAIL_FROM?.trim();
   if (env.MAIL_API_URL) {
     if (!from) return { error: 'MAIL_FROM is required with MAIL_API_URL' };
-    return { send: httpMailer(env.MAIL_API_URL, env.MAIL_API_KEY ?? '', from) };
+    let endpoint: URL;
+    try { endpoint = new URL(env.MAIL_API_URL); } catch { return { error: 'MAIL_API_URL is not a valid URL' }; }
+    if (!['http:', 'https:'].includes(endpoint.protocol) || !endpoint.hostname || endpoint.username || endpoint.password) {
+      return { error: 'MAIL_API_URL must be an HTTP(S) URL without credentials' };
+    }
+    if (env.NODE_ENV === 'production' && endpoint.protocol !== 'https:' && env.INSECURE_MAIL_API !== '1') {
+      return { error: 'MAIL_API_URL must use HTTPS in production unless INSECURE_MAIL_API=1 is set for an isolated relay' };
+    }
+    return { send: httpMailer(endpoint.href, env.MAIL_API_KEY ?? '', from) };
   }
   if (env.SMTP_URL) {
     if (!from) return { error: 'MAIL_FROM is required with SMTP_URL' };
     let u: URL;
     try { u = new URL(env.SMTP_URL); } catch { return { error: 'SMTP_URL is not a valid URL' }; }
     if (u.protocol !== 'smtps:' && u.protocol !== 'smtp:') return { error: 'SMTP_URL must start with smtps:// or smtp://' };
+    if (!u.hostname || (u.pathname && u.pathname !== '/') || u.search || u.hash) return { error: 'SMTP_URL must contain a host without a path, query, or fragment' };
+    let credentials: { user: string; pass: string };
+    try { credentials = { user: decodeURIComponent(u.username), pass: decodeURIComponent(u.password) }; }
+    catch { return { error: 'SMTP_URL contains invalid credentials' }; }
     let ca: string | undefined;
     if (env.SMTP_CA_FILE) try { ca = readFileSync(env.SMTP_CA_FILE, 'utf8'); } catch { return { error: 'SMTP_CA_FILE cannot be read' }; }
-    return { send: smtpMailer(u, from, ca) };
+    return { send: smtpMailer(u, from, credentials, ca) };
   }
   return { error: 'no mail transport: set MAIL_API_URL or SMTP_URL (and MAIL_FROM)' };
 }
@@ -52,10 +65,9 @@ function httpMailer(endpoint: string, key: string, from: string): SendMail {
 }
 
 /** A minimal SMTP client: EHLO, (STARTTLS), AUTH PLAIN, one message. */
-function smtpMailer(u: URL, from: string, ca?: string): SendMail {
+function smtpMailer(u: URL, from: string, { user, pass }: { user: string; pass: string }, ca?: string): SendMail {
   const host = u.hostname, implicit = u.protocol === 'smtps:';
   const port = Number(u.port || (implicit ? 465 : 587));
-  const user = decodeURIComponent(u.username), pass = decodeURIComponent(u.password);
   return async (to, link) => {
     const addr = (s: string) => s.match(/<([^>]+)>/)?.[1] ?? s;
     if (/[\r\n]/.test(to + from)) throw new Error('bad address');

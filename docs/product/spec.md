@@ -143,7 +143,7 @@ All JSON. Mutating requests require `Content-Type: application/json` (except DEL
 | POST `/api/reactions` | visitor cookie | `{key, kind:'like'\|'visited', on:boolean}` | counts. 400 invalid |
 | GET `/api/guestbook` | none | n/a | `{entries: [{id, handle, body, created_at}]}` (latest 50, not hidden) |
 | POST `/api/guestbook` | session | `{body}` | 201 `{entry}`. 400 empty/unkind, 429 (5/min/user). Body cleaned (control chars, URLs→🔗), ≤ 200 chars |
-| POST `/api/guestbook/:id/report` | visitor cookie | `{}` | `{ok}`. One report per visitor per entry; hidden at 3 |
+| POST `/api/guestbook/:id/report` | visitor cookie; session optional | `{}` | `{ok}`. One report per device and account, or per IP address for signed-out visitors; hidden at 3 |
 
 Cookies: `pp_sid` (session, httpOnly, SameSite=Lax, Secure in production, 60 days; stored server-side as SHA-256) and `pp_vid` (random 128-bit anonymous visitor id, 1 year).
 

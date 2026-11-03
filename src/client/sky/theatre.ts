@@ -9,6 +9,7 @@ import { h, trapTab } from '../ui/dom.ts';
 import { Select } from '../ui/select.ts';
 import { icon } from '../ui/icons.ts';
 import { lang } from '../lib/i18n.ts';
+import { loadText, saveText } from '../lib/storage.ts';
 import { s, SITES, type SkyKey } from './text.ts';
 import { releaseShared, siteClock, zoneOffset } from './common.ts';
 import { GroundSky } from './ground.ts';
@@ -33,7 +34,7 @@ export interface TheatreOpts {
   onPhoto?: () => void;
 }
 
-const SITE_KEY = 'pp.skyObs';
+const SITE_KEY = 'skyObs';
 const RATES = [1 / 8, 1 / 4, 1 / 2, 1, 2, 4, 8];
 const VIEW_KEY: Record<View, SkyKey> = { model: 'model', ground: 'ground', space: 'space', moon: 'fromMoon' };
 /** Idle drift of the model camera (rad/s). */
@@ -100,7 +101,7 @@ export class Theatre {
   }
 
   constructor(host: HTMLElement, private opts: TheatreOpts) {
-    this.siteId = localStorage.getItem(SITE_KEY) ?? 'best';
+    this.siteId = loadText(SITE_KEY, 'best');
     this.cv = h('canvas', { class: 'sky-cv', 'data-testid': 'sky-canvas' });
     this.renderer = new THREE.WebGLRenderer({ canvas: this.cv, antialias: opts.msaa ?? !opts.lowfx, powerPreference: 'high-performance' });
     this.renderer.debug.checkShaderErrors = import.meta.env.DEV;
@@ -132,7 +133,7 @@ export class Theatre {
     if (!sites.some(o => o.value === this.siteId)) this.siteId = 'best';
     this.siteSel = new Select({ label: s('where'), testid: 'sky-site', icon: 'pin', className: 'sky-select', value: this.siteId, options: sites, onChange: v => {
       this.siteId = v;
-      try { localStorage.setItem(SITE_KEY, this.siteId); } catch { /* private mode */ }
+      saveText(SITE_KEY, this.siteId);
       this.cal.render();
       this.load(this.ev, true);
     } });

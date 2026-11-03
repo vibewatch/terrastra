@@ -28,6 +28,11 @@ npm run dev            # Vite on :5173, proxies /api → :8787
 
 The game works fully without an account; progress is stored in `localStorage` and IndexedDB. Signing in only adds cloud sync, a nickname and the guestbook. Outside production, requesting a magic link returns `devLink`, and the account panel shows it as a clickable "dev sign-in" link.
 
+## Geographic data
+Zoom in on the globe or flat map to load first-level administrative boundaries and names, including China's provincial-level divisions and their capitals. Hover or tap a region for its name and, where available, its capital. The public-domain [Natural Earth 1:10m admin-1 data](https://www.naturalearthdata.com/downloads/10m-cultural-vectors/10m-admin-1-states-provinces/) is simplified for display and loaded only when needed; some small countries and unnamed features are absent, and boundaries may not reflect the latest changes. It is not authoritative or suitable for surveying.
+
+To regenerate the vendored data from the pinned Natural Earth revision, run `npm run gen:admin1` (or pass a local copy of the source GeoJSON after `--`). Hong Kong, Macao and Taiwan are consolidated to provincial-level features; British and French lower-level units are grouped into constituent countries and regions respectively.
+
 ## URL flags
 | Flag | Effect |
 |---|---|
@@ -51,11 +56,12 @@ Set these in `.env` (template: [`.env.example`](.env.example)) or export them.
 | `DB_PATH` | `data/terrastra.db` | SQLite file |
 | `NODE_ENV` | — | `production` enables secure cookies and disables dev login |
 | `DEV_LOGIN` | — | `1` returns magic links in the API response, even in production (testing only!) |
-| `BASE_URL` | `http://localhost:$PORT` | origin used in magic links and the CSRF origin check |
+| `BASE_URL` | `http://localhost:$PORT` in development; required in production | public origin used in magic links and the CSRF origin check; HTTPS is required in production unless insecure cookies are explicitly enabled for staging |
 | `INSECURE_COOKIES` | — | `1` drops the `Secure` cookie flag in production (plain-HTTP staging) |
 | `MAIL_FROM` | — | sender address for sign-in mail; required with either transport below |
 | `MAIL_API_URL` | — | HTTP email API taking `{ from, to, subject, text, html }` JSON (Resend-style); takes precedence over SMTP |
 | `MAIL_API_KEY` | — | bearer token for `MAIL_API_URL` |
+| `INSECURE_MAIL_API` | — | `1` permits an HTTP mail API in production; only for an isolated relay |
 | `SMTP_URL` | — | `smtps://user:pass@host:465` (implicit TLS) or `smtp://user:pass@host:587` (STARTTLS required) |
 | `SMTP_CA_FILE` | — | PEM file to trust a private CA (e.g. an internal relay) |
 
@@ -64,12 +70,13 @@ Without a mail transport, production sign-in is unavailable (the API says so); i
 ## Tests
 ```bash
 npm run typecheck
-npm test                                           # 38 unit + API tests
+npm test                                           # unit and API tests
 npx playwright install chromium                    # first time only
 xvfb-run -a -s "-screen 0 1920x1080x24" npm run test:e2e   # desktop + mobile scenarios
 npm run test:static                                # static Pages build served under /terrastra/ + smoke test (also in CI)
 ```
-The e2e config builds nothing. It starts `node src/server/index.ts` on port 8790 with a temporary DB and `DEV_LOGIN=1`, so run `npm run build` first. On machines without a GPU, Chromium uses SwiftShader. The tests pass `?lowfx=1`, and a full run takes about 3 minutes. Screenshots are written to [`docs/assets/screenshots/`](docs/assets/screenshots/). `npm run test:all` runs typecheck, unit tests, build and e2e in sequence.
+The e2e config builds nothing. It starts `node src/server/index.ts` on port 8790 with a temporary DB and `DEV_LOGIN=1`, so run `npm run build` first. On machines without a GPU, Chromium uses SwiftShader; run time varies with hardware. Screenshots are written to [`docs/assets/screenshots/`](docs/assets/screenshots/). `npm run test:all` runs typecheck, unit tests, build and e2e in sequence.
+Set `SKIP_SCREENSHOTS=1` when running the e2e suite to avoid rewriting the checked-in screenshots.
 
 ## Project layout
 ```
@@ -105,7 +112,7 @@ Import rule: `client` and `server` may import from `shared`; `shared` imports no
 
 ## Deployment
 ### GitHub Pages (static edition)
-[`.github/workflows/pages.yml`](.github/workflows/pages.yml) runs typecheck and unit tests on every push and PR. On `main` it also builds and deploys to GitHub Pages (repo **Settings → Pages → Source: GitHub Actions**, custom domain `terrastra.genisisiq.com`, a DNS CNAME to `vibewatch.github.io`). The Pages build sets:
+[`.github/workflows/pages.yml`](.github/workflows/pages.yml) runs typecheck, unit tests, and static and full-edition browser smoke tests on every push and PR. On `main` it also builds and deploys to GitHub Pages (repo **Settings → Pages → Source: GitHub Actions**, custom domain `terrastra.genisisiq.com`, a DNS CNAME to `vibewatch.github.io`). The Pages build sets:
 
 | Build var | Value on Pages | Effect |
 |---|---|---|
@@ -125,5 +132,12 @@ mkdir -p /tmp/site && ln -sfn "$PWD/dist" /tmp/site/terrastra && python3 -m http
 
 ## Production notes
 * **Mail**: set `MAIL_FROM` plus `MAIL_API_URL` or `SMTP_URL` (see the table above) to deliver magic links; a failed send is reported to the user rather than hidden.
-* Put the server behind TLS and keep `NODE_ENV=production`. Back up the SQLite file (B-16). Add a CSP header (B-13).
-* Cookies: the session cookie is `httpOnly` and `SameSite=Lax`; the visitor cookie is used only for anonymous reactions.
+* Put the server behind TLS, set `NODE_ENV=production` and set `BASE_URL` to the public origin. Do not enable `DEV_LOGIN` or `INSECURE_COOKIES` on a public deployment. The build embeds a content security policy in both editions; static hosts should also send a `frame-ancestors` response header.
+* The server trusts forwarded addresses from loopback proxies. Configure the proxy to discard client-supplied `X-Forwarded-For` and set its own value. Rate limits are per process; run a single instance or enforce shared limits at the edge.
+* Guestbook reports are limited per device and account, or per IP address for signed-out visitors. Several signed-out visitors sharing an address can contribute only one report per message; the word filter and automated hiding are not substitutes for active moderation.
+* Cookies: the session and visitor cookies are `httpOnly` and `SameSite=Lax`; the visitor cookie is used for reactions and report deduplication.
+
+### SQLite backups
+Run `npm run backup -- /secure/backups/terrastra-snapshot.db` with `DB_PATH` set to the live database. Choose a new destination each time: the command will not overwrite an existing file. It uses SQLite's backup API so committed WAL data is included while the server is running, checks the snapshot, and atomically publishes it with owner-only permissions. The destination directory must support hard links. Schedule backups, store encrypted copies off-host, and periodically test a restore. Snapshots contain account data, sessions and application secrets.
+
+To restore, stop every server process, move the current database **and its `-wal` and `-shm` files** aside, copy the snapshot to `DB_PATH` without stale WAL files, and restart. Verify account and progress access after restoring. A restore rolls data back, potentially reviving deleted data and old sessions; account for this in retention and incident-response procedures.

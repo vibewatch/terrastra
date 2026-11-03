@@ -21,7 +21,9 @@ let sharedFailed = false;
 let sharedScene: THREE.Scene | null = null;
 let sharedCamera: THREE.PerspectiveCamera | null = null;
 let sharedRoot: THREE.Group | null = null;
+let sharedWidth = 0, sharedHeight = 0;
 let rafId = 0;
+let hiddenCheck: number | null = null;
 const activePreviews = new Set<ActivePreview>();
 
 /** Configures the shared 3-point studio lighting rig used by every miniature turntable preview. */
@@ -72,11 +74,14 @@ function ensureRenderer(w: number, hPx: number): THREE.WebGLRenderer | null {
       return null;
     }
   }
-  const pr = sharedRenderer.getPixelRatio();
-  sharedRenderer.setSize(w / pr, hPx / pr, false);
-  if (sharedCamera) {
-    sharedCamera.aspect = w / hPx;
-    sharedCamera.updateProjectionMatrix();
+  if (w !== sharedWidth || hPx !== sharedHeight) {
+    const pr = sharedRenderer.getPixelRatio();
+    sharedRenderer.setSize(w / pr, hPx / pr, false);
+    sharedWidth = w; sharedHeight = hPx;
+    if (sharedCamera) {
+      sharedCamera.aspect = w / hPx;
+      sharedCamera.updateProjectionMatrix();
+    }
   }
   return sharedRenderer;
 }
@@ -155,16 +160,20 @@ function renderOne(p: ActivePreview): void {
 let lastTime = performance.now();
 function tick(): void {
   rafId = 0;
+  hiddenCheck = null;
   if (isLowFx()) return;
   const now = performance.now();
   const dt = Math.min(64, now - lastTime);
   lastTime = now;
 
+  let visible = false;
   for (const p of [...activePreviews]) {
     if (!p.canvas.isConnected) {
       activePreviews.delete(p);
       continue;
     }
+    if (!p.canvas.getClientRects().length) continue;
+    visible = true;
     p.clock += dt;
     if (!p.dragging) {
       p.yaw += dt * 0.00085;
@@ -177,7 +186,8 @@ function tick(): void {
   }
 
   if (activePreviews.size > 0) {
-    rafId = requestAnimationFrame(tick);
+    if (visible) rafId = requestAnimationFrame(tick);
+    else hiddenCheck = window.setTimeout(tick, 250);
   }
 }
 
@@ -233,6 +243,7 @@ export function createModelPreview(item: CatalogueItem, opts: { width?: number; 
   if (!modelReady(item.model)) void whenModelReady(item.model, true).then(() => { preview.group = buildPreviewScene(item); renderOne(preview); }, () => {});
   if (!isLowFx()) {
     activePreviews.add(preview);
+    if (hiddenCheck !== null) { window.clearTimeout(hiddenCheck); hiddenCheck = null; }
     if (!rafId) {
       lastTime = performance.now();
       rafId = requestAnimationFrame(tick);

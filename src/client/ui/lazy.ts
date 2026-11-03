@@ -18,18 +18,16 @@ export async function withBusy<T>(p: Promise<T>): Promise<T> {
  * A scene failed to load: say so and offer a retry. Browsers may remember a failed module fetch for the
  * life of the page, so a second failure also offers a reload that comes back to the same place (`hash`).
  */
-export function showLoadError(what: string, retry: () => void, hash = ''): void {
-  const prev = document.getElementById('load-error');
-  const tries = Number(prev?.dataset.tries ?? 0) + 1;
-  prev?.remove();
+export function showLoadError(what: string, retry: (attempt: number) => void, hash = '', attempt = 1): void {
+  document.getElementById('load-error')?.remove();
   const close = () => box.remove();
   const reload = () => { history.replaceState(null, '', location.pathname + location.search + (hash ? '#' + hash : '')); location.reload(); };
-  const box = h('div', { id: 'load-error', class: 'load-error', role: 'alert', 'data-testid': 'load-error', 'data-tries': String(tries) },
+  const box = h('div', { id: 'load-error', class: 'load-error', role: 'alert', 'data-testid': 'load-error', 'data-tries': String(attempt) },
     h('p', {}, t('loadFail', { s: what })),
     navigator.onLine ? null : h('p', { class: 'muted small', 'data-testid': 'load-offline' }, t('offlineMissing')),
     h('div', { class: 'row' },
-      h('button', { class: 'cta', 'data-testid': 'load-retry', onclick: () => { close(); retry(); } }, t('retry')),
-      tries > 1 ? h('button', { class: 'pill', 'data-testid': 'load-reload', onclick: reload }, t('reloadPage')) : null,
+      h('button', { class: 'cta', 'data-testid': 'load-retry', onclick: () => { close(); retry(attempt + 1); } }, t('retry')),
+      attempt > 1 ? h('button', { class: 'pill', 'data-testid': 'load-reload', onclick: reload }, t('reloadPage')) : null,
       h('button', { class: 'link', onclick: close }, t('close'))));
   document.body.append(box);
   (box.querySelector('.cta') as HTMLElement).focus();

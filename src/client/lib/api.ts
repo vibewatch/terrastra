@@ -15,7 +15,7 @@ async function j<T>(res: Response): Promise<T> {
 const opt = (method: string, body?: unknown): RequestInit => ({ method, credentials: 'same-origin', headers: body ? { 'content-type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined });
 
 export const api = {
-  async me(): Promise<Me | null> { if (!HAS_API) return null; try { return (await j<{ user: Me | null }>(await fetch(url('api/me'), opt('GET')))).user; } catch { return null; } },
+  async me(): Promise<Me | null> { if (!HAS_API) return null; return (await j<{ user: Me | null }>(await fetch(url('api/me'), opt('GET')))).user; },
   requestLink: async (email: string) => j<{ ok: true; devLink?: string }>(await fetch(url('api/auth/request'), opt('POST', { email }))),
   logout: async () => j<{ ok: true }>(await fetch(url('api/auth/logout'), opt('POST', {}))),
   setHandle: async (handle: string) => j<{ user: Me }>(await fetch(url('api/profile'), opt('PUT', { handle }))),

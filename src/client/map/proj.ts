@@ -64,6 +64,23 @@ export const wraps = (p: ProjId) => p !== 'equalearth';
 
 export const wrapPi = (a: number) => a - 2 * Math.PI * Math.floor((a + Math.PI) / (2 * Math.PI));
 
+/** A conservative geographic-bounds test; tiles partly beyond a view or the date line must remain drawable. */
+export function boundsInView(
+  p: ProjId,
+  [west, south, east, north]: readonly [number, number, number, number],
+  view: { lon0: number; cy: number; k: number; width: number; height: number },
+): boolean {
+  const pad = 8, D = Math.PI / 180;
+  const halfY = (view.height / 2 + pad) / view.k;
+  if (yOf(p, north * D) < view.cy - halfY || yOf(p, south * D) > view.cy + halfY) return false;
+  // Equal Earth's xScale never falls below 0.5; using that lower bound keeps this test conservative at all latitudes.
+  const halfLon = (view.width / 2 + pad) / view.k / (p === 'equalearth' ? 0.5 : 1);
+  if (halfLon >= Math.PI) return true;
+  const center = view.lon0 / D + 360 * Math.round(((west + east) / 2 - view.lon0 / D) / 360);
+  const distance = Math.max(0, west - center, center - east) * D;
+  return distance <= halfLon;
+}
+
 const f = (v: number) => v.toFixed(8);
 /** GLSL `xScale(phi)`, `projF(lam, phi)` and `phiOf(y)`, switched by `uniform int uProj` (0 equal earth, 1 Mercator, 2 plate carrée). */
 export const PROJ_GLSL = /* glsl */ `

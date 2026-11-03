@@ -1,5 +1,5 @@
 /** Generates crawlable static pages (encyclopedia, about, privacy, 404, sitemap) into dist/. */
-import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BY_TYPE, CATALOGUE } from '../src/shared/data/catalogue.ts';
@@ -9,6 +9,7 @@ import { haversineKm } from '../src/shared/lib/geo.ts';
 import { TYPE_META, TYPE_ORDER } from '../src/shared/data/typemeta.ts';
 import type { CatalogueItem } from '../src/shared/data/types.ts';
 import { icon, TYPE_ICON, type IconName } from '../src/client/ui/icons.ts';
+import { withContentPolicy } from './csp.ts';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const out = join(root, process.argv[2] ?? 'dist');
@@ -18,6 +19,8 @@ const BASE = ('/' + (process.env.BASE_PATH ?? '/') + '/').replace(/\/+/g, '/');
 const STATIC = process.env.VITE_STATIC === '1';
 const withBase = (html: string) => html.replace(/\b(href|src)="\/(?!\/)/g, `$1="${BASE}`);
 if (!existsSync(out)) mkdirSync(out, { recursive: true });
+const appIndex = join(out, 'index.html');
+if (existsSync(appIndex)) writeFileSync(appIndex, withContentPolicy(readFileSync(appIndex, 'utf8')));
 
 const esc = (s: string) => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 type Bi = { en: string; zh?: string };
@@ -188,7 +191,7 @@ function page(path: string, title: string, desc: string, body: string, opts: { j
 ${opts.script ? `<script>${opts.script}</script>` : ''}</body></html>`;
   const file = join(out, path, 'index.html');
   mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, withBase(html));
+  writeFileSync(file, withContentPolicy(withBase(html)));
 }
 const FOOT: [string, IconName, Bi, string][] = [['/about/', 'bulb', T('About', '关于'), 'about'], ['/encyclopedia/', 'book', T('Encyclopedia', '百科'), 'hub'], ['/privacy/', 'eye', T('Privacy', '隐私'), 'privacy']];
 
@@ -305,13 +308,14 @@ ${STATIC ? li('This edition has no server: there are no accounts, cookies or upl
   : li('If you choose to sign in, we store your email address, an optional nickname and a copy of your progress so it can sync.', '如果你选择登录，我们会保存你的邮箱、可选的昵称以及进度副本，以便同步。')
   + li('Likes and “I’ve been here” use an anonymous random cookie so each device counts once.', '“喜欢”和“我去过”使用匿名随机 Cookie，每台设备只计一次。')
   + li('Guestbook messages are public, limited to 200 characters, filtered for links and unkind words, and hidden after reports.', '留言板消息是公开的，最多 200 字，会过滤链接和不友善的词语，被举报后会隐藏。')
+  + li('Reports use an anonymous cookie; signed-out reports also store a per-message keyed hash of your IP address to deter duplicates. Signed-in reports are associated with your account, and that association is removed if you delete it. Report markers are removed when the message is deleted.', '举报使用匿名 Cookie；未登录时还会保存针对该留言计算的 IP 地址带密钥哈希，以防重复举报。登录后的举报会关联你的账户，删除账户时会移除该关联。删除留言时会移除举报记录。')
   + li('You can delete your account and server data any time from the Account panel.', '你可以随时在账户面板中删除账户和服务器数据。')}
 ${li('Reading an article in the app loads it directly from Wikipedia (wikipedia.org), which sees your IP address like any website.', '在应用中阅读文章时会直接从维基百科（wikipedia.org）加载，维基百科会像任何网站一样看到你的 IP 地址。')}
 ${li('Listening to the radio connects straight to that station’s own server, which sees your IP address like any website. Stations choose what they broadcast — including news, adverts and talk meant for adults — and we cannot check it. The app asks before the first station plays, shuffle only picks music stations, and you can hide any station on your device. Classroom mode switches live radio and Wikipedia off completely.', '收听电台时会直接连接该电台自己的服务器，它会像任何网站一样看到你的 IP 地址。电台播放什么（包括新闻、广告和面向成人的谈话）由电台决定，我们无法检查。应用会在第一次播放前询问你；随机播放只选音乐电台；你也可以在设备上隐藏任何电台。课堂模式会完全关闭直播电台和维基百科。')}
 ${li('Terrastra itself shows no ads and uses no third-party trackers or analytics. (Radio stations may broadcast their own adverts.)', '寰星本身不投放广告，也不使用第三方追踪或统计工具。（电台可能会播放它们自己的广告。）')}</ol></div>`, { current: 'privacy' });
 page('/404/', 'Not found — Terrastra', 'Page not found.', `<div class="prose" style="padding:40px 0"><p class="eyebrow">404</p><h1>${bi(T('Lost in space?', '迷失在太空了吗？'))}</h1>
 ${bi(T('We couldn’t find that page.', '我们找不到这个页面。'), 'p', 'lead')}<div class="actions"><a class="btn sig" href="/">${icon('globe', 16)}${bi(T('Back to the globe', '回到地球'))}</a></div></div>`);
-writeFileSync(join(out, '404.html'), (await import('node:fs')).readFileSync(join(out, '404', 'index.html'), 'utf8'));
+writeFileSync(join(out, '404.html'), readFileSync(join(out, '404', 'index.html'), 'utf8'));
 
 writeFileSync(join(out, 'sitemap.xml'), `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.map(u => `  <url><loc>${SITE}${u}</loc></url>`).join('\n')}\n</urlset>\n`);
 writeFileSync(join(out, 'robots.txt'), `User-agent: *\nAllow: /\n${STATIC ? '' : 'Disallow: /api/\n'}Sitemap: ${SITE}/sitemap.xml\n`);

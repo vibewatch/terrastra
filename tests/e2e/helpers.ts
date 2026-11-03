@@ -27,10 +27,10 @@ export async function clickItem(page: Page, key: string): Promise<void> {
 }
 
 export async function shot(page: Page, name: string): Promise<void> {
+  if (process.env.SKIP_SCREENSHOTS === '1') return;
   await page.screenshot({ path: `${SHOTS}/${name}.png`, timeout: 150_000, animations: 'disabled' });
 }
 
-/** Opens an activity from the Explore hub: shelf tab, then its row. */
 /** Picks an option in one of the app's dropdowns (ui/select.ts). */
 export async function pickOption(page: Page, testid: string, value: string): Promise<void> {
   const btn = page.getByTestId(testid);
@@ -40,6 +40,7 @@ export async function pickOption(page: Page, testid: string, value: string): Pro
   await expect(page.getByTestId(testid)).toHaveAttribute('data-value', value);
 }
 
+/** Opens an activity from the Explore hub: shelf tab, then its row. */
 export async function fromHub(page: Page, tab: 'learn' | 'look' | 'play' | 'me', id: string): Promise<void> {
   if (!(await page.getByTestId('hub').isVisible())) await page.getByTestId('btn-hub').click();
   await page.getByTestId('hub-tab-' + tab).click();

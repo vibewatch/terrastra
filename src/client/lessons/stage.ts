@@ -335,7 +335,6 @@ export class LessonStage {
 
   constructor(private globe: Globe, private opts: StageOpts) {
     this.W = opts.low ? 1024 : 2048;
-    globe.flatView = true;
     this.cv = document.createElement('canvas');
     this.cv.width = this.W; this.cv.height = this.W / 2;
     this.ctx = this.cv.getContext('2d')!;
@@ -760,7 +759,6 @@ export class LessonStage {
     g.setLessonItems(null);
     g.forceNight = false;
     g.simTime = null;
-    g.flatView = false;
     g.setViewShift(0, 0);
     g.zoomRange = null;
     g.markDirty();

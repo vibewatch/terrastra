@@ -1,5 +1,5 @@
 import { load, save } from './lib/storage.ts';
-import { emptyProgress, isProgress, mergeProgress, type Progress } from '../shared/lib/progress.ts';
+import { emptyProgress, fitsSyncRequest, isProgress, mergeProgress, type Progress } from '../shared/lib/progress.ts';
 import { newlyEarned } from '../shared/lib/stickers.ts';
 import { ANIMALS, DISCOVERIES } from '../shared/data/catalogue.ts';
 import { DEFAULT_SETTINGS, type Settings } from './globe/scene.ts';
@@ -7,6 +7,10 @@ import type { Me } from './lib/api.ts';
 
 type Listener = () => void;
 const subs = new Set<Listener>();
+
+export class ProgressLimitError extends Error {
+  constructor() { super('Merged progress exceeds supported limits'); }
+}
 
 const stored = load<unknown>('progress', null);
 export const store = {
@@ -31,7 +35,17 @@ export function updateProgress(mut: (p: Progress) => void): void {
   scheduleSync();
 }
 
-export function replaceProgress(p: Progress): void { store.progress = p; save('progress', p); emit(); }
+export function canReplaceProgress(p: unknown): p is Progress {
+  return isProgress(p) && (!store.me || fitsSyncRequest(p));
+}
+
+export function replaceProgress(p: Progress, sync = false): void {
+  if (!canReplaceProgress(p)) throw new ProgressLimitError();
+  store.progress = p;
+  save('progress', p);
+  emit();
+  if (sync) scheduleSync();
+}
 
 export function updateSettings(s: Partial<Settings>): void {
   store.settings = { ...store.settings, ...s };
@@ -40,7 +54,13 @@ export function updateSettings(s: Partial<Settings>): void {
 }
 
 export function resetSettings(): void { store.settings = { ...DEFAULT_SETTINGS }; save('settings', store.settings); emit(); }
-export function setMe(me: Me | null): void { store.me = me; emit(); }
+let accountEpoch = 0;
+export function getAccountEpoch(): number { return accountEpoch; }
+export function setMe(me: Me | null): void {
+  if (store.me?.id !== me?.id || store.me?.email !== me?.email) accountEpoch++;
+  store.me = me;
+  emit();
+}
 
 let syncTimer = 0;
 let syncer: (() => Promise<void>) | null = null;

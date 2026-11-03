@@ -4,7 +4,7 @@ import { mulberry32 } from '../../src/shared/lib/rng.ts';
 import { DIFFS, scoreFor, effectiveKm, verdict, pickRounds, updateRecord, ROUNDS } from '../../src/shared/games/placeit.ts';
 import { generateQuiz, applyAnswer, ranking, LEVEL_OPTIONS, QUIZ_SETS } from '../../src/shared/games/quiz.ts';
 import { buildPool, dayIndex, puzzleFor, evaluate, applyGuess, finishStats, hintsUnlocked, shareText, EMPTY_STATS, type DailyState } from '../../src/shared/games/daily.ts';
-import { emptyProgress, mergeProgress, isProgress, isOn, countOn } from '../../src/shared/lib/progress.ts';
+import { emptyProgress, mergeProgress, isProgress, isOn, countOn, fitsSyncRequest, MAX_SYNC_REQUEST_BYTES } from '../../src/shared/lib/progress.ts';
 import { newlyEarned } from '../../src/shared/lib/stickers.ts';
 import { CATALOGUE, BY_KEY, BY_SLUG, LANDMARKS } from '../../src/shared/data/catalogue.ts';
 import { EN_KEYS, ZH_KEYS, hasKey, t } from '../../src/client/lib/i18n.ts';
@@ -174,6 +174,28 @@ describe('progress merge (sync)', () => {
     expect([isOn(m.likes, 'eiffel'), isOn(m.likes, 'sphinx'), isOn(m.likes, 'taj')]).toEqual([true, false, true]);
     expect(countOn(m.likes)).toBe(2);
   });
+  it('merges keys that also name inherited object properties without corrupting progress', () => {
+    const a = emptyProgress(), b = emptyProgress();
+    const stamps = JSON.parse('{"__proto__":9,"constructor":7,"toString":5}') as Record<string, number>;
+    b.dex = stamps;
+    b.likes = stamps;
+    b.quiz.bySet = stamps;
+    b.placeit = JSON.parse('{"__proto__":{"best":12,"plays":2},"constructor":{"best":8,"plays":1}}');
+    const m = mergeProgress(a, b);
+    expect(m.dex).toEqual(stamps);
+    expect(m.likes).toEqual(stamps);
+    expect(m.quiz.bySet).toEqual(stamps);
+    expect(m.placeit).toEqual(b.placeit);
+    expect(Object.getPrototypeOf(m.placeit)).toBe(Object.prototype);
+    expect(isProgress(m)).toBe(true);
+  });
+  it('measures sync requests in UTF-8 bytes rather than characters', () => {
+    const p = emptyProgress();
+    p.seen = Object.fromEntries(Array.from({ length: 1450 }, (_, i) => [`${'星'.repeat(60)}${String(i).padStart(4, '0')}`, 1]));
+    expect(isProgress(p)).toBe(true);
+    expect(JSON.stringify({ progress: p }).length).toBeLessThan(MAX_SYNC_REQUEST_BYTES);
+    expect(fitsSyncRequest(p)).toBe(false);
+  });
   it('validates shape', () => {
     expect(isProgress(emptyProgress())).toBe(true);
     expect(isProgress({ v: 2 })).toBe(false);
@@ -181,6 +203,8 @@ describe('progress merge (sync)', () => {
     expect(isProgress({ ...emptyProgress(), dex: null })).toBe(false);
     expect(isProgress({ ...emptyProgress(), seen: { eiffel: 'x' } })).toBe(false);
     expect(isProgress({ ...emptyProgress(), likes: Object.fromEntries(Array.from({ length: 5001 }, (_, i) => ['k' + i, 1])) })).toBe(false);
+    expect(isProgress({ ...emptyProgress(), placeit: [] })).toBe(false);
+    expect(isProgress({ ...emptyProgress(), placeit: { ['x'.repeat(65)]: { best: 1, plays: 1 } } })).toBe(false);
     const daily = emptyProgress().daily;
     expect(isProgress({ ...emptyProgress(), daily: { ...daily, dist: Array(1e5).fill(0) } })).toBe(false);
     expect(isProgress({ ...emptyProgress(), daily: { ...daily, dist: [0, 0, 0, 0, 0, 'x'] } })).toBe(false);

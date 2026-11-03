@@ -9,8 +9,20 @@ test('home: globe, top bar, zoom readout, hints @mobile', async ({ page }, info)
   await openApp(page);
   await expect(page.locator('h1')).toHaveText('Terrastra');
   await expect(page.getByTestId('zoom')).toHaveText('×4.0');
-  for (const id of ['btn-search', 'btn-photo', 'btn-map', 'btn-hub', 'btn-menu', 'level-switch']) await expect(page.getByTestId(id)).toBeVisible();
-  // one Explore hub holds every activity, on four shelves; the top bar keeps only search, photo, flat map, hub and settings
+  for (const id of ['btn-search', 'btn-photo', 'btn-map', 'btn-hub', 'btn-language', 'btn-menu', 'level-switch']) await expect(page.getByTestId(id)).toBeVisible();
+  await expect(page.locator('.br #btn-map')).toBeVisible();
+  const viewport = page.viewportSize()!;
+  const languageBox = (await page.getByTestId('btn-language').boundingBox())!;
+  const mapBox = (await page.getByTestId('btn-map').boundingBox())!;
+  expect(languageBox.x).toBeGreaterThan(viewport.width / 2);
+  expect(languageBox.y).toBeLessThan(viewport.height / 2);
+  expect(mapBox.x).toBeGreaterThan(viewport.width / 2);
+  expect(mapBox.y).toBeGreaterThan(viewport.height / 2);
+  await page.getByTestId('btn-language').click();
+  await expect(page.locator('h1')).toHaveText('寰星');
+  await page.getByTestId('btn-language').click();
+  await expect(page.locator('h1')).toHaveText('Terrastra');
+  // One Explore hub holds every activity; language is a top-bar control and the map is by the zoom controls.
   await expect(page.locator('.topbar .tool:visible')).toHaveCount(5);
   await page.getByTestId('btn-hub').click();
   for (const [tab, ids] of [['learn', ['menu-lessons', 'menu-tours']], ['look', ['menu-sky', 'menu-tonight', 'menu-time', 'menu-compare', 'menu-bookmarks']], ['play', ['menu-daily', 'menu-placeit', 'menu-quiz']], ['me', ['menu-passport', 'menu-collection', 'menu-album']]] as const) {
@@ -81,6 +93,7 @@ test('flat world map: projections, zoom, countries, pins, back to the globe', as
   await page.getByTestId('btn-map').click();
   const map = page.getByTestId('flatmap');
   await expect(map).toBeVisible();
+  await expect.poll(() => page.evaluate(() => (window as any).__pp.globe.frameRequest)).toBe(0);
   // the map opens on the meridian the globe was looking at (the whole world fits, so it stays vertically centred)
   const [, lon] = await page.evaluate(() => (window as any).__pp.map().center());
   expect(Math.abs(lon - 2.4)).toBeLessThan(3);
@@ -132,6 +145,7 @@ test('flat world map: projections, zoom, countries, pins, back to the globe', as
   await page.keyboard.press('Escape');
   await expect(map).toBeHidden();
   await expect(page.locator('canvas.globe-canvas')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => (window as any).__pp.globe.frameRequest)).toBeGreaterThan(0);
   // deep link straight into the map (the hash is consumed, as for lessons and tours)
   await openApp(page, '/?lowfx=1&notut#map');
   await expect(page.getByTestId('flatmap')).toBeVisible();
@@ -158,23 +172,17 @@ test('menu: toggles layers & names, language persists', async ({ page }) => {
   await page.getByTestId('mode-minimal').click();
   await expect.poll(() => page.evaluate(() => (window as any).__pp.globe.settings.surfaceMode)).toBe('minimal');
   await page.getByTestId('mode-realistic').click();
-  // the language dropdown works from the keyboard: open, move, pick; Esc only closes the list
-  const langSel = page.getByTestId('lang-select');
-  await langSel.focus();
-  await page.keyboard.press('ArrowDown');
-  await expect(langSel).toHaveAttribute('aria-expanded', 'true');
-  await expect(page.getByRole('listbox')).toBeVisible();
+  // The language switch stays available outside settings and works from the keyboard.
   await page.keyboard.press('Escape');
-  await expect(langSel).toHaveAttribute('aria-expanded', 'false');
-  await expect(page.locator('#menu')).toBeVisible();
-  await pickOption(page, 'lang-select', 'zh');
+  const langBtn = page.getByTestId('btn-language');
+  await langBtn.focus();
+  await page.keyboard.press('Enter');
   await expect(page.locator('h1')).toHaveText('寰星');
+  await expect(langBtn).toHaveAttribute('aria-label', '切换为英文');
   await page.reload();
   await expect(page.locator('h1')).toHaveText('寰星', { timeout: 90_000 });
-  await page.getByTestId('btn-menu').click();
-  await pickOption(page, 'lang-select', 'en');
+  await page.getByTestId('btn-language').click();
   await expect(page.locator('h1')).toHaveText('Terrastra');
-  await page.keyboard.press('Escape');
   await expect(page.locator('#menu')).toBeHidden();
 });
 
@@ -267,6 +275,56 @@ test('vehicle ride mode', async ({ page }) => {
   await shot(page, 'desktop_07_ride');
   await page.getByTestId('ride-exit').click();
   await expect(page.getByTestId('ride-bar')).toBeHidden();
+});
+
+test('model previews pause while hidden and resume after a ride', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', e => errors.push(e.message));
+  await openApp(page, '/?q=low&lowfx=0&notut');
+  const key = await page.evaluate(() => {
+    const globe = (window as any).__pp.globe;
+    return [...globe.placed.keys(), ...globe.pending.keys()].find((k: string) => k.startsWith('vh_'));
+  });
+  expect(key).toBeTruthy();
+  await page.evaluate(k => { location.hash = k; }, key);
+  const canvas = page.locator('#info-preview');
+  await expect(canvas).toBeVisible();
+  await canvas.evaluate(el => {
+    if (!(el instanceof HTMLCanvasElement)) throw new Error('Model preview is not a canvas');
+    const ctx = el.getContext('2d');
+    if (!ctx) throw new Error('Model preview canvas has no 2D context');
+    el.dataset.drawCount = '0';
+    ctx.drawImage = new Proxy(ctx.drawImage, {
+      apply(target, thisArg, args) {
+        el.dataset.drawCount = String(Number(el.dataset.drawCount) + 1);
+        return Reflect.apply(target, thisArg, args);
+      },
+    });
+  });
+  const draws = () => canvas.evaluate(el => Number((el as HTMLElement).dataset.drawCount));
+  await expect.poll(draws, { timeout: 60_000 }).toBeGreaterThan(2);
+  await expect.poll(() => canvas.evaluate(el => {
+    if (!(el instanceof HTMLCanvasElement)) throw new Error('Model preview is not a canvas');
+    const ctx = el.getContext('2d');
+    if (!ctx) throw new Error('Model preview canvas has no 2D context');
+    const pixels = ctx.getImageData(0, 0, el.width, el.height).data;
+    let lit = 0;
+    for (let i = 0; i < pixels.length; i += 4) {
+      if (pixels[i + 3] > 40 && Math.max(pixels[i], pixels[i + 1], pixels[i + 2]) > 55) lit++;
+    }
+    return lit;
+  }), { timeout: 60_000 }).toBeGreaterThan(100);
+  await page.getByTestId('ride').click();
+  await expect(page.getByTestId('info')).toBeHidden();
+  await expect(page.getByTestId('ride-bar')).toBeVisible();
+  await page.waitForTimeout(1000);
+  const hidden = await draws();
+  await page.waitForTimeout(3000);
+  expect(await draws()).toBe(hidden);
+  await page.getByTestId('ride-exit').click();
+  await expect(page.getByTestId('info')).toBeVisible();
+  await expect.poll(draws, { timeout: 30_000 }).toBeGreaterThan(hidden);
+  expect(errors).toEqual([]);
 });
 
 test('photo mode saves to album', async ({ page }) => {
@@ -363,6 +421,9 @@ test('account: magic link sign-in, nickname, sync, guestbook', async ({ page }) 
   await expect.poll(() => page.evaluate(() => location.hash)).toBe('');
   await expect.poll(() => page.evaluate(() => fetch('/api/me').then(r => r.json()).then(j => j.user?.email))).toBe('kid.explorer@example.com');
   await expect(page.getByTestId('handle')).toBeVisible({ timeout: 90_000 });
+  await page.getByTestId('handle').fill('ほし旅');
+  await page.getByTestId('handle').press('Enter');
+  await expect.poll(() => page.evaluate(() => fetch('/api/me').then(r => r.json()).then(j => j.user?.handle))).toBe('ほし旅');
   await page.getByTestId('handle').fill('Explorer_01');
   await page.getByTestId('handle').press('Enter');
   await page.getByTestId('sync-now').click();
@@ -370,13 +431,57 @@ test('account: magic link sign-in, nickname, sync, guestbook', async ({ page }) 
   const server = await page.evaluate(() => fetch('/api/progress').then(r => r.json()));
   expect(Object.keys(server.progress.dex)).toContain('an_lion');
   await shot(page, 'desktop_17_account');
+  await page.route('**/api/auth/logout', route => route.fulfill({ status: 503, json: { error: 'Sign-out unavailable' } }));
+  await page.getByTestId('sign-out').click();
+  await expect(page.getByTestId('handle')).toBeVisible();
+  await expect(page.locator('#toast')).toContainText('Sign-out unavailable');
+  await page.unroute('**/api/auth/logout');
   await page.keyboard.press('Escape');
+
+  const backup = await page.evaluate(async () => {
+    const { progress } = await fetch('/api/progress').then(r => r.json());
+    progress.seen.an_tiger = 1234567;
+    return { kind: 'terrastra-progress', v: 1, at: Date.now(), progress };
+  });
+  await page.getByTestId('btn-menu').click();
+  await page.getByTestId('backup-import').click();
+  await page.getByTestId('backup-file').setInputFiles({ name: 'backup.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(backup)) });
+  await page.getByTestId('backup-merge').click();
+  await expect.poll(() => page.evaluate(() => fetch('/api/progress').then(r => r.json()).then(j => j.progress?.seen?.an_tiger)), { timeout: 20_000 }).toBe(1234567);
+
   await fromHub(page, 'me', 'menu-guestbook');
   await page.getByTestId('gb-text').fill('Hello from the e2e test! https://spam.example');
   await page.getByTestId('gb-post').click();
   await expect(page.getByTestId('gb-list')).toContainText('Hello from the e2e test! 🔗');
   await expect(page.getByTestId('gb-list')).toContainText('Explorer_01');
   await shot(page, 'desktop_18_guestbook');
+
+  await page.keyboard.press('Escape');
+  await fromHub(page, 'me', 'menu-account');
+  let releaseProfile!: () => void, profileReceived!: () => void;
+  const held = new Promise<void>(resolve => { releaseProfile = resolve; });
+  const received = new Promise<void>(resolve => { profileReceived = resolve; });
+  await page.route('**/api/profile', async route => {
+    const response = await route.fetch();
+    profileReceived();
+    await held;
+    await route.fulfill({ response });
+  });
+  try {
+    const response = page.waitForResponse(r => r.url().endsWith('/api/profile') && r.request().method() === 'PUT');
+    await page.getByTestId('handle').fill('Delayed_01');
+    await page.getByTestId('handle').press('Enter');
+    await received;
+    await page.getByTestId('sign-out').click();
+    await expect(page.getByTestId('email')).toBeVisible();
+    releaseProfile();
+    await response;
+    await page.waitForTimeout(500);
+    await expect(page.getByTestId('email')).toBeVisible();
+  } finally {
+    releaseProfile();
+    await page.unroute('**/api/profile');
+  }
 });
 
 test('encyclopedia static pages link back to the globe', async ({ page }) => {
@@ -394,6 +499,8 @@ test('encyclopedia static pages link back to the globe', async ({ page }) => {
   await expect(page).toHaveURL(/\/#eiffel$/);
   const res = await page.request.get('/does-not-exist');
   expect(res.status()).toBe(404);
+  const privacy = await page.request.get('/privacy/');
+  expect(await privacy.text()).toContain('per-message keyed hash of your IP address');
 });
 
 test('read more expands a Wikipedia reader in the chosen language', async ({ page }) => {
@@ -466,11 +573,11 @@ test('solar system: zoom out from Earth, visit Mars and a feature, land back on 
   await openApp(page);
   const mobile = info.project.name === 'mobile';
   // Wheeling on past the widest globe view opens the Solar System.
-  await page.mouse.move(400, 400);
   if (mobile) await level(page, 'solar');
-  else for (let i = 0; i < 60 && !(await page.evaluate(() => document.body.classList.contains('solar'))); i++) {
-    await page.mouse.wheel(0, 120); await page.waitForTimeout(80);
-  }
+  else await page.locator('canvas.globe-canvas').evaluate(canvas => {
+    // Keep the wheel burst together even when software rendering delays browser commands.
+    for (let i = 0; i < 2; i++) canvas.dispatchEvent(new WheelEvent('wheel', { deltaY: 2000, cancelable: true }));
+  });
   await expect(page.getByTestId('sp-earth')).toBeVisible({ timeout: 20_000 });
   await expect(page.locator('body')).toHaveClass(/solar/);
   await expect.poll(() => page.evaluate(() => (window as any).__pp.globe.paused)).toBe(true);

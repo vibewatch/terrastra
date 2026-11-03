@@ -2,18 +2,22 @@ import { h, openModal, closeModal, toast } from './dom.ts';
 import { t } from '../lib/i18n.ts';
 import { icon } from './icons.ts';
 import { api } from '../lib/api.ts';
-import { store, setMe, replaceProgress, subscribe } from '../store.ts';
+import { store, setMe, getAccountEpoch, replaceProgress, subscribe, ProgressLimitError } from '../store.ts';
+import { HANDLE_PATTERN } from '../../shared/lib/profile.ts';
 import { mergeProgress } from '../../shared/lib/progress.ts';
 
 export async function syncNow(quiet = false): Promise<boolean> {
   if (!store.me) return false;
+  const epoch = getAccountEpoch();
   try {
     const { progress } = await api.syncProgress(store.progress);
+    if (getAccountEpoch() !== epoch) return false;
     replaceProgress(mergeProgress(store.progress, progress));
     if (!quiet) toast(t('synced'));
     return true;
-  } catch {
-    if (!quiet) toast(t('offline'));
+  } catch (err) {
+    if (err instanceof ProgressLimitError) toast(t('syncLimit'), 4000);
+    else if (!quiet || (err instanceof Error && !(err instanceof TypeError))) toast(err instanceof Error && !(err instanceof TypeError) && err.message ? err.message : t('offline'));
     return false;
   }
 }
@@ -36,18 +40,25 @@ export function openAccount(): void {
         } }, email, h('button', { class: 'cta', type: 'submit', 'data-testid': 'send-link' }, t('sendLink'))), out);
       return;
     }
-    const handle = h('input', { value: me.handle ?? '', maxlength: 16, pattern: '[A-Za-z0-9_\\u4E00-\\u9FFF]{2,16}', 'aria-label': t('handle'), title: t('handleRule'), 'data-testid': 'handle' });
+    const handle = h('input', { value: me.handle ?? '', maxlength: 16, pattern: HANDLE_PATTERN, 'aria-label': t('handle'), title: t('handleRule'), 'data-testid': 'handle' });
     body.replaceChildren(
       h('div', { class: 'acct-who' }, h('span', { class: 'acct-av', html: icon('user', 18) }),
         h('div', {}, h('small', { class: 'muted' }, t('account')), h('strong', {}, me.email))),
       h('form', { class: 'acct-field', onsubmit: async (e: Event) => {
         e.preventDefault();
-        try { const r = await api.setHandle(handle.value.trim()); setMe(r.user); toast('✓'); } catch (err) { toast((err as Error).message); }
+        const epoch = getAccountEpoch();
+        try {
+          const r = await api.setHandle(handle.value.trim());
+          if (getAccountEpoch() !== epoch) return;
+          setMe(r.user); toast('✓');
+        } catch (err) { if (getAccountEpoch() === epoch) toast((err as Error).message); }
       } }, h('label', {}, h('span', {}, t('handle')), h('div', { class: 'acct-input' }, handle, h('button', { class: 'pill', type: 'submit' }, t('saveBtn')))),
         h('small', { class: 'muted' }, t('handleRule'))),
       h('div', { class: 'acct-actions' },
         h('button', { class: 'cta', 'data-testid': 'sync-now', onclick: () => void syncNow() }, h('span', { html: icon('reset', 15) }), t('syncNow')),
-        h('button', { class: 'pill', 'data-testid': 'sign-out', onclick: async () => { try { await api.logout(); } catch { /* ignore */ } setMe(null); toast(t('signedOut')); render(); } }, t('signOut'))),
+        h('button', { class: 'pill', 'data-testid': 'sign-out', onclick: async () => {
+          try { await api.logout(); setMe(null); toast(t('signedOut')); } catch (err) { toast((err as Error).message || t('offline')); }
+        } }, t('signOut'))),
       h('button', { class: 'link danger acct-delete', 'data-testid': 'delete-account', onclick: async () => {
         if (!confirm(t('deleteConfirm'))) return;
         try { await api.deleteAccount(); setMe(null); closeModal('account'); toast(t('signedOut')); } catch (err) { toast((err as Error).message); }
@@ -84,4 +95,3 @@ export async function openGuestbook(): Promise<void> {
   openModal('guestbook', t('guestbook'), h('div', { class: 'guestbook' }, form, list));
   await load();
 }
-
