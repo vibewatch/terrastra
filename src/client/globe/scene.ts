@@ -17,6 +17,7 @@ import { CHINA_CAPITALS, CHINA_CAPITAL_NAMES } from '../../shared/data/china-cap
 import { TYPE_META, type LayerKey } from '../../shared/data/typemeta.ts';
 import { subsolar } from '../../shared/lib/sun.ts';
 import { GlobeLayers, RENDER_ORDER, graticuleStep } from './layers.ts';
+import type { QuakeEvent } from '../lib/earthquakes.ts';
 import { buildStarField, gmstRad, SPACE_BG } from '../lib/starfield.ts';
 import type { StationDots } from './stations.ts';
 import { releaseWhenHidden, warmShaders } from '../lib/gpu.ts';
@@ -43,8 +44,8 @@ export const AURA_PRESETS: Record<AuraPreset, { label: string; colors: [string, 
 
 export type Settings = Record<LayerKey, boolean> & {
   names: boolean; borders: boolean; states: boolean; shadows: boolean; sfx: boolean; bgm: boolean;
-  /** globe layers: plate boundaries, drifting clouds, polar aurora */
-  tectonics: boolean; clouds: boolean; aurora: boolean; graticule: boolean;
+  /** globe layers: plate boundaries, live earthquakes, drifting clouds, polar aurora */
+  tectonics: boolean; earthquakes: boolean; clouds: boolean; aurora: boolean; graticule: boolean;
   auraPreset: AuraPreset;
   surfaceMode: SurfaceMode;
 };
@@ -52,7 +53,7 @@ export const DEFAULT_SETTINGS: Settings = {
   names: true, borders: true, states: false, shadows: true,
   landmarks: true, animals: true, discoveries: true, vehicles: true,
   dinos: true, foods: true, festivals: true, space: true, plants: true, sports: true, volcanoes: true, migrations: true, voyages: true, people: true,
-  tectonics: false, clouds: true, aurora: true, graticule: true,
+  tectonics: false, earthquakes: false, clouds: true, aurora: true, graticule: true,
   sfx: true, bgm: true,
   auraPreset: 'waves', surfaceMode: 'realistic',
 };
@@ -327,6 +328,9 @@ interface GlobeEvents {
   /** Radio on: a station dot was tapped / hovered (index into the station list, -1 = none). */
   onStation?: (i: number) => void;
   onStationHover?: (i: number, screen: { x: number; y: number } | null) => void;
+  /** Earthquakes layer on: an earthquake epicenter was tapped / hovered. */
+  onQuake?: (q: QuakeEvent) => void;
+  onQuakeHover?: (q: QuakeEvent | null, screen: { x: number; y: number } | null) => void;
 }
 
 export class Globe {
@@ -1015,8 +1019,21 @@ export class Globe {
         }
         if (!this.gameMode && !this.ride) {
           const rect = el.getBoundingClientRect();
-          const hit = this.pickAt(e.clientX - rect.left, e.clientY - rect.top);
-          this.hoverCountryAt(hit ? null : e.clientX - rect.left, e.clientY - rect.top);
+          const rx = e.clientX - rect.left, ry = e.clientY - rect.top;
+          const hit = this.pickAt(rx, ry);
+          if (!hit && this.eff.earthquakes && this.layers) {
+            const q = this.layers.earthquakes.pick(rx, ry, this.camera, el.clientWidth, el.clientHeight);
+            if (q) {
+              if (this.hoveredKey) { this.hoveredKey = null; this.ev.onHover?.(null, null); }
+              this.hoverCountryAt(null);
+              el.style.cursor = 'pointer';
+              const scr = this.project(new THREE.Vector3(...latLonToVec(q.lat, q.lon, 1.003)));
+              this.ev.onQuakeHover?.(q, scr ?? { x: rx, y: ry });
+              return;
+            }
+          }
+          this.ev.onQuakeHover?.(null, null);
+          this.hoverCountryAt(hit ? null : rx, ry);
           const nextKey = hit?.key ?? null;
           if (nextKey !== this.hoveredKey) {
             this.hoveredKey = nextKey;
@@ -1061,6 +1078,7 @@ export class Globe {
     });
     el.addEventListener('pointerleave', () => {
       if (this.radio && this.radio.hover >= 0) { this.radio.hover = -1; this.ev.onStationHover?.(-1, null); }
+      this.ev.onQuakeHover?.(null, null);
       this.hoverCountryAt(null);
       if (this.hoveredKey) {
         this.hoveredKey = null;
@@ -1135,6 +1153,10 @@ export class Globe {
       if (si >= 0) { this.ev.onStation?.(si); return; }
     }
     const hit = this.pickAt(x, y);
+    if (!hit && this.eff.earthquakes && this.layers) {
+      const q = this.layers.earthquakes.pick(x, y, this.camera, rect.width, rect.height, 22);
+      if (q) { this.ev.onQuake?.(q); return; }
+    }
     const ll = !hit && this.countryUi() ? this.screenToLatLon(x, y) : null;
     const c = ll ? countryAt(this.shapes(), ll[0], ll[1]) : null;
     this.pickedCountry = c && ll ? { c, at: new THREE.Vector3(...latLonToVec(ll[0], ll[1], 1.0025)) } : null;
@@ -1233,6 +1255,28 @@ export class Globe {
   setAudio(bass: number, mid: number, high: number): void {
     this.audioLevel = bass;
     this.live = [bass, mid, high];
+  }
+
+  /** Synchronizes the 3D ISS (`sp_iss`) miniature and its ground track with real-time orbital telemetry. */
+  syncIssOrbit(pts: [number, number][], seg: number, t: number, lat: number, lon: number): void {
+    if (pts.length < 2) return;
+    const pend = this.pending.get('sp_iss');
+    if (pend) {
+      pend.lat = lat;
+      pend.lon = lon;
+      if (pend.route) pend.route.pts = pts;
+      this.pendingN.set('sp_iss', new THREE.Vector3(...latLonToVec(lat, lon)));
+    }
+    const p = this.placed.get('sp_iss');
+    if (p) {
+      p.item.lat = lat;
+      p.item.lon = lon;
+      if (p.item.route) p.item.route.pts = pts;
+      p.pts = pts.map(x => [x[0], x[1]] as [number, number]);
+      p.seg = Math.max(0, Math.min(pts.length - 2, seg));
+      p.t = Math.max(0, Math.min(0.999, t));
+      this.dirty = true;
+    }
   }
 
   screenToLatLon(x: number, y: number): [number, number] | null {
@@ -1673,7 +1717,17 @@ export class Globe {
     this.styleBorders();
     if (this.layers) {
       this.layers.setVisible(this.eff, this.gameMode);
-      this.layers.update(this.clock, dt, real, this.camera.position.length() - 1, this.routeState, this.orbitAlt, this.placedObj);
+      this.layers.update(
+        this.clock,
+        dt,
+        real,
+        this.camera.position.length() - 1,
+        this.routeState,
+        this.orbitAlt,
+        this.placedObj,
+        this.camera,
+        this.renderer.domElement.clientHeight,
+      );
     }
     if (this.radio) {
       this.radio.group.visible = !this.gameMode;

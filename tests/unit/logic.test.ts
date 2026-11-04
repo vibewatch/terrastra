@@ -388,3 +388,61 @@ describe('model pipeline (worker transfer + level of detail)', async () => {
     expect(box.max.y).toBeGreaterThan(full.max.y * 0.8); // the raised torch survives
   });
 });
+
+describe('living planet real-time layers (webcams, ISS orbit, earthquakes, solar/weather)', async () => {
+  const { solarStatusAt, describeWmoCode } = await import('../../src/client/lib/weather.ts');
+  const { propagateIss, currentIssOrbitPts } = await import('../../src/client/lib/iss.ts');
+  const { parseUsgsQuakes, quakeColorRgb, fallbackQuakes } = await import('../../src/client/lib/earthquakes.ts');
+  const { WEBCAMS } = await import('../../src/shared/data/webcams.ts');
+
+  it('classifies solar daylight vs night across opposing longitudes', () => {
+    const noonUtc = Date.UTC(2026, 2, 20, 12, 0, 0); // vernal equinox 12:00 UTC
+    const london = solarStatusAt(51.5, 0, noonUtc);
+    const auckland = solarStatusAt(-36.8, 174.8, noonUtc);
+    expect(london.phase).toBe('day');
+    expect(auckland.phase).toBe('night');
+    expect(describeWmoCode(0, true).icon).toBe('☀️');
+    expect(describeWmoCode(95, false).icon).toBe('⛈️');
+  });
+
+  it('propagates ISS telemetry within 51.64° inclination and builds a continuous orbit track', () => {
+    const t0 = Date.UTC(2026, 3, 20, 0, 0, 0);
+    const pos = propagateIss(t0);
+    expect(Math.abs(pos.lat)).toBeLessThanOrEqual(52);
+    expect(Math.abs(pos.lon)).toBeLessThanOrEqual(180);
+    expect(pos.altitudeKm).toBeGreaterThan(350);
+    const orbit = currentIssOrbitPts(t0);
+    expect(orbit.pts.length).toBe(16);
+    expect(orbit.seg).toBeGreaterThanOrEqual(0);
+    expect(orbit.seg).toBeLessThan(16);
+    expect(orbit.t).toBeGreaterThanOrEqual(0);
+    expect(orbit.t).toBeLessThanOrEqual(1);
+  });
+
+  it('parses USGS GeoJSON earthquake feeds and encodes depth into RGB colors', () => {
+    const parsed = parseUsgsQuakes({
+      features: [
+        { id: 'q1', properties: { mag: 6.2, place: 'Tonga Trench', time: 1710000000000 }, geometry: { coordinates: [-175.2, -21.1, 410] } },
+        { id: 'q2', properties: { mag: 4.5, place: 'Iceland', time: 1710000500000 }, geometry: { coordinates: [-22.4, 63.9, 8] } },
+        { id: 'bad', properties: { mag: 1.0 }, geometry: { coordinates: [0, 0, 5] } },
+      ],
+    });
+    expect(parsed.map(q => q.id)).toEqual(['q1', 'q2']);
+    expect(quakeColorRgb(10)[0]).toBeGreaterThan(quakeColorRgb(400)[0]); // shallow = redder, deep = bluer
+    expect(fallbackQuakes(1710000000000).length).toBeGreaterThanOrEqual(10);
+  });
+
+  it('validates all 20 curated global public webcams and bilingual metadata', () => {
+    expect(WEBCAMS.length).toBe(20);
+    expect(new Set(WEBCAMS.map(c => c.id)).size).toBe(20);
+    for (const c of WEBCAMS) {
+      expect(Math.abs(c.lat)).toBeLessThanOrEqual(90);
+      expect(Math.abs(c.lon)).toBeLessThanOrEqual(180);
+      expect(c.name && c.nameZh, c.id).toBeTruthy();
+      expect(c.desc && c.descZh, c.id).toBeTruthy();
+      expect(c.url).toMatch(/^https:\/\//);
+      expect(c.externalUrl).toMatch(/^https:\/\//);
+    }
+  });
+});
+

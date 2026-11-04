@@ -74,6 +74,8 @@ const P: Record<string, string> = {
   download: '<path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 19.5h14"/>',
   upload: '<path d="M12 15V4M7.5 8.5 12 4l4.5 4.5M5 19.5h14"/>',
   eye: '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/>',
+  video: '<rect x="3" y="6.5" width="13" height="11" rx="2"/><path d="m16 10.5 5-3v9l-5-3z"/><circle cx="7.5" cy="10.5" r="1.2" fill="currentColor" stroke="none"/>',
+  quake: '<path d="M2.5 12h4l2-5.5 3 11 2.8-8.5 2 3H21.5"/>',
 };
 
 export type IconName = keyof typeof P;

@@ -1353,3 +1353,103 @@ body.immersive :is(.fm-bar, .fm-scale) { display: none !important; }
   .seg.fm-proj button { padding: 4px 8px; font-size: .72rem; }
   .fm-scale { right: auto; left: 12px; bottom: 136px; }
 }
+
+/* ---- Live weather, solar phase & ISS telemetry badges on info cards ---- */
+.live-weather-row {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 2px 0 8px;
+  font: 500 .76rem/1.3 var(--font-mono); color: var(--hud-hi);
+}
+.solar-chip {
+  display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; border-radius: 999px;
+  border: 1px solid var(--hud-line); background: rgba(15, 23, 42, .65); font-size: .72rem;
+}
+.solar-chip.solar-day { border-color: rgba(251, 191, 36, .45); color: #fde68a; }
+.solar-chip.solar-twilight { border-color: rgba(251, 146, 60, .45); color: #fed7aa; }
+.solar-chip.solar-night { border-color: rgba(125, 211, 252, .4); color: #bae6fd; }
+.live-weather-val:empty { display: none; }
+.live-weather-val { color: var(--text-2); }
+
+.iss-live-box {
+  display: flex; flex-direction: column; gap: 8px; margin: 4px 0 10px; padding: 8px 10px;
+  border: 1px solid rgba(56, 189, 248, .35); background: rgba(8, 22, 40, .72); border-radius: 6px;
+}
+.iss-live-meta {
+  display: flex; align-items: center; gap: 7px; font: 500 .74rem/1.35 var(--font-mono); color: var(--hud-hi);
+}
+.iss-live-dot {
+  width: 8px; height: 8px; border-radius: 50%; background: #38bdf8;
+  box-shadow: 0 0 8px #38bdf8; animation: cam-pulse 1.6s ease-in-out infinite; flex: none;
+}
+.iss-live-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+@keyframes cam-pulse { 50% { opacity: .35; transform: scale(.85); } }
+
+/* ---- Global Public Live Cams PiP dock (src/client/ui/webcams.ts) ---- */
+.cam-dock {
+  position: absolute; left: 22px; bottom: 72px; z-index: 9;
+  width: min(390px, calc(100vw - 44px)); display: flex; flex-direction: column; gap: 8px;
+  padding: 10px 12px; background: var(--panel); backdrop-filter: blur(20px);
+  border: 1px solid var(--line); box-shadow: var(--shadow); border-radius: 8px;
+}
+.cam-dock.expanded { width: min(560px, calc(100vw - 44px)); }
+.cam-dock.hidden { display: none; }
+.cam-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.cam-head-title { display: flex; align-items: center; gap: 6px; font-size: .88rem; color: var(--text); }
+.cam-live-dot {
+  width: 8px; height: 8px; border-radius: 50%; background: #ef4444;
+  box-shadow: 0 0 8px #ef4444; animation: cam-pulse 1.4s ease-in-out infinite;
+}
+.cam-live-badge {
+  font: 700 .66rem/1 var(--font-mono); color: #fff; background: #dc2626;
+  padding: 2px 5px; border-radius: 3px; letter-spacing: .08em;
+}
+.cam-head-ctl { display: flex; align-items: center; gap: 2px; }
+.cam-filters, .cam-solar-filters { display: flex; flex-wrap: wrap; gap: 4px; }
+.cam-pill { font-size: .72rem; padding: 3px 8px; }
+.cam-stage {
+  position: relative; width: 100%; aspect-ratio: 16 / 9; background: #020617;
+  border: 1px solid var(--hud-line); border-radius: 5px; overflow: hidden;
+}
+.cam-stage.collapsed { display: none; }
+.cam-iframe, .cam-video, .cam-snap-img { width: 100%; height: 100%; border: 0; display: block; object-fit: cover; }
+.cam-snap-wrap { position: relative; width: 100%; height: 100%; }
+.cam-snap-badge {
+  position: absolute; left: 8px; bottom: 8px; padding: 2px 7px; border-radius: 4px;
+  background: rgba(2, 6, 23, .78); border: 1px solid var(--hud-line);
+  font: 500 .68rem/1.3 var(--font-mono); color: var(--hud-hi);
+}
+.cam-meta { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.cam-meta-main { min-width: 0; flex: 1 1 auto; }
+.cam-title-row { display: flex; align-items: center; gap: 6px; }
+.cam-emoji { font-size: 1.05rem; }
+.cam-name { font-size: .92rem; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cam-sub {
+  margin: 2px 0 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  font: 500 .72rem/1.3 var(--font-mono); color: var(--hud-dim);
+}
+.cam-solar-badge {
+  padding: 1px 6px; border-radius: 999px; border: 1px solid var(--hud-line);
+  background: rgba(15, 23, 42, .65); color: var(--hud-hi);
+}
+.cam-src-link { flex: none; text-decoration: none; display: inline-flex; align-items: center; }
+.cam-desc { margin: 0; font-size: .78rem; line-height: 1.4; color: var(--text-2); }
+.cam-list {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px;
+  max-height: 128px; overflow-y: auto; overscroll-behavior: contain; padding-right: 2px;
+}
+.cam-chip {
+  display: flex; align-items: center; gap: 5px; min-width: 0; padding: 4px 7px;
+  border: 1px solid var(--hud-line); border-radius: 4px; background: rgba(15, 23, 42, .55);
+  color: var(--text-2); font-size: .74rem; text-align: left; cursor: pointer;
+}
+.cam-chip:hover { background: var(--hover); color: var(--text); }
+.cam-chip.active {
+  border-color: #38bdf8; background: rgba(56, 189, 248, .15); color: #f0f9ff;
+}
+.cam-chip-name { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cam-chip-sol { flex: none; font-size: .72rem; }
+body.time-travel .cam-dock, body.gaming .cam-dock, body.riding .cam-dock, body.photo-mode .cam-dock, body.solar .cam-dock { display: none; }
+@media (max-width: 760px) {
+  .cam-dock, .cam-dock.expanded { left: 10px; right: 10px; bottom: 64px; width: auto; }
+  .cam-list { max-height: 96px; }
+  body:has(.info:not(.hidden)) .cam-dock { display: none; }
+}

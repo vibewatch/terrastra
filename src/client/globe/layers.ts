@@ -4,6 +4,8 @@ import type { CatalogueItem } from '../../shared/data/types.ts';
 import { TYPE_META } from '../../shared/data/typemeta.ts';
 import { latLonToVec } from '../../shared/lib/geo.ts';
 import { isHappening } from '../../shared/lib/season.ts';
+import { fallbackQuakes, fetchRecentQuakes, quakeColorRgb, type QuakeEvent } from '../lib/earthquakes.ts';
+import { currentKpStatus, fetchKpStatus } from '../lib/weather.ts';
 
 /**
  * Overlay layers live in the opaque pass (transparent: false + explicit blending) with a negative renderOrder,
@@ -524,13 +526,19 @@ class Aurora {
     this.root.visible = false;
   }
 
-  setVisible(on: boolean): void { this.root.visible = on; }
+  setVisible(on: boolean): void {
+    const becameVisible = on && !this.root.visible;
+    this.root.visible = on;
+    if (becameVisible) void fetchKpStatus();
+  }
 
   update(time: number, camAlt: number): void {
     if (!this.root.visible) return;
     this.mat.uniforms.uTime.value = time;
-    // Subtle from orbit, richer when zoomed towards the poles; gone at street level.
-    this.mat.uniforms.uIntensity.value = (0.8 + 0.5 * (1 - smooth(0.4, 2.6, camAlt))) * smooth(0.05, 0.18, camAlt);
+    // Subtle from orbit, richer when zoomed towards the poles; modulated by live NOAA planetary Kp index.
+    const kpBoost = currentKpStatus().auroraBoost;
+    this.mat.uniforms.uIntensity.value =
+      (0.8 + 0.5 * (1 - smooth(0.4, 2.6, camAlt))) * smooth(0.05, 0.18, camAlt) * kpBoost;
   }
 }
 
@@ -767,10 +775,169 @@ class Graticule {
 /** Step (degrees) of the labelled grid lines for a given camera altitude, matching the drawn grid. */
 export function graticuleStep(camAlt: number): number { return camAlt < 0.3 ? 1 : camAlt < 1.25 ? 5 : camAlt < 2.6 ? 15 : 30; }
 
+// ---------- USGS Real-Time Earthquakes ----------
+
+const MAX_QUAKES = 180;
+const QUAKE_R = 1.0038;
+
+const QUAKE_VERT = /* glsl */ `
+  attribute float aMagScale;
+  attribute vec3 aColor;
+  attribute float aPhase;
+  uniform float uTime;
+  uniform float uPx;
+  varying vec3 vColor;
+  varying float vPhase;
+  varying float vFace;
+  void main() {
+    vec4 wp = modelMatrix * vec4(position, 1.0);
+    vFace = dot(normalize(wp.xyz), normalize(cameraPosition - wp.xyz));
+    vColor = aColor;
+    vPhase = aPhase;
+    vec4 mv = viewMatrix * wp;
+    gl_Position = projectionMatrix * mv;
+    gl_PointSize = clamp(0.028 * aMagScale * uPx / -mv.z, 12.0, 64.0) * step(0.02, vFace);
+  }
+`;
+
+const QUAKE_FRAG = /* glsl */ `
+  uniform float uTime;
+  varying vec3 vColor;
+  varying float vPhase;
+  varying float vFace;
+  void main() {
+    if (vFace < 0.02) discard;
+    vec2 q = gl_PointCoord * 2.0 - 1.0;
+    float r = length(q);
+    if (r > 1.0) discard;
+    float core = smoothstep(0.26, 0.06, r);
+    float w1 = fract(uTime * 0.48 + vPhase);
+    float w2 = fract(uTime * 0.48 + vPhase + 0.5);
+    float r1 = smoothstep(0.09, 0.0, abs(r - (0.2 + w1 * 0.78))) * (1.0 - w1);
+    float r2 = smoothstep(0.09, 0.0, abs(r - (0.2 + w2 * 0.78))) * (1.0 - w2);
+    float a = (core * 0.95 + (r1 + r2) * 0.85) * smoothstep(0.02, 0.22, vFace);
+    gl_FragColor = vec4(mix(vColor, vec3(1.0, 0.96, 0.9), core * 0.55), a);
+  }
+`;
+
+/** Real-time USGS M2.5+ earthquake epicentres with concentric seismic wave rings scaled by magnitude and colored by depth. */
+export class Earthquakes {
+  readonly root: THREE.Points;
+  private mat: THREE.ShaderMaterial;
+  private geo: THREE.BufferGeometry;
+  private posAttr: THREE.BufferAttribute;
+  private magAttr: THREE.BufferAttribute;
+  private colAttr: THREE.BufferAttribute;
+  private phaseAttr: THREE.BufferAttribute;
+  private unitPos = new Float32Array(MAX_QUAKES * 3);
+  private projMat = new THREE.Matrix4();
+  events: QuakeEvent[] = [];
+  private lastFetchAt = 0;
+
+  constructor() {
+    this.geo = new THREE.BufferGeometry();
+    this.posAttr = new THREE.BufferAttribute(new Float32Array(MAX_QUAKES * 3), 3);
+    this.magAttr = new THREE.BufferAttribute(new Float32Array(MAX_QUAKES), 1);
+    this.colAttr = new THREE.BufferAttribute(new Float32Array(MAX_QUAKES * 3), 3);
+    this.phaseAttr = new THREE.BufferAttribute(new Float32Array(MAX_QUAKES), 1);
+    this.geo.setAttribute('position', this.posAttr);
+    this.geo.setAttribute('aMagScale', this.magAttr);
+    this.geo.setAttribute('aColor', this.colAttr);
+    this.geo.setAttribute('aPhase', this.phaseAttr);
+    this.geo.setDrawRange(0, 0);
+
+    this.mat = new THREE.ShaderMaterial({
+      vertexShader: QUAKE_VERT,
+      fragmentShader: QUAKE_FRAG,
+      uniforms: { uTime: { value: 0 }, uPx: { value: 800 } },
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    this.root = new THREE.Points(this.geo, this.mat);
+    this.root.name = 'earthquakes';
+    this.root.frustumCulled = false;
+    this.root.renderOrder = RENDER_ORDER.overlay + 1;
+    this.root.raycast = noRaycast;
+    this.root.visible = false;
+    this.loadEvents(fallbackQuakes());
+  }
+
+  private loadEvents(list: QuakeEvent[]): void {
+    const count = Math.min(list.length, MAX_QUAKES);
+    this.events = list.slice(0, count);
+    const pos = this.posAttr.array as Float32Array;
+    const mag = this.magAttr.array as Float32Array;
+    const col = this.colAttr.array as Float32Array;
+    const ph = this.phaseAttr.array as Float32Array;
+
+    for (let i = 0; i < count; i++) {
+      const q = this.events[i];
+      const v = latLonToVec(q.lat, q.lon);
+      this.unitPos.set(v, i * 3);
+      pos[i * 3] = v[0] * QUAKE_R;
+      pos[i * 3 + 1] = v[1] * QUAKE_R;
+      pos[i * 3 + 2] = v[2] * QUAKE_R;
+      mag[i] = Math.min(3.4, Math.pow(1.36, Math.max(0, q.mag - 2.5)));
+      const [r, g, b] = quakeColorRgb(q.depthKm);
+      col[i * 3] = r;
+      col[i * 3 + 1] = g;
+      col[i * 3 + 2] = b;
+      ph[i] = (i * 0.6180339887) % 1;
+    }
+    this.posAttr.needsUpdate = true;
+    this.magAttr.needsUpdate = true;
+    this.colAttr.needsUpdate = true;
+    this.phaseAttr.needsUpdate = true;
+    this.geo.setDrawRange(0, count);
+  }
+
+  setVisible(on: boolean): void {
+    const becameVisible = on && !this.root.visible;
+    this.root.visible = on;
+    if (becameVisible || (on && Date.now() - this.lastFetchAt > 300_000)) {
+      this.lastFetchAt = Date.now();
+      void fetchRecentQuakes().then(ev => this.loadEvents(ev));
+    }
+  }
+
+  update(timeSec: number, camera: THREE.PerspectiveCamera, heightPx: number): void {
+    if (!this.root.visible) return;
+    this.mat.uniforms.uTime.value = timeSec;
+    this.mat.uniforms.uPx.value = heightPx / (2 * Math.tan((camera.fov * Math.PI) / 360));
+  }
+
+  /** Nearest front-facing earthquake epicentre within `maxPx` of screen coordinates (x, y), or null. */
+  pick(x: number, y: number, camera: THREE.PerspectiveCamera, w: number, h: number, maxPx = 16): QuakeEvent | null {
+    if (!this.root.visible || this.events.length === 0) return null;
+    const m = this.projMat.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).elements;
+    const c = camera.position;
+    const p = this.unitPos;
+    const n = this.events.length * 3;
+    let best = -1;
+    let bd = maxPx * maxPx;
+    for (let i = 0; i < n; i += 3) {
+      const px = p[i], py = p[i + 1], pz = p[i + 2];
+      if (px * (c.x - px) + py * (c.y - py) + pz * (c.z - pz) < 0.02) continue;
+      const cw = m[3] * px + m[7] * py + m[11] * pz + m[15];
+      if (cw <= 0) continue;
+      const sx = ((m[0] * px + m[4] * py + m[8] * pz + m[12]) / cw + 1) * 0.5 * w;
+      const sy = (1 - (m[1] * px + m[5] * py + m[9] * pz + m[13]) / cw) * 0.5 * h;
+      const d = (sx - x) * (sx - x) + (sy - y) * (sy - y);
+      if (d < bd) {
+        bd = d;
+        best = i / 3;
+      }
+    }
+    return best >= 0 ? this.events[best] : null;
+  }
+}
+
 /** All globe overlay layers, wired by Globe. */
 export class GlobeLayers {
   readonly routes: RoutePaths;
   readonly tectonics = new Tectonics();
+  readonly earthquakes = new Earthquakes();
   readonly graticule = new Graticule();
   readonly clouds: Clouds;
   readonly aurora: Aurora;
@@ -784,19 +951,20 @@ export class GlobeLayers {
     this.aurora = new Aurora(sunDir, q);
     this.festivals = new FestivalGlow(items);
     this.beacons = new OrbitBeacons(items);
-    scene.add(this.graticule.root, this.clouds.root, this.aurora.root, this.tectonics.root, this.routes.root, this.festivals.root, this.beacons.root);
+    scene.add(this.graticule.root, this.clouds.root, this.aurora.root, this.tectonics.root, this.earthquakes.root, this.routes.root, this.festivals.root, this.beacons.root);
   }
 
-  setVisible(s: { clouds: boolean; aurora: boolean; tectonics: boolean; graticule: boolean }, gameMode: boolean): void {
+  setVisible(s: { clouds: boolean; aurora: boolean; tectonics: boolean; earthquakes?: boolean; graticule: boolean }, gameMode: boolean): void {
     this.graticule.setVisible(s.graticule);
     // Games use the globe as a map, so keep it clear of clouds and plate lines.
     this.clouds.setVisible(s.clouds && !gameMode);
     this.aurora.setVisible(s.aurora);
     this.tectonics.setVisible(s.tectonics && !gameMode);
+    this.earthquakes.setVisible(!!s.earthquakes && !gameMode);
   }
 
   /** clockMs = scene clock, dt = world ms, real = wall ms, camAlt = camera altitude above the surface in globe radii. */
-  update(clockMs: number, dt: number, real: number, camAlt: number, state: RouteState, orbitAlt: (it: CatalogueItem) => number, lookup: PlacedLookup): void {
+  update(clockMs: number, dt: number, real: number, camAlt: number, state: RouteState, orbitAlt: (it: CatalogueItem) => number, lookup: PlacedLookup, camera?: THREE.PerspectiveCamera, heightPx = 800): void {
     // Reduced-motion / low-power: freeze the animated shaders (they still draw, just stay still).
     const t = this.lowfx ? 0 : clockMs * 0.001;
     if (clockMs - this.lastRefresh > 600_000) { this.lastRefresh = clockMs; this.festivals.refresh(); }
@@ -805,6 +973,7 @@ export class GlobeLayers {
     this.graticule.update(camAlt);
     this.clouds.update(dt, real, camAlt, !this.lowfx);
     this.aurora.update(t, camAlt);
+    if (camera) this.earthquakes.update(t, camera, heightPx);
     this.festivals.update(t, lookup);
     this.beacons.update(t, lookup);
   }

@@ -28,6 +28,9 @@ import { groupOf } from '../lib/compare.ts';
 import { narrate, narrationSupported, splitSentences, stopNarration, type Narration } from '../lib/narrate.ts';
 import { classroom, setClassroom, setStill, motion, onClassroom } from '../lib/classroom.ts';
 import { renderHub, hubTab, type HubTab } from './hub.ts';
+import { fetchLocalWeather, solarStatusAt } from '../lib/weather.ts';
+import { propagateIss } from '../lib/iss.ts';
+import type { QuakeEvent } from '../lib/earthquakes.ts';
 
 const DEX_ZOOM = 10;
 const typeName = (ty: CatalogueItem['type']) => tr(TYPE_META[ty].one, lang());
@@ -40,6 +43,10 @@ interface ShellHooks {
   openSky: () => void;
   /** Earth radio on/off. */
   openRadio?: () => void;
+  /** Global public live cameras dock on/off (or open a specific camera). */
+  openWebcams?: (camId?: string) => void;
+  /** Focus real-time International Space Station telemetry & orbit. */
+  openIssLive?: () => void;
   /** In space: a picked Earth item first takes you home (true = handled, the shell does nothing more). */
   toEarth?: (it: CatalogueItem) => boolean;
   /** In space the +/−/overview buttons drive the space view (true = handled). */
@@ -182,6 +189,24 @@ export class Shell {
       h('span', { class: 'tip-emoji' }, item.emoji),
       h('span', { class: 'tip-name' }, tr(item.name, l)),
       ...(where ? [h('span', { class: 'tip-sub' }, where)] : []),
+    );
+    this.tipEl.style.transform = `translate(${screen.x.toFixed(1)}px, ${(screen.y - 26).toFixed(1)}px) translate(-50%, -100%)`;
+    this.tipEl.classList.remove('hidden');
+  }
+
+  showQuakeHover(q: QuakeEvent | null, screen: { x: number; y: number } | null): void {
+    if (!q || !screen || this.globe.gameMode || this.globe.ride) {
+      this.tipEl.classList.add('hidden');
+      return;
+    }
+    const ageMin = Math.max(1, Math.round((Date.now() - q.timeMs) / 60000));
+    const ageTxt = ageMin < 90
+      ? t('quake.agoMin', { m: ageMin })
+      : t('quake.agoHr', { h: Math.round(ageMin / 60) });
+    this.tipEl.replaceChildren(
+      h('span', { class: 'tip-emoji' }, q.mag >= 5.5 ? '🌋' : '🔴'),
+      h('span', { class: 'tip-name' }, `${t('quake.title', { mag: q.mag.toFixed(1) })} · ${q.place}`),
+      h('span', { class: 'tip-sub' }, `${t('quake.depthKm', { km: Math.round(q.depthKm) })} · ${ageTxt}`),
     );
     this.tipEl.style.transform = `translate(${screen.x.toFixed(1)}px, ${(screen.y - 26).toFixed(1)}px) translate(-50%, -100%)`;
     this.tipEl.classList.remove('hidden');
@@ -358,7 +383,8 @@ export class Shell {
     const hk = this.hooks;
     this.hub.replaceChildren(...renderHub(this.tab, this.space, {
       lessons: hk.openLessons, astro: hk.openAstro, ssbs: hk.openSsbs, tours: hk.openTours,
-      sky: hk.openSky, tonight: hk.openTonight, time: () => this.time.toggle(), compare: () => hk.openCompare(), bookmarks: hk.openBookmarks, radio: () => hk.openRadio?.(),
+      sky: hk.openSky, tonight: hk.openTonight, time: () => this.time.toggle(), compare: () => hk.openCompare(), bookmarks: hk.openBookmarks,
+      radio: () => hk.openRadio?.(), webcams: () => hk.openWebcams?.(), iss: () => hk.openIssLive?.(),
       game: hk.openGame, passport: hk.openPassport, collection: hk.openCollection, album: hk.openAlbum, account: hk.openAccount, guestbook: hk.openGuestbook,
       toEarth: () => this.hooks.toHome?.(),
     }, tab => { this.tab = tab; this.renderHub(); }, () => this.toggleHub(false)));
@@ -419,7 +445,7 @@ export class Shell {
     const earth = this.space ? [] : [
       h('h3', {}, t('surfaceMode')), modeRow,
       h('h3', {}, t('auraPreset')), auraRow,
-      h('h3', {}, t('mLayers')), h('div', { class: 'chip-wrap' }, sw('names', 'tag'), sw('borders', 'globe'), sw('states', 'map'), sw('graticule', 'grid'), sw('shadows', 'contrast'), sw('clouds', 'cloud'), sw('aurora', 'aurora'), sw('tectonics', 'plates')),
+      h('h3', {}, t('mLayers')), h('div', { class: 'chip-wrap' }, sw('names', 'tag'), sw('borders', 'globe'), sw('states', 'map'), sw('graticule', 'grid'), sw('shadows', 'contrast'), sw('clouds', 'cloud'), sw('aurora', 'aurora'), sw('tectonics', 'plates'), sw('earthquakes', 'quake')),
       h('h3', {}, t('mGlobe')), h('div', { class: 'chip-wrap' }, ...TYPE_ORDER.filter(ty => BY_TYPE[ty].length).map(ty => sw(TYPE_META[ty].layer, TYPE_ICON[ty]))),
     ];
     this.menu.classList.toggle('menu-space', this.space);
@@ -603,6 +629,7 @@ export class Shell {
       h('div', { class: 'info-body' },
         where ? h('p', { class: 'eyebrow', html: icon('pin', 13) }, h('span', {}, where)) : null,
         h('h2', { 'data-testid': 'info-name' }, tr(it.name, l)),
+        this.liveTelemetryRow(it),
         descP,
         listen,
         key.length ? h('dl', { class: 'stats-row' }, ...key.map(([k, v]) => h('div', {}, h('dt', {}, k), h('dd', {}, v)))) : null,
@@ -621,6 +648,46 @@ export class Shell {
           h('button', { class: 'read-more', 'data-testid': 'read-more', 'aria-expanded': String(this.readerOpen), onclick: () => { sfx.tap(); void this.toggleReader(); } },
             h('span', {}, this.readerOpen ? t('readerClose') : t('readMore')), h('span', { html: icon('book', 14) })))));
     if (HAS_API && it.type !== 'vehicle') void api.reactions(it.key).then(r => this.setCounts(r)).catch(() => {});
+  }
+
+  /** Renders live ISS orbital telemetry + Astronaut View for `sp_iss`, or live local solar status + Open-Meteo weather for surface items. */
+  private liveTelemetryRow(it: CatalogueItem): HTMLElement | null {
+    if (it.key === 'sp_iss') {
+      const tel = propagateIss(Date.now());
+      const coord = `${Math.abs(tel.lat).toFixed(1)}°${tel.lat >= 0 ? 'N' : 'S'} · ${Math.abs(tel.lon).toFixed(1)}°${tel.lon >= 0 ? 'E' : 'W'}`;
+      return h('div', { class: 'iss-live-box', 'data-testid': 'iss-live-box' },
+        h('div', { class: 'iss-live-meta' },
+          h('span', { class: 'iss-live-dot', 'aria-hidden': 'true' }),
+          h('span', {}, `${t('iss.telemetry', { alt: Math.round(tel.altitudeKm), vel: fmtNum(Math.round(tel.velocityKmh)) })} · ${coord}`),
+        ),
+        h('div', { class: 'iss-live-actions' },
+          h('button', {
+            class: 'pill pill-sm',
+            'data-testid': 'iss-astronaut-view',
+            onclick: () => { sfx.tap(); void this.startRide(it, true); },
+          }, '👨‍🚀 ', t('iss.astronautView')),
+          !classroom() ? h('button', {
+            class: 'pill pill-sm',
+            'data-testid': 'iss-watch-earth',
+            onclick: () => { sfx.tap(); this.hooks.openWebcams?.('cam_iss_earth'); },
+          }, '📺 ', t('iss.watchEarth')) : null,
+        ),
+      );
+    }
+    if (it.route || it.type === 'dino') return null;
+    const sol = solarStatusAt(it.lat, it.lon, this.globe.simTime ?? Date.now());
+    const weatherSpan = h('span', { class: 'live-weather-val' });
+    const row = h('div', { class: 'live-weather-row', 'data-testid': 'live-weather', title: t('weather.liveTitle') },
+      h('span', { class: `solar-chip solar-${sol.phase}` }, `${sol.icon} ${t(sol.labelKey)}`),
+      weatherSpan,
+    );
+    if (!classroom()) {
+      void fetchLocalWeather(it.lat, it.lon).then(w => {
+        if (!w || this.current?.key !== it.key || !row.isConnected) return;
+        weatherSpan.textContent = `${w.icon} ${w.tempC > 0 ? `+${w.tempC}` : w.tempC}°C · ${t(w.labelKey)} · ${t('weather.wind', { kmh: w.windKmh })}`;
+      });
+    }
+    return row;
   }
 
   /** "Say hello" (local greeting via speech) and "Hear it" (procedural animal call) buttons over the model. */
@@ -651,13 +718,14 @@ export class Shell {
   }
 
   // ---------- ride ----------
-  async startRide(it: CatalogueItem): Promise<void> {
+  async startRide(it: CatalogueItem, initialFirst = false): Promise<void> {
     this.hooks.toGlobe?.();
     if (!(await this.globe.prepare(it.key)) || !this.globe.startRide(it.key)) return;
     this.info.classList.add('hidden');
     document.body.classList.add('riding');
-    let first = false;
-    const viewBtn = h('button', { class: 'pill', 'data-testid': 'ride-view', onclick: () => { first = !first; this.globe.setRideView(first); viewBtn.textContent = t(first ? 'rideThird' : 'rideFirst'); } }, t('rideFirst'));
+    let first = initialFirst;
+    if (first) this.globe.setRideView(true);
+    const viewBtn = h('button', { class: 'pill', 'data-testid': 'ride-view', onclick: () => { first = !first; this.globe.setRideView(first); viewBtn.textContent = t(first ? 'rideThird' : 'rideFirst'); } }, t(first ? 'rideThird' : 'rideFirst'));
     this.rideBar.replaceChildren(h('strong', {}, it.emoji + ' ' + tr(it.name, lang())), viewBtn,
       h('button', { class: 'pill danger', 'data-testid': 'ride-exit', onclick: () => this.exitRide() }, t('exitRide')), h('span', { class: 'tip' }, t('rideTip')));
     this.rideBar.classList.remove('hidden');

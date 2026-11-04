@@ -98,18 +98,26 @@ export class StationDots {
   private hi: THREE.Points;
   private hiMat: THREE.ShaderMaterial;
   private hiPos: THREE.BufferAttribute;
+  private ptPos: THREE.BufferAttribute;
+  private baseSize: number;
   /** Unit-sphere positions (x, y, z per station) for picking. */
   readonly pos: Float32Array;
   private m = new THREE.Matrix4();
   playing = -1;
   hover = -1;
 
-  constructor(lat: Float32Array, lon: Float32Array) {
+  constructor(
+    lat: Float32Array,
+    lon: Float32Array,
+    opts: { color?: string; favColor?: string; size?: number } = {},
+  ) {
     const n = lat.length;
+    this.baseSize = opts.size ?? 0.0075;
     this.pos = new Float32Array(n * 3);
     for (let i = 0; i < n; i++) this.pos.set(latLonToVec(lat[i], lon[i]), i * 3);
     const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.BufferAttribute(this.pos.map(x => x * R), 3));
+    this.ptPos = new THREE.BufferAttribute(this.pos.map(x => x * R), 3);
+    g.setAttribute('position', this.ptPos);
     const seed = new Float32Array(n);
     for (let i = 0; i < n; i++) seed[i] = Math.random();
     g.setAttribute('aSeed', new THREE.BufferAttribute(seed, 1));
@@ -118,8 +126,9 @@ export class StationDots {
     this.mat = new THREE.ShaderMaterial({
       vertexShader: VERT, fragmentShader: FRAG, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
       uniforms: {
-        uTime: { value: 0 }, uPx: { value: 800 }, uSize: { value: 0.0075 }, uAlpha: { value: 1 },
-        uColor: { value: new THREE.Color('#34d399') }, uFavColor: { value: new THREE.Color('#fbbf24') },
+        uTime: { value: 0 }, uPx: { value: 800 }, uSize: { value: this.baseSize }, uAlpha: { value: 1 },
+        uColor: { value: new THREE.Color(opts.color ?? '#34d399') },
+        uFavColor: { value: new THREE.Color(opts.favColor ?? '#fbbf24') },
       },
     });
     this.pts = new THREE.Points(g, this.mat);
@@ -147,6 +156,18 @@ export class StationDots {
     this.fav.needsUpdate = true;
   }
 
+  /** Dynamically updates the lat/lon of a single dot (e.g., for an orbiting ISS camera). */
+  setCoord(index: number, lat: number, lon: number): void {
+    if (index < 0 || index * 3 >= this.pos.length) return;
+    const v = latLonToVec(lat, lon);
+    this.pos.set(v, index * 3);
+    const pa = this.ptPos.array as Float32Array;
+    pa[index * 3] = v[0] * R;
+    pa[index * 3 + 1] = v[1] * R;
+    pa[index * 3 + 2] = v[2] * R;
+    this.ptPos.needsUpdate = true;
+  }
+
   /** Per frame: pixel scale for point sizes, twinkle clock, and the music level for the playing ring. */
   update(timeMs: number, camera: THREE.PerspectiveCamera, heightPx: number, level: number): void {
     const px = heightPx / (2 * Math.tan((camera.fov * Math.PI) / 360));
@@ -155,7 +176,7 @@ export class StationDots {
     u.uPx.value = hu.uPx.value = px;
     // dots shrink a little as you zoom out so the continents don't turn into a green carpet
     const alt = camera.position.length() - 1;
-    u.uSize.value = 0.0075 * Math.min(1.6, Math.max(0.55, alt / 1.4));
+    u.uSize.value = this.baseSize * Math.min(1.6, Math.max(0.55, alt / 1.4));
     hu.uLevel.value = level;
     const a = this.hiPos.array as Float32Array;
     // slot 0 is drawn as "playing", slot 1 as "hover" (aKind); an empty slot 0 is parked at the origin, inside the Earth

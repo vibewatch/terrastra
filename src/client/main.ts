@@ -31,6 +31,7 @@ import { ScaleRail, type RailLevel } from './ui/scales.ts';
 import { initTooltips } from './ui/tooltip.ts';
 import { lazy, withBusy, showLoadError } from './ui/lazy.ts';
 import { SceneModeController } from './lib/scene-mode.ts';
+import { refreshIssTelemetry, currentIssOrbitPts } from './lib/iss.ts';
 import type { ScaleId } from '../shared/data/cosmos.ts';
 
 /** Panels not needed for the first screen load on first use (their chunks stay out of the entry). */
@@ -108,6 +109,11 @@ async function boot(): Promise<void> {
   const globe = new Globe(globeEl, {
     onPick: it => shell.showItem(it),
     onHover: (it, scr) => shell?.showHover(it, scr),
+    onQuakeHover: (q, scr) => shell?.showQuakeHover(q, scr),
+    onQuake: q => {
+      globe.flyTo(q.lat, q.lon, Math.min(globe.h, 1.4), 1000);
+      toast(`🌋 ${t('quake.title', { mag: q.mag.toFixed(1) })} · ${q.place} (${t('quake.depthKm', { km: Math.round(q.depthKm) })})`, 4200);
+    },
     onView: (z, la, lo) => {
       shell.setZoom(z, la, lo);
       if (sceneMode.canLoadGlobeAdmin(isLessoning())) requestAdminAt(z, ADMIN_GLOBE_ZOOM);
@@ -123,6 +129,17 @@ async function boot(): Promise<void> {
     app.replaceChildren(h('div', { class: 'fatal', role: 'alert' }, h('p', { class: 'big' }, '🌍'), h('p', {}, t('webglFail'))));
     return;
   }
+
+  // Sync International Space Station (sp_iss) to its real-time ground track & telemetry.
+  const syncIss = () => {
+    if (globe.paused || isLessoning()) return;
+    const { pts, seg, t: curT, current } = currentIssOrbitPts(Date.now());
+    globe.syncIssOrbit(pts, seg, curT, current.lat, current.lon);
+  };
+  syncIss();
+  void refreshIssTelemetry().then(syncIss);
+  setInterval(syncIss, 20_000);
+  setInterval(() => { if (!classroom() && !globe.paused) void refreshIssTelemetry().then(syncIss); }, 60_000);
   // finer borders and 1:50m land fills (including small island states missing from 1:110m) after the opening fly-in,
   // in idle-time steps and a background worker so the globe never stutters
   const idle = () => new Promise<void>(ok => 'requestIdleCallback' in window ? requestIdleCallback(() => ok(), { timeout: 3000 }) : setTimeout(ok, 200));
@@ -147,7 +164,7 @@ async function boot(): Promise<void> {
     sceneMode.setGaming(on);
     if (on) { endLesson(); closeMap(false); }
     globe.gameMode = on;
-    if (on) { shell.showItem(null); shell.toggleMenu(false); shell.time.toggle(false); radio?.toggle(false); }
+    if (on) { shell.showItem(null); shell.toggleMenu(false); shell.time.toggle(false); radio?.toggle(false); webcams?.toggle(false); }
     document.body.classList.toggle('gaming', on);
     globe.applySettings(on && names === false ? { ...store.settings, names: false } : store.settings);
     if (!on) globe.ev.onGlobeTap = undefined;
@@ -156,12 +173,15 @@ async function boot(): Promise<void> {
 
   // ---- Earth radio (lazy): station dots on the globe + a player dock ----
   let radio: import('./ui/radio.ts').Radio | null = null;
+  let webcams: import('./ui/webcams.ts').Webcams | null = null;
   const loadRadio = lazy(() => import('./ui/radio.ts'));
+  const loadWebcams = lazy(() => import('./ui/webcams.ts'));
   const toggleRadio = async () => {
     if (sceneMode.gaming || sceneMode.inSolar || classroom()) return;
     closeMap();
     // live radio can never work offline; say so instead of a failed connection
     if (!navigator.onLine && !radio?.active) { toast('📡 ' + t('radioOffline'), 4000); return; }
+    if (webcams?.isActive) webcams.toggle(false);
     try {
       const m = await withBusy(loadRadio());
       radio = await m.getRadio(globe, app);
@@ -171,8 +191,45 @@ async function boot(): Promise<void> {
     radio.toggle();
   };
 
-  // Classroom mode has no live streams: switching it on stops the radio.
-  onClassroom(() => { if (classroom() && radio?.active) radio.toggle(false); });
+  const toggleWebcams = async (camId?: string) => {
+    if (sceneMode.gaming || sceneMode.inSolar || classroom()) return;
+    closeMap();
+    if (radio?.active) radio.toggle(false);
+    try {
+      const m = await withBusy(loadWebcams());
+      webcams ??= new m.Webcams(globe, {
+        onAstronautView: () => {
+          const iss = BY_KEY.get('sp_iss');
+          if (iss) {
+            shell.showItem(iss, false);
+            void shell.startRide(iss, true);
+          }
+        },
+      });
+    } catch { toast('⚠️ ' + t('loadFail', { s: t('webcams') })); return; }
+    if (sceneMode.gaming || sceneMode.inSolar || sceneMode.inSky) return;
+    if (!webcams.isActive) shell.time.toggle(false);
+    if (camId) webcams.openById(camId);
+    else webcams.toggle();
+  };
+
+  const openIssLive = () => {
+    if (sceneMode.gaming) return;
+    closeMap(false);
+    void refreshIssTelemetry().then(() => {
+      syncIss();
+      const iss = BY_KEY.get('sp_iss');
+      if (iss) shell.showItem(iss, true);
+    });
+  };
+
+  // Classroom mode has no live streams: switching it on stops the radio and live cams.
+  onClassroom(() => {
+    if (classroom()) {
+      if (radio?.active) radio.toggle(false);
+      if (webcams?.isActive) webcams.toggle(false);
+    }
+  });
 
   // ---- Solar System (lazy: its own renderer, loaded on first use) ----
   let solar: SolarUI | null = null;
@@ -202,6 +259,7 @@ async function boot(): Promise<void> {
     closeMap(false);
     sceneMode.enterSolar();
     radio?.suspend(true);
+    webcams?.suspend(true);
     shell.showItem(null); shell.toggleMenu(false); shell.time.toggle(false);
     fade(() => {
       globe.paused = true;
@@ -213,7 +271,7 @@ async function boot(): Promise<void> {
   };
   const leaveSolar = (lat: number, lon: number, then?: () => void) => {
     if (!sceneMode.leaveSolar()) return;
-    if (!sceneMode.inSky) radio?.suspend(false);
+    if (!sceneMode.inSky) { radio?.suspend(false); webcams?.suspend(false); }
     fade(() => {
       solar?.leave();
       rail.set('earth');
@@ -249,7 +307,7 @@ async function boot(): Promise<void> {
         if (sky !== th) return;
         sky = null;
         sceneMode.leaveSky();
-        if (!sceneMode.inSolar) radio?.suspend(false);
+        if (!sceneMode.inSolar) { radio?.suspend(false); webcams?.suspend(false); }
         if (sceneMode.inSolar) solar?.view.suspend(false); else globe.paused = false;
       },
       onPhoto: () => openPhoto(),
@@ -261,6 +319,7 @@ async function boot(): Promise<void> {
     sky = th;
     sceneMode.enterSky();
     radio?.suspend(true);
+    webcams?.suspend(true);
     globe.paused = true;
     solar?.view.suspend(true);
     return th;
@@ -320,6 +379,7 @@ async function boot(): Promise<void> {
     shell.time.toggle(false);
     shell.toggleMenu(false);
     radio?.suspend(true);
+    webcams?.suspend(true);
     globe.paused = true;
     document.body.classList.add('flatmap');
     flatMap.open(globe.lat, globe.lon);
@@ -333,7 +393,7 @@ async function boot(): Promise<void> {
     document.body.classList.remove('flatmap');
     shell.setMapOpen(false);
     globe.paused = false;
-    if (!sceneMode.inSky && !sceneMode.inSolar) radio?.suspend(false);
+    if (!sceneMode.inSky && !sceneMode.inSolar) { radio?.suspend(false); webcams?.suspend(false); }
     if (follow) globe.flyTo(lat, lon, globe.h, 900);
   }
 
@@ -459,6 +519,8 @@ async function boot(): Promise<void> {
     openSolar: () => void enterSolar(),
     openSky: () => void openSky(),
     openRadio: () => void toggleRadio(),
+    openWebcams: (camId?: string) => void toggleWebcams(camId),
+    openIssLive,
     toEarth: it => { if (!sceneMode.inSolar) return false; leaveSolar(it.lat, it.lon, () => shell.showItem(it)); return true; },
     zoom: inward => {
       if (sceneMode.inMap && flatMap) { flatMap.zoomBy(inward ? 1.6 : 1 / 1.6); return true; }
