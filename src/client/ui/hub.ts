@@ -18,7 +18,7 @@ const TAB_LABEL: Record<HubTab, string> = { learn: 'hubLearn', look: 'hubLook', 
 
 interface HubActions {
   lessons(): void; astro(): void; ssbs(): void; tours(): void;
-  sky(): void; tonight(): void; time(): void; compare(): void; bookmarks(): void; radio(): void; webcams(): void; iss(): void;
+  sky(): void; tonight(): void; time(): void; compare(): void; bookmarks(): void; radio(): void; iss(): void;
   game(kind: 'daily' | 'placeit' | 'quiz'): void;
   passport(): void; collection(): void; album(): void; account(): void; guestbook(): void;
   /** In space: the globe-only shelves offer a way home instead. */
@@ -46,7 +46,6 @@ function entries(tab: HubTab, a: HubActions): Entry[] {
     case 'look': return [
       { id: 'menu-sky', ic: 'eclipse', title: t('skyEvents'), sub: t('hubSkySub'), go: a.sky },
       { id: 'menu-tonight', ic: 'telescope', title: t('tonight'), sub: t('hubTonightSub'), go: a.tonight },
-      ...(classroom() ? [] : [{ id: 'menu-webcams', ic: 'video' as IconName, title: t('webcams'), sub: t('hubWebcamsSub'), go: a.webcams, earth: true }]),
       { id: 'menu-iss', ic: 'rocket', title: t('issLive'), sub: t('hubIssSub'), go: a.iss, earth: true },
       { id: 'menu-time', ic: 'clock', title: t('timeMachine'), sub: t('hubTimeSub'), go: a.time, earth: true },
       { id: 'menu-compare', ic: 'ruler', title: t('compare'), sub: t('hubCompareSub'), go: a.compare },

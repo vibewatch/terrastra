@@ -389,11 +389,10 @@ describe('model pipeline (worker transfer + level of detail)', async () => {
   });
 });
 
-describe('living planet real-time layers (webcams, ISS orbit, earthquakes, solar/weather)', async () => {
+describe('living planet real-time layers (ISS orbit, earthquakes, solar/weather)', async () => {
   const { solarStatusAt, describeWmoCode } = await import('../../src/client/lib/weather.ts');
   const { propagateIss, currentIssOrbitPts } = await import('../../src/client/lib/iss.ts');
   const { parseUsgsQuakes, quakeColorRgb, fallbackQuakes } = await import('../../src/client/lib/earthquakes.ts');
-  const { WEBCAMS } = await import('../../src/shared/data/webcams.ts');
 
   it('classifies solar daylight vs night across opposing longitudes', () => {
     const noonUtc = Date.UTC(2026, 2, 20, 12, 0, 0); // vernal equinox 12:00 UTC
@@ -430,19 +429,6 @@ describe('living planet real-time layers (webcams, ISS orbit, earthquakes, solar
     expect(parsed.map(q => q.id)).toEqual(['q1', 'q2']);
     expect(quakeColorRgb(10)[0]).toBeGreaterThan(quakeColorRgb(400)[0]); // shallow = redder, deep = bluer
     expect(fallbackQuakes(1710000000000).length).toBeGreaterThanOrEqual(10);
-  });
-
-  it('validates all 20 curated global public webcams and bilingual metadata', () => {
-    expect(WEBCAMS.length).toBe(20);
-    expect(new Set(WEBCAMS.map(c => c.id)).size).toBe(20);
-    for (const c of WEBCAMS) {
-      expect(Math.abs(c.lat)).toBeLessThanOrEqual(90);
-      expect(Math.abs(c.lon)).toBeLessThanOrEqual(180);
-      expect(c.name && c.nameZh, c.id).toBeTruthy();
-      expect(c.desc && c.descZh, c.id).toBeTruthy();
-      expect(c.url).toMatch(/^https:\/\//);
-      expect(c.externalUrl).toMatch(/^https:\/\//);
-    }
   });
 });
 

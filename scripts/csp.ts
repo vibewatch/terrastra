@@ -14,7 +14,6 @@ export function withContentPolicy(html: string): string {
     "font-src 'self' data:",
     "connect-src 'self' https: http: blob:",
     "media-src 'self' https: http: blob:",
-    "frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com",
     "worker-src 'self' blob:",
     "object-src 'none'",
     "base-uri 'self'",

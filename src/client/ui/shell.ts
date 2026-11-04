@@ -43,8 +43,6 @@ interface ShellHooks {
   openSky: () => void;
   /** Earth radio on/off. */
   openRadio?: () => void;
-  /** Global public live cameras dock on/off (or open a specific camera). */
-  openWebcams?: (camId?: string) => void;
   /** Focus real-time International Space Station telemetry & orbit. */
   openIssLive?: () => void;
   /** In space: a picked Earth item first takes you home (true = handled, the shell does nothing more). */
@@ -384,7 +382,7 @@ export class Shell {
     this.hub.replaceChildren(...renderHub(this.tab, this.space, {
       lessons: hk.openLessons, astro: hk.openAstro, ssbs: hk.openSsbs, tours: hk.openTours,
       sky: hk.openSky, tonight: hk.openTonight, time: () => this.time.toggle(), compare: () => hk.openCompare(), bookmarks: hk.openBookmarks,
-      radio: () => hk.openRadio?.(), webcams: () => hk.openWebcams?.(), iss: () => hk.openIssLive?.(),
+      radio: () => hk.openRadio?.(), iss: () => hk.openIssLive?.(),
       game: hk.openGame, passport: hk.openPassport, collection: hk.openCollection, album: hk.openAlbum, account: hk.openAccount, guestbook: hk.openGuestbook,
       toEarth: () => this.hooks.toHome?.(),
     }, tab => { this.tab = tab; this.renderHub(); }, () => this.toggleHub(false)));
@@ -666,11 +664,6 @@ export class Shell {
             'data-testid': 'iss-astronaut-view',
             onclick: () => { sfx.tap(); void this.startRide(it, true); },
           }, '👨‍🚀 ', t('iss.astronautView')),
-          !classroom() ? h('button', {
-            class: 'pill pill-sm',
-            'data-testid': 'iss-watch-earth',
-            onclick: () => { sfx.tap(); this.hooks.openWebcams?.('cam_iss_earth'); },
-          }, '📺 ', t('iss.watchEarth')) : null,
         ),
       );
     }
