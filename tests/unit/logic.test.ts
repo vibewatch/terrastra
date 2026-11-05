@@ -16,6 +16,11 @@ import { AURA_PRESETS } from '../../src/client/globe/scene.ts';
 import { parseExtract, articleUrl } from '../../src/client/lib/wikipedia.ts';
 import { WIKI } from '../../src/shared/data/wiki.ts';
 import { graticuleStep } from '../../src/client/globe/layers.ts';
+import { antipodeOf, greatCircleSummary, nearestCatalogueItem, solarTimeOffsetHours, wrapLon } from '../../src/shared/lib/geodesic.ts';
+import { analyzeQuakeTectonics, pointToSegmentKm } from '../../src/shared/lib/tectonics.ts';
+import { computeExplorerStats, formatFieldLogMarkdown } from '../../src/shared/lib/field-log.ts';
+import fs from 'node:fs';
+import path from 'node:path';
 
 describe('geo', () => {
   it('haversine: Paris→London ≈ 344 km, symmetric, zero on same point', () => {
@@ -698,5 +703,107 @@ describe('learning journal, earthquake filters, and observing planner', async ()
     expect(ics).toContain('END:VCALENDAR\r\n');
   });
 });
+
+describe('static i18n key coverage, geodesic lab, quake tectonics & explorer field log', () => {
+  it('every static t("...") call across src/client resolves in both en and zh dictionaries', () => {
+    const walk = (dir: string): string[] => {
+      const out: string[] = [];
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        const p = path.join(dir, e.name);
+        if (e.isDirectory()) out.push(...walk(p));
+        else if (e.isFile() && p.endsWith('.ts')) out.push(p);
+      }
+      return out;
+    };
+    const missing: string[] = [];
+    const re = /\bt\(\s*(['"])([a-zA-Z0-9_.-]+)\1\s*[,)]/g;
+    for (const f of walk(path.resolve('src/client'))) {
+      if (f.endsWith(path.join('ssbs', 'terms.ts'))) continue;
+      const src = fs.readFileSync(f, 'utf8');
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(src))) {
+        const k = m[2];
+        if (!hasKey(k, 'en') || !hasKey(k, 'zh')) {
+          missing.push(`${path.relative(process.cwd(), f)}:${k}`);
+        }
+      }
+    }
+    expect(missing).toEqual([]);
+  });
+
+  it('geodesic: antipodes, solar time offset, great-circle summary, and nearest catalogue item', () => {
+    expect(wrapLon(180)).toBe(180);
+    expect(wrapLon(-180)).toBe(-180);
+    expect(wrapLon(190)).toBe(-170);
+    expect(antipodeOf(0, 0)).toEqual([0, 180]);
+    expect(antipodeOf(39.9, 116.4)).toEqual([-39.9, -63.6]);
+    expect(solarTimeOffsetHours(0, 120)).toBe(8);
+    expect(solarTimeOffsetHours(170, -170)).toBe(1.3);
+
+    const eiffel = BY_KEY.get('eiffel')!;
+    const liberty = BY_KEY.get('liberty')!;
+    const sum = greatCircleSummary(eiffel, liberty);
+    expect(sum.distanceKm).toBeGreaterThan(5800);
+    expect(sum.distanceKm).toBeLessThan(5900);
+    expect(sum.circumferencePct).toBeCloseTo((sum.distanceKm / 40075) * 100, 3);
+    expect(sum.travelHours.jet).toBeCloseTo(sum.distanceKm / 900, 4);
+    expect(sum.travelHours.walk).toBeGreaterThan(sum.travelHours.train);
+    expect(sum.lightMs).toBeGreaterThan(19);
+
+    const nearSelf = nearestCatalogueItem(eiffel.lat, eiffel.lon, CATALOGUE);
+    expect(nearSelf?.item.key).toBe('eiffel');
+    expect(nearSelf?.distanceKm).toBeCloseTo(0, 3);
+    const nearOther = nearestCatalogueItem(eiffel.lat, eiffel.lon, CATALOGUE, 'eiffel');
+    expect(nearOther?.item.key).not.toBe('eiffel');
+    expect(nearOther?.distanceKm).toBeGreaterThan(0);
+  });
+
+  it('tectonics: identifies subduction trenches, mid-ocean ridges, intraplate quakes, and nearby volcanoes', () => {
+    expect(pointToSegmentKm(0, 5, 0, 0, 0, 10)).toBeCloseTo(0, 1);
+
+    // Off the coast of Honshu (38.1°N, 142.9°E): near Japan Trench and Mount Fuji
+    const honshu = analyzeQuakeTectonics(38.1, 142.9);
+    expect(honshu.boundaryKind).toBe('trench');
+    expect(honshu.boundaryName).toMatch(/Japan Trench/);
+    expect(honshu.boundaryDistanceKm).toBeLessThan(200);
+    expect(honshu.nearestVolcano).not.toBeNull();
+
+    // Central Mid-Atlantic Ridge (24°N, 45.5°W)
+    const mar = analyzeQuakeTectonics(24, -45.5);
+    expect(mar.boundaryKind).toBe('ridge');
+    expect(mar.boundaryName).toMatch(/Mid-Atlantic Ridge/);
+    expect(mar.boundaryDistanceKm).toBeLessThan(50);
+
+    // Central Australia (-25°S, 134°E): far from plate boundaries -> intraplate
+    const oz = analyzeQuakeTectonics(-25, 134);
+    expect(oz.boundaryKind).toBe('intraplate');
+    expect(oz.boundaryDistanceKm).toBeGreaterThan(650);
+  });
+
+  it('explorer field log: computes continent/country reach and exports bilingual Markdown', () => {
+    const p = emptyProgress();
+    p.seen = { eiffel: 1700000000000, greatwall: 1700000100000, machupicchu: 1700000200000 };
+    p.dex = { an_panda: 1700000000000 };
+    p.stickers = { first_look: 1700000000000 };
+
+    const stats = computeExplorerStats(p);
+    expect(stats.stampsCount).toBe(3);
+    expect(stats.continentsVisited.sort()).toEqual(['asia', 'europe', 'south-america']);
+    expect(stats.countriesVisited).toEqual(['CN', 'FR', 'PE']);
+    expect(stats.northernmost?.key).toBe('eiffel');
+    expect(stats.southernmost?.key).toBe('machupicchu');
+
+    const mdEn = formatFieldLogMarkdown(p, undefined, 'en', Date.UTC(2026, 7, 12));
+    expect(mdEn).toContain('# Terrastra Explorer Field Log (2026-08-12)');
+    expect(mdEn).toContain('Continents visited**: 3 / 7');
+    expect(mdEn).toContain('Eiffel Tower');
+    expect(mdEn).toContain('Machu Picchu');
+
+    const mdZh = formatFieldLogMarkdown(p, undefined, 'zh', Date.UTC(2026, 7, 12));
+    expect(mdZh).toContain('# 寰星探索者野外日志 (2026-08-12)');
+    expect(mdZh).toContain('3 / 7');
+  });
+});
+
 
 

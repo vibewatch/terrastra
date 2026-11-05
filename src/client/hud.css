@@ -969,7 +969,10 @@ html.classroom .lv-text b { font-size: .95rem; }
 .lesson-journal-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px; }
 .lesson-journal-head strong { font-size: .92rem; color: var(--hud-hi); }
 .lesson-journal-continue { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; }
-.lesson-journal-review { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.lesson-journal-review, .lj-review { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.lj-main { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.lj-kicker { display: block; font-size: .74rem; color: var(--hud-hi); text-transform: uppercase; letter-spacing: .04em; }
+.lj-sub { display: block; font-size: .78rem; color: var(--text-2); margin-top: 2px; }
 .lesson-resume-pill { margin-bottom: 8px; align-self: flex-start; border-color: var(--sig); color: var(--sig); }
 .tour-score { margin-left: auto; font-size: .78rem; color: var(--sig); font-variant-numeric: tabular-nums; }
 
@@ -1030,4 +1033,35 @@ html.classroom .lv-text b { font-size: .95rem; }
 .tn-forecast.tn-fc-excellent, .tn-forecast.tn-fc-good { border-left-color: #34d399; }
 .tn-forecast.tn-fc-fair { border-left-color: #fbbf24; }
 .tn-forecast.tn-fc-poor { border-left-color: #f87171; }
+
+/* ---- Great-circle distance & antipode lab ---- */
+.cmp-dist-details { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
+.cmp-subhead { margin: 0 0 6px; font-size: .82rem; color: var(--hud-hi); text-transform: uppercase; letter-spacing: .04em; }
+.cmp-travel-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 6px; margin: 0;
+}
+.cmp-travel-cell {
+  display: flex; flex-direction: column; gap: 2px; padding: 7px 9px;
+  border: 1px solid var(--hud-line); background: var(--hud-fill);
+}
+.cmp-travel-cell dt { font-size: .74rem; color: var(--text-2); }
+.cmp-travel-cell dd { margin: 0; font-family: var(--font-data); font-size: .86rem; font-weight: 600; color: var(--text); }
+.cmp-antipode-card {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 9px 12px; border: 1px solid var(--hud-line); background: var(--hud-fill);
+}
+.cmp-antipode-text { display: flex; flex-direction: column; gap: 2px; }
+.cmp-antipode-text p { margin: 0; }
+.cmp-antipode-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.antipode-actions { margin: 8px 0 6px; }
+
+/* ---- Tectonic context in Live Earth & Explorer summary in Passport ---- */
+.quake-tectonic { color: var(--hud-hi); font-size: .74rem; }
+.passport-summary {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 9px 12px; margin-bottom: 10px; border: 1px solid var(--hud-line); background: var(--hud-fill);
+}
+.passport-summary-text { display: flex; flex-direction: column; gap: 2px; }
+.passport-summary-text strong { font-size: .86rem; color: var(--hud-hi); }
+
 

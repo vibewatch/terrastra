@@ -6,6 +6,7 @@
 import { h, openModal, closeModal } from './dom.ts';
 import { icon } from './icons.ts';
 import { t, lang, fmtNum } from '../lib/i18n.ts';
+import { tr } from '../../shared/data/types.ts';
 import { classroom } from '../lib/classroom.ts';
 import { store, updateSettings } from '../store.ts';
 import { sfx } from '../lib/sfx.ts';
@@ -21,6 +22,7 @@ import {
   type QuakeEvent,
   type QuakeFilter,
 } from '../lib/earthquakes.ts';
+import { analyzeQuakeTectonics } from '../../shared/lib/tectonics.ts';
 import { currentKpStatus, fetchKpStatus } from '../lib/weather.ts';
 import { propagateIss, refreshIssTelemetry } from '../lib/iss.ts';
 import type { Globe } from '../globe/scene.ts';
@@ -122,8 +124,22 @@ export function openLiveEarth(globe: Globe, onIss: () => void): void {
     }, label);
 
     const rows = filtered.map(q => {
+      const l = lang();
       const band = quakeDepthBand(q.depthKm);
       const bandLabel = t(band === 'shallow' ? 'quake.bandShallow' : band === 'intermediate' ? 'quake.bandInter' : 'quake.bandDeep');
+      const tec = analyzeQuakeTectonics(q.lat, q.lon);
+      const boundaryLabel = t(`quake.boundary_${tec.boundaryKind}` as const);
+      const tecParts = [
+        tec.boundaryKind === 'intraplate'
+          ? boundaryLabel
+          : `${boundaryLabel} · ${tec.boundaryName} (${fmtNum(tec.boundaryDistanceKm)} km)`,
+      ];
+      if (tec.nearestVolcano) {
+        tecParts.push(t('quake.nearVolcano', {
+          name: `${tec.nearestVolcano.item.emoji} ${tr(tec.nearestVolcano.item.name, l)}`,
+          km: fmtNum(tec.nearestVolcano.distanceKm),
+        }));
+      }
       return h('li', {},
         h('button', {
           class: 'quake-row',
@@ -138,7 +154,8 @@ export function openLiveEarth(globe: Globe, onIss: () => void): void {
           h('span', { class: 'quake-mag-badge', style: `--q-col:${DEPTH_SWATCH[band]}` }, `M${q.mag.toFixed(1)}`),
           h('span', { class: 'quake-row-main' },
             h('strong', {}, q.place),
-            h('small', { class: 'muted' }, `${ t('quake.depthKm', { km: Math.round(q.depthKm) })} (${bandLabel}) · ${formatCoord(q.lat, q.lon)}`)),
+            h('small', { class: 'muted' }, `${t('quake.depthKm', { km: Math.round(q.depthKm) })} (${bandLabel}) · ${formatCoord(q.lat, q.lon)}`),
+            h('small', { class: 'quake-tectonic', 'data-testid': 'quake-tectonic' }, tecParts.join(' · '))),
           h('span', { class: 'quake-row-age' }, formatQuakeAge(q, isStale))));
     });
 
@@ -159,6 +176,16 @@ export function openLiveEarth(globe: Globe, onIss: () => void): void {
               render();
             },
           }, h('span', { html: icon('quake', 14) }), h('span', {}, t('earthquakes'))),
+          h('button', {
+            class: 'pill pill-sm' + (store.settings.tectonics ? ' active' : ''),
+            'data-testid': 'live-earth-tectonics-toggle',
+            'aria-pressed': String(Boolean(store.settings.tectonics)),
+            onclick: () => {
+              sfx.tap();
+              updateSettings({ tectonics: !store.settings.tectonics });
+              render();
+            },
+          }, h('span', { html: icon('mountain', 14) }), h('span', {}, t('tectonics'))),
           !isClass ? h('button', {
             class: 'pill pill-sm',
             'data-testid': 'quake-refresh',

@@ -31,6 +31,7 @@ import { renderHub, hubTab, type HubTab } from './hub.ts';
 import { fetchLocalWeather, solarStatusAt } from '../lib/weather.ts';
 import { onIssTelemetry, propagateIss, type IssTelemetry } from '../lib/iss.ts';
 import { getQuakeFeedStatus, type QuakeEvent } from '../lib/earthquakes.ts';
+import { antipodeOf, formatCoordPair, nearestCatalogueItem } from '../../shared/lib/geodesic.ts';
 
 const DEX_ZOOM = 10;
 const typeName = (ty: CatalogueItem['type']) => tr(TYPE_META[ty].one, lang());
@@ -616,6 +617,16 @@ export class Shell {
     };
     const key = chips.slice(0, 3), extra = chips.slice(3);
     if (!it.route) extra.push([t('latitude'), coordStr]);
+    const antiInfo = !it.route ? (() => {
+      const [aLat, aLon] = antipodeOf(it.lat, it.lon);
+      const near = nearestCatalogueItem(aLat, aLon, CATALOGUE, it.key);
+      const coord = formatCoordPair(aLat, aLon);
+      const text = near
+        ? `${coord} (${t('antipode.near', { name: `${near.item.emoji} ${tr(near.item.name, l)}`, km: fmtNum(Math.round(near.distanceKm)) })})`
+        : coord;
+      return { aLat, aLon, text };
+    })() : null;
+    if (antiInfo) extra.push([t('antipode.label'), antiInfo.text]);
     this.renderDexRow();
     stopNarration();
     const descP = h('p', { class: 'desc', 'data-testid': 'info-desc' }, tr(it.desc, l));
@@ -649,6 +660,12 @@ export class Shell {
           it.how ? h('p', { class: 'fun how', 'data-testid': 'info-how' }, h('b', {}, t('howMoves')), ' ', tr(it.how, l)) : null,
           it.habitat ? h('p', { class: 'meta' }, t('habitat') + ': ' + tr(it.habitat, l)) : null,
           extra.length ? h('dl', { class: 'facts' }, ...extra.map(([k, v]) => h('div', {}, h('dt', {}, k), h('dd', {}, v)))) : null,
+          antiInfo ? h('div', { class: 'antipode-actions', 'data-testid': 'info-antipode' },
+            h('button', {
+              class: 'pill pill-sm',
+              'data-testid': 'info-measure-dist',
+              onclick: () => this.hooks.openCompare('dist:' + it.key),
+            }, h('span', { html: icon('compass', 13) }), ' ', t('antipode.measure'))) : null,
           h('p', { class: 'meta prov', 'data-testid': 'provenance' }, t('modelNote') + ' ' + t(it.route ? (it.route.line === 'demo' ? 'routeDemo' : 'routeNote') : it.type === 'animal' ? 'rangeNote' : ['landmark', 'volcano', 'space', 'discovery'].includes(it.type) ? 'placeNote' : 'repNote'))),
         h('div', { class: 'info-footer' },
           it.type !== 'vehicle' ? h('div', { class: 'reactions' }, react('like', 'heart'), react('visited', 'flag')) : null,

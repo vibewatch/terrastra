@@ -113,17 +113,39 @@ test('static build works below a sub-path', async ({ page }) => {
   await expect(page.getByTestId('iss-telemetry-text')).toContainText('km');
   await page.evaluate(() => (window as any).__pp.shell.showItem(null));
 
-  // Live Earth monitor modal (Feature 2) & Tonight observing planner (Feature 3)
+  // Live Earth monitor modal (Feature 2 + Tectonics context) & Tonight observing planner (Feature 3)
   await page.locator('#btn-hub').click();
   await page.getByTestId('hub-tab-look').click();
   await page.getByTestId('menu-live-earth').click();
   await expect(page.getByTestId('live-earth')).toBeVisible();
   await expect(page.getByTestId('quake-feed-status')).toBeVisible();
+  await expect(page.getByTestId('live-earth-tectonics-toggle')).toBeVisible();
   await expect(page.getByTestId('quake-row').first()).toContainText('Kermadec Islands');
+  await expect(page.getByTestId('quake-tectonic').first()).toContainText(/Kermadec|Trench|ridge|fault/i);
   await page.getByTestId('quake-mag-5.5').click();
   await expect(page.getByTestId('quake-empty')).toBeVisible();
   await page.getByTestId('quake-mag-2.5').click();
   await expect(page.getByTestId('quake-row')).toHaveCount(1);
+  await page.keyboard.press('Escape');
+
+  // Great-circle distance & antipode lab in Compare bench + Explorer Passport summary
+  await page.locator('#btn-hub').click();
+  await page.getByTestId('hub-tab-look').click();
+  await page.getByTestId('menu-compare').click();
+  await expect(page.getByTestId('cmp-g-dist')).toBeVisible();
+  await page.getByTestId('cmp-g-dist').click();
+  await expect(page.getByTestId('cmp-travel-grid')).toBeVisible();
+  await expect(page.getByTestId('cmp-antipode-card')).toBeVisible();
+  await expect(page.getByTestId('cmp-ratio')).toContainText(/km/);
+  await page.getByTestId('cmp-dist-swap').click();
+  await expect(page.getByTestId('cmp-fly-arc')).toBeVisible();
+  await page.keyboard.press('Escape');
+
+  await page.locator('#btn-hub').click();
+  await page.getByTestId('hub-tab-me').click();
+  await page.getByTestId('menu-passport').click();
+  await expect(page.getByTestId('passport-summary')).toBeVisible();
+  await expect(page.getByTestId('passport-export-md')).toBeVisible();
   await page.keyboard.press('Escape');
 
   await page.locator('#btn-hub').click();

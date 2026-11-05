@@ -15,7 +15,8 @@ import { borderPositions, borderLonLat } from './globe/borders.ts';
 import { ADMIN_GLOBE_ZOOM, ADMIN_MAP_ZOOM, fetchAdminData, type AdminData } from './globe/admin.ts';
 import { CATALOGUE, BY_KEY } from '../shared/data/catalogue.ts';
 import { Shell } from './ui/shell.ts';
-import { h, toast, confetti } from './ui/dom.ts';
+import { h, toast, confetti, closeModal } from './ui/dom.ts';
+import { slerpLatLon } from '../shared/lib/geo.ts';
 import { store, subscribe, setStickerHandler, setSyncer, setMe, getAccountEpoch, replaceProgress, ProgressLimitError } from './store.ts';
 import { t, lang, onLang } from './lib/i18n.ts';
 import { tr } from '../shared/data/types.ts';
@@ -505,7 +506,25 @@ async function boot(): Promise<void> {
     openTutorial: () => openTutorial(openTours),
     openTours, openLessons, openAstro, openSsbs, openBookmarks,
     continueLesson,
-    openCompare: (id?: string) => cmpMod(m => m.openCompare(id)),
+    openCompare: (id?: string) => cmpMod(m => m.openCompare(id, {
+      onShowArc: (a, b) => {
+        closeModal('compare');
+        if (sceneMode.inMap) closeMap(false);
+        const show = () => {
+          const mid = slerpLatLon(a, b, 0.5);
+          globe.showFlightArc(a, b);
+          globe.flyTo(mid[0], mid[1], 2.2, 1400);
+        };
+        if (sceneMode.inSolar) leaveSolar(a[0], a[1], show);
+        else show();
+      },
+      onFlyTo: (lat, lon) => {
+        closeModal('compare');
+        if (sceneMode.inMap) closeMap(false);
+        if (sceneMode.inSolar) leaveSolar(lat, lon, () => globe.flyTo(lat, lon, 1.4, 1400));
+        else globe.flyTo(lat, lon, 1.4, 1400);
+      },
+    })),
     openTonight: () => tonightMod(m => m.openTonight(navTo)),
     openAccount: () => account(m => m.openAccount()), openGuestbook: () => account(m => void m.openGuestbook()),
     openSolar: () => void enterSolar(),

@@ -1,11 +1,15 @@
-import { h, openModal, closeModal } from './dom.ts';
+import { h, openModal, closeModal, toast } from './dom.ts';
 import { t, lang } from '../lib/i18n.ts';
 import { store } from '../store.ts';
 import { BY_KEY } from '../../shared/data/catalogue.ts';
 import { tr, type CatalogueItem } from '../../shared/data/types.ts';
 import { PASSPORTS, bookProgress, type PassportBook } from '../../shared/data/passports.ts';
 import { haversineKm } from '../../shared/lib/geo.ts';
+import { computeExplorerStats, formatFieldLogMarkdown } from '../../shared/lib/field-log.ts';
+import { formatCoordPair } from '../../shared/lib/geodesic.ts';
+import { isLessonJournal, type LessonJournal } from '../../shared/lib/journal.ts';
 import { load, save } from '../lib/storage.ts';
+import { sfx } from '../lib/sfx.ts';
 import { icon } from './icons.ts';
 
 interface PassportHooks {
@@ -31,10 +35,47 @@ function nextStop(b: PassportBook, seen: Record<string, number>, here: [number, 
 export function openPassport(hooks: PassportHooks): void {
   let cur = load<string>('passportBook', PASSPORTS[0].id);
   if (!PASSPORTS.some(b => b.id === cur)) cur = PASSPORTS[0].id;
+  const summaryBar = h('div', { class: 'passport-summary', 'data-testid': 'passport-summary' });
   const tabs = h('div', { class: 'seg-row passport-tabs', role: 'tablist' });
   const page = h('div', { class: 'passport-page' });
+  const exportMarkdown = () => {
+    sfx.tap();
+    const rawJ = load<unknown>('lessonJournal', {});
+    const j: LessonJournal = isLessonJournal(rawJ) ? rawJ : {};
+    const md = formatFieldLogMarkdown(store.progress, j, lang());
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `terrastra-field-log-${dateStr}.md`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast(t('passport.exportedMd'));
+  };
   const render = () => {
     const l = lang(), seen = store.progress.seen;
+    const rawJ = load<unknown>('lessonJournal', {});
+    const stats = computeExplorerStats(store.progress, isLessonJournal(rawJ) ? rawJ : undefined);
+    summaryBar.replaceChildren(
+      h('div', { class: 'passport-summary-text' },
+        h('strong', { 'data-testid': 'passport-summary-stats' }, t('passport.summaryStats', {
+          cont: stats.continentsVisited.length,
+          countries: stats.countriesVisited.length,
+          stamps: stats.stampsCount,
+        })),
+        stats.northernmost && stats.southernmost ? h('small', { class: 'muted', 'data-testid': 'passport-extremes' }, t('passport.extremes', {
+          north: `${stats.northernmost.emoji} ${tr(stats.northernmost.name, l)} (${formatCoordPair(stats.northernmost.lat, stats.northernmost.lon)})`,
+          south: `${stats.southernmost.emoji} ${tr(stats.southernmost.name, l)} (${formatCoordPair(stats.southernmost.lat, stats.southernmost.lon)})`,
+        })) : null),
+      h('button', {
+        class: 'pill pill-sm',
+        'data-testid': 'passport-export-md',
+        onclick: exportMarkdown,
+      }, h('span', { html: icon('download', 13) }), ' ', t('passport.exportMd')),
+    );
     const b = PASSPORTS.find(x => x.id === cur)!;
     tabs.replaceChildren(...PASSPORTS.map(x => {
       const done = bookProgress(x, seen);
@@ -63,5 +104,5 @@ export function openPassport(hooks: PassportHooks): void {
   };
   render();
   requestAnimationFrame(() => tabs.querySelector('.active')?.scrollIntoView({ inline: 'center', block: 'nearest' }));
-  openModal('passport', t('passport'), h('div', { class: 'passport' }, tabs, page), { wide: true });
+  openModal('passport', t('passport'), h('div', { class: 'passport' }, summaryBar, tabs, page), { wide: true });
 }
