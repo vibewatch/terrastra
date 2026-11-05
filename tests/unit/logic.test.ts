@@ -390,11 +390,25 @@ describe('model pipeline (worker transfer + level of detail)', async () => {
 });
 
 describe('living planet real-time layers (ISS orbit, earthquakes, solar/weather)', async () => {
-  const { solarStatusAt, describeWmoCode } = await import('../../src/client/lib/weather.ts');
-  const { propagateIss, currentIssOrbitPts } = await import('../../src/client/lib/iss.ts');
-  const { parseUsgsQuakes, quakeColorRgb, fallbackQuakes } = await import('../../src/client/lib/earthquakes.ts');
+  const { solarStatusAt, describeWmoCode, parseNoaaKp } = await import('../../src/client/lib/weather.ts');
+  const {
+    ISS_FRESH_TTL_MS,
+    propagateIss,
+    currentIssOrbitPts,
+    refreshIssTelemetry,
+    inferAscending,
+    resetIssTelemetryForTest,
+  } = await import('../../src/client/lib/iss.ts');
+  const {
+    parseUsgsQuakes,
+    quakeColorRgb,
+    fallbackQuakes,
+    fetchRecentQuakes,
+    getQuakeFeedStatus,
+    resetQuakeFeedForTest,
+  } = await import('../../src/client/lib/earthquakes.ts');
 
-  it('classifies solar daylight vs night across opposing longitudes', () => {
+  it('classifies solar daylight vs night and translates all solar/weather/Kp keys in EN and ZH (#2)', () => {
     const noonUtc = Date.UTC(2026, 2, 20, 12, 0, 0); // vernal equinox 12:00 UTC
     const london = solarStatusAt(51.5, 0, noonUtc);
     const auckland = solarStatusAt(-36.8, 174.8, noonUtc);
@@ -402,14 +416,92 @@ describe('living planet real-time layers (ISS orbit, earthquakes, solar/weather)
     expect(auckland.phase).toBe('night');
     expect(describeWmoCode(0, true).icon).toBe('☀️');
     expect(describeWmoCode(95, false).icon).toBe('⛈️');
+
+    const keys = [
+      london.labelKey,
+      auckland.labelKey,
+      ...[0, 2, 45, 51, 61, 71, 80, 95].map(c => describeWmoCode(c, true).labelKey),
+      ...[1, 4, 6].map(k => parseNoaaKp([['time', 'Kp'], ['2026-01-01', String(k)]])!.levelKey),
+    ];
+    for (const k of keys) {
+      expect(hasKey(k, 'en'), `${k} en`).toBe(true);
+      expect(hasKey(k, 'zh'), `${k} zh`).toBe(true);
+      expect(t(k, undefined, 'en')).not.toBe(k);
+      expect(t(k, undefined, 'zh')).toMatch(/[\u4e00-\u9fff]/);
+    }
   });
 
-  it('propagates ISS telemetry within 51.64° inclination and builds a continuous orbit track', () => {
+  it('infers ISS ascending vs descending branch from chronological observations (#4)', () => {
     const t0 = Date.UTC(2026, 3, 20, 0, 0, 0);
-    const pos = propagateIss(t0);
-    expect(Math.abs(pos.lat)).toBeLessThanOrEqual(52);
-    expect(Math.abs(pos.lon)).toBeLessThanOrEqual(180);
-    expect(pos.altitudeKm).toBeGreaterThan(350);
+    // Ascending pass crossing equator northward (lat -5° -> +5°)
+    expect(
+      inferAscending(
+        { lat: -5, lon: 10, tsMs: t0, ascending: false, hasDirection: false },
+        5,
+        17,
+        t0 + 180_000,
+      ).ascending,
+    ).toBe(true);
+    // Descending pass crossing equator southward (lat +5° -> -5°) even if prior state was ascending=true
+    expect(
+      inferAscending(
+        { lat: 5, lon: 10, tsMs: t0, ascending: true, hasDirection: true },
+        -5,
+        17,
+        t0 + 180_000,
+      ).ascending,
+    ).toBe(false);
+  });
+
+  it('tracks ISS telemetry freshness, staleness TTL, and unavailable fallback (#5, #8)', async () => {
+    resetIssTelemetryForTest();
+    const t0 = Date.now() - 10_000;
+    const est = propagateIss(t0);
+    expect(est.status).toBe('estimated');
+    expect(est.live).toBe(false);
+    expect(est.observedAtMs).toBeNull();
+    expect(Math.abs(est.lat)).toBeLessThanOrEqual(52);
+    expect(Math.abs(est.lon)).toBeLessThanOrEqual(180);
+    expect(est.altitudeKm).toBeGreaterThan(350);
+
+    const origFetch = globalThis.fetch;
+    try {
+      const obsSec = Math.floor(t0 / 1000);
+      globalThis.fetch = (async () => ({
+        ok: true,
+        json: async () => ({
+          latitude: 12.4,
+          longitude: 45.8,
+          altitude: 419.2,
+          velocity: 27585,
+          timestamp: obsSec,
+        }),
+      })) as unknown as typeof fetch;
+
+      await refreshIssTelemetry();
+      const fresh = propagateIss(obsSec * 1000 + 10_000);
+      expect(fresh.status).toBe('fresh');
+      expect(fresh.live).toBe(true);
+      expect(fresh.observedAtMs).toBe(obsSec * 1000);
+      expect(fresh.ageMs).toBe(10_000);
+
+      // Advancing past ISS_FRESH_TTL_MS transitions telemetry to stale (live: false)
+      const stale = propagateIss(obsSec * 1000 + ISS_FRESH_TTL_MS + 60_000);
+      expect(stale.status).toBe('stale');
+      expect(stale.live).toBe(false);
+      expect(stale.ageMs).toBe(ISS_FRESH_TTL_MS + 60_000);
+
+      // When no live fix was ever observed and fetch fails, status is 'unavailable'
+      resetIssTelemetryForTest();
+      globalThis.fetch = (async () => ({ ok: false, status: 503 })) as unknown as typeof fetch;
+      const unavail = await refreshIssTelemetry();
+      expect(unavail.status).toBe('unavailable');
+      expect(unavail.live).toBe(false);
+    } finally {
+      globalThis.fetch = origFetch;
+      resetIssTelemetryForTest();
+    }
+
     const orbit = currentIssOrbitPts(t0);
     expect(orbit.pts.length).toBe(16);
     expect(orbit.seg).toBeGreaterThanOrEqual(0);
@@ -418,7 +510,7 @@ describe('living planet real-time layers (ISS orbit, earthquakes, solar/weather)
     expect(orbit.t).toBeLessThanOrEqual(1);
   });
 
-  it('parses USGS GeoJSON earthquake feeds and encodes depth into RGB colors', () => {
+  it('distinguishes empty USGS earthquake feeds from fetch failures and avoids fake fallback timestamps (#9)', async () => {
     const parsed = parseUsgsQuakes({
       features: [
         { id: 'q1', properties: { mag: 6.2, place: 'Tonga Trench', time: 1710000000000 }, geometry: { coordinates: [-175.2, -21.1, 410] } },
@@ -428,7 +520,82 @@ describe('living planet real-time layers (ISS orbit, earthquakes, solar/weather)
     });
     expect(parsed.map(q => q.id)).toEqual(['q1', 'q2']);
     expect(quakeColorRgb(10)[0]).toBeGreaterThan(quakeColorRgb(400)[0]); // shallow = redder, deep = bluer
-    expect(fallbackQuakes(1710000000000).length).toBeGreaterThanOrEqual(10);
+    const fb = fallbackQuakes();
+    expect(fb.length).toBeGreaterThanOrEqual(10);
+    expect(fb.every(q => q.live === false && q.timeMs === 0)).toBe(true);
+
+    const origFetch = globalThis.fetch;
+    try {
+      resetQuakeFeedForTest();
+      globalThis.fetch = (async () => ({
+        ok: true,
+        json: async () => ({ type: 'FeatureCollection', features: [] }),
+      })) as unknown as typeof fetch;
+      const empty = await fetchRecentQuakes(1710000000000);
+      expect(empty).toEqual([]);
+      expect(getQuakeFeedStatus()).toBe('empty');
+
+      resetQuakeFeedForTest();
+      globalThis.fetch = (async () => ({ ok: false, status: 500 })) as unknown as typeof fetch;
+      const fallback = await fetchRecentQuakes(1710000000000);
+      expect(fallback.length).toBeGreaterThanOrEqual(10);
+      expect(fallback.every(q => !q.live)).toBe(true);
+      expect(getQuakeFeedStatus()).toBe('unavailable');
+    } finally {
+      globalThis.fetch = origFetch;
+      resetQuakeFeedForTest();
+    }
+  });
+});
+
+describe('cross-tab progress store reconciliation (#3)', async () => {
+  const { store, updateProgress } = await import('../../src/client/store.ts');
+  const toggleStamp = (m: Record<string, number>, k: string) => {
+    m[k] = isOn(m, k) ? -Date.now() : Date.now();
+  };
+
+  it('merges concurrent localStorage changes from another tab before saving local mutations', () => {
+    const storeMap = new Map<string, string>();
+    const origStorage = (globalThis as { localStorage?: Storage }).localStorage;
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      value: {
+        getItem: (k: string) => storeMap.get(k) ?? null,
+        setItem: (k: string, v: string) => { storeMap.set(k, v); },
+        removeItem: (k: string) => { storeMap.delete(k); },
+      },
+    });
+    try {
+      store.progress = emptyProgress();
+      updateProgress(p => { p.dex.an_panda = Date.now(); });
+      expect(store.progress.dex.an_panda).toBeGreaterThan(0);
+
+      // Simulate Tab B writing a new seen/like entry directly into localStorage
+      const tabB = JSON.parse(storeMap.get('pp.progress')!);
+      tabB.seen.taj_mahal = Date.now() + 10;
+      tabB.likes.eiffel = Date.now() + 10;
+      tabB.updatedAt = Date.now() + 10;
+      storeMap.set('pp.progress', JSON.stringify(tabB));
+
+      // Tab A now toggles visited on a different item without reloading
+      updateProgress(p => toggleStamp(p.visited, 'colosseum'));
+      expect(store.progress.seen.taj_mahal).toBe(tabB.seen.taj_mahal);
+      expect(isOn(store.progress.likes, 'eiffel')).toBe(true);
+      expect(isOn(store.progress.visited, 'colosseum')).toBe(true);
+
+      // Rapid same-millisecond toggle on -> off preserves the off state after merge
+      updateProgress(p => toggleStamp(p.likes, 'sphinx'));
+      expect(isOn(store.progress.likes, 'sphinx')).toBe(true);
+      updateProgress(p => toggleStamp(p.likes, 'sphinx'));
+      expect(isOn(store.progress.likes, 'sphinx')).toBe(false);
+      updateProgress(() => {});
+      expect(isOn(store.progress.likes, 'sphinx')).toBe(false);
+    } finally {
+      store.progress = emptyProgress();
+      if (origStorage !== undefined) {
+        Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: origStorage });
+      }
+    }
   });
 });
 

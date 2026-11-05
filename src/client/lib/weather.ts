@@ -4,15 +4,19 @@
  */
 import { latLonToVec } from '../../shared/lib/geo.ts';
 import { subsolar } from '../../shared/lib/sun.ts';
+import type { I18nKey } from './i18n.ts';
 
 export type SolarPhase = 'day' | 'twilight' | 'night';
+export type SolarLabelKey = Extract<I18nKey, 'solarDay' | 'solarTwilight' | 'solarNight'>;
+export type WeatherLabelKey = Extract<I18nKey, 'wxClear' | 'wxPartly' | 'wxCloudy' | 'wxFog' | 'wxDrizzle' | 'wxRain' | 'wxSnow' | 'wxStorm'>;
+export type KpLevelKey = Extract<I18nKey, 'kpQuiet' | 'kpActive' | 'kpStorm'>;
 
 export interface SolarStatus {
   phase: SolarPhase;
   /** Solar altitude angle above the horizon in degrees (-90..+90). */
   altitudeDeg: number;
   icon: string;
-  labelKey: 'solarDay' | 'solarTwilight' | 'solarNight';
+  labelKey: SolarLabelKey;
   /** Approximate local solar time string ("HH:MM"). */
   localTimeStr: string;
 }
@@ -38,11 +42,11 @@ export interface LocalWeather {
   code: number;
   isDay: boolean;
   icon: string;
-  labelKey: string;
+  labelKey: WeatherLabelKey;
 }
 
 /** Maps a WMO weather interpretation code (0..99) to an emoji icon and i18n key. */
-export function describeWmoCode(code: number, isDay = true): { icon: string; labelKey: string } {
+export function describeWmoCode(code: number, isDay = true): { icon: string; labelKey: WeatherLabelKey } {
   if (code === 0) return { icon: isDay ? '☀️' : '🌙', labelKey: 'wxClear' };
   if (code === 1 || code === 2) return { icon: isDay ? '🌤️' : '☁️', labelKey: 'wxPartly' };
   if (code === 3) return { icon: '☁️', labelKey: 'wxCloudy' };
@@ -117,7 +121,7 @@ export interface KpStatus {
   kp: number;
   /** Shader intensity multiplier (0.75..1.90). */
   auroraBoost: number;
-  levelKey: 'kpQuiet' | 'kpActive' | 'kpStorm';
+  levelKey: KpLevelKey;
   live: boolean;
 }
 

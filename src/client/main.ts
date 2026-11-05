@@ -112,7 +112,10 @@ async function boot(): Promise<void> {
     onQuakeHover: (q, scr) => shell?.showQuakeHover(q, scr),
     onQuake: q => {
       globe.flyTo(q.lat, q.lon, Math.min(globe.h, 1.4), 1000);
-      toast(`🌋 ${t('quake.title', { mag: q.mag.toFixed(1) })} · ${q.place} (${t('quake.depthKm', { km: Math.round(q.depthKm) })})`, 4200);
+      const detail = q.live
+        ? t('quake.depthKm', { km: Math.round(q.depthKm) })
+        : `${t('quake.depthKm', { km: Math.round(q.depthKm) })} · ${t('quake.demo')}`;
+      toast(`🌋 ${t('quake.title', { mag: q.mag.toFixed(1) })} · ${q.place} (${detail})`, 4200);
     },
     onView: (z, la, lo) => {
       shell.setZoom(z, la, lo);

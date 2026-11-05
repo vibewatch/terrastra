@@ -29,7 +29,7 @@ import { narrate, narrationSupported, splitSentences, stopNarration, type Narrat
 import { classroom, setClassroom, setStill, motion, onClassroom } from '../lib/classroom.ts';
 import { renderHub, hubTab, type HubTab } from './hub.ts';
 import { fetchLocalWeather, solarStatusAt } from '../lib/weather.ts';
-import { propagateIss } from '../lib/iss.ts';
+import { onIssTelemetry, propagateIss, type IssTelemetry } from '../lib/iss.ts';
 import type { QuakeEvent } from '../lib/earthquakes.ts';
 
 const DEX_ZOOM = 10;
@@ -197,10 +197,12 @@ export class Shell {
       this.tipEl.classList.add('hidden');
       return;
     }
-    const ageMin = Math.max(1, Math.round((Date.now() - q.timeMs) / 60000));
-    const ageTxt = ageMin < 90
-      ? t('quake.agoMin', { m: ageMin })
-      : t('quake.agoHr', { h: Math.round(ageMin / 60) });
+    const ageMin = q.live && q.timeMs > 0 ? Math.max(1, Math.round((Date.now() - q.timeMs) / 60000)) : 0;
+    const ageTxt = !q.live
+      ? t('quake.demo')
+      : ageMin < 90
+        ? t('quake.agoMin', { m: ageMin })
+        : t('quake.agoHr', { h: Math.round(ageMin / 60) });
     this.tipEl.replaceChildren(
       h('span', { class: 'tip-emoji' }, q.mag >= 5.5 ? '🌋' : '🔴'),
       h('span', { class: 'tip-name' }, `${t('quake.title', { mag: q.mag.toFixed(1) })} · ${q.place}`),
@@ -482,6 +484,8 @@ export class Shell {
     this.globe.select(item?.key ?? null);
     this.hooks.onSelect?.(item);
     if (!item) {
+      this.issRowCleanup?.();
+      this.issRowCleanup = null;
       stopNarration();
       this.toggleReader(false);
       this.info.classList.add('hidden');
@@ -648,16 +652,35 @@ export class Shell {
     if (HAS_API && it.type !== 'vehicle') void api.reactions(it.key).then(r => this.setCounts(r)).catch(() => {});
   }
 
+  private issRowCleanup: (() => void) | null = null;
+
+  private formatIssTelemetryText(tel: IssTelemetry): string {
+    const coord = `${Math.abs(tel.lat).toFixed(1)}°${tel.lat >= 0 ? 'N' : 'S'} · ${Math.abs(tel.lon).toFixed(1)}°${tel.lon >= 0 ? 'E' : 'W'}`;
+    const alt = Math.round(tel.altitudeKm), vel = fmtNum(Math.round(tel.velocityKmh));
+    if (tel.status === 'fresh') {
+      const ageMin = Math.max(0, Math.floor((tel.ageMs ?? 0) / 60_000));
+      const ageLabel = ageMin < 1 ? t('iss.justNow') : t('iss.agoMin', { m: ageMin });
+      return `${t('iss.telemetry', { alt, vel })} · ${coord} · ${ageLabel}`;
+    }
+    if (tel.status === 'stale') {
+      const ageMin = Math.max(1, Math.round((tel.ageMs ?? 0) / 60_000));
+      return `${t('iss.telemetryStale', { alt, vel })} · ${coord} · ${t('iss.agoMin', { m: ageMin })}`;
+    }
+    if (tel.status === 'unavailable') {
+      return `${t('iss.telemetryUnavailable', { alt, vel })} · ${coord}`;
+    }
+    return `${t('iss.telemetryEst', { alt, vel })} · ${coord}`;
+  }
+
   /** Renders live ISS orbital telemetry + Astronaut View for `sp_iss`, or live local solar status + Open-Meteo weather for surface items. */
   private liveTelemetryRow(it: CatalogueItem): HTMLElement | null {
+    this.issRowCleanup?.();
+    this.issRowCleanup = null;
     if (it.key === 'sp_iss') {
-      const tel = propagateIss(Date.now());
-      const coord = `${Math.abs(tel.lat).toFixed(1)}°${tel.lat >= 0 ? 'N' : 'S'} · ${Math.abs(tel.lon).toFixed(1)}°${tel.lon >= 0 ? 'E' : 'W'}`;
-      return h('div', { class: 'iss-live-box', 'data-testid': 'iss-live-box' },
-        h('div', { class: 'iss-live-meta' },
-          h('span', { class: 'iss-live-dot', 'aria-hidden': 'true' }),
-          h('span', {}, `${t('iss.telemetry', { alt: Math.round(tel.altitudeKm), vel: fmtNum(Math.round(tel.velocityKmh)) })} · ${coord}`),
-        ),
+      const dot = h('span', { class: 'iss-live-dot', 'aria-hidden': 'true' });
+      const textSpan = h('span', { 'data-testid': 'iss-telemetry-text' });
+      const box = h('div', { class: 'iss-live-box', 'data-testid': 'iss-live-box' },
+        h('div', { class: 'iss-live-meta' }, dot, textSpan),
         h('div', { class: 'iss-live-actions' },
           h('button', {
             class: 'pill pill-sm',
@@ -666,6 +689,30 @@ export class Shell {
           }, '👨‍🚀 ', t('iss.astronautView')),
         ),
       );
+      const applyTel = (tel = propagateIss(Date.now())) => {
+        box.dataset.telemetryStatus = tel.status;
+        dot.classList.toggle('is-estimated', !tel.live);
+        textSpan.textContent = this.formatIssTelemetryText(tel);
+      };
+      applyTel();
+      const unsub = onIssTelemetry(tel => {
+        if (!box.isConnected || this.current?.key !== 'sp_iss') return;
+        applyTel(tel);
+      });
+      const timer = window.setInterval(() => {
+        if (!box.isConnected || this.current?.key !== 'sp_iss') {
+          this.issRowCleanup?.();
+          this.issRowCleanup = null;
+          return;
+        }
+        if (this.globe.paused || document.visibilityState === 'hidden') return;
+        applyTel(propagateIss(Date.now()));
+      }, 2000);
+      this.issRowCleanup = () => {
+        unsub();
+        clearInterval(timer);
+      };
+      return box;
     }
     if (it.route || it.type === 'dino') return null;
     const sol = solarStatusAt(it.lat, it.lon, this.globe.simTime ?? Date.now());

@@ -4,7 +4,7 @@ import type { CatalogueItem } from '../../shared/data/types.ts';
 import { TYPE_META } from '../../shared/data/typemeta.ts';
 import { latLonToVec } from '../../shared/lib/geo.ts';
 import { isHappening } from '../../shared/lib/season.ts';
-import { fallbackQuakes, fetchRecentQuakes, quakeColorRgb, type QuakeEvent } from '../lib/earthquakes.ts';
+import { fetchRecentQuakes, getQuakeFeedStatus, quakeColorRgb, type QuakeEvent, type QuakeFeedStatus } from '../lib/earthquakes.ts';
 import { currentKpStatus, fetchKpStatus } from '../lib/weather.ts';
 
 /**
@@ -832,6 +832,7 @@ export class Earthquakes {
   private unitPos = new Float32Array(MAX_QUAKES * 3);
   private projMat = new THREE.Matrix4();
   events: QuakeEvent[] = [];
+  status: QuakeFeedStatus = 'loading';
   private lastFetchAt = 0;
 
   constructor() {
@@ -860,7 +861,6 @@ export class Earthquakes {
     this.root.renderOrder = RENDER_ORDER.overlay + 1;
     this.root.raycast = noRaycast;
     this.root.visible = false;
-    this.loadEvents(fallbackQuakes());
   }
 
   private loadEvents(list: QuakeEvent[]): void {
@@ -897,7 +897,11 @@ export class Earthquakes {
     this.root.visible = on;
     if (becameVisible || (on && Date.now() - this.lastFetchAt > 300_000)) {
       this.lastFetchAt = Date.now();
-      void fetchRecentQuakes().then(ev => this.loadEvents(ev));
+      this.status = 'loading';
+      void fetchRecentQuakes().then(ev => {
+        this.status = getQuakeFeedStatus();
+        this.loadEvents(ev);
+      });
     }
   }
 

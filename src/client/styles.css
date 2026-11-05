@@ -1380,6 +1380,9 @@ body.immersive :is(.fm-bar, .fm-scale) { display: none !important; }
   width: 8px; height: 8px; border-radius: 50%; background: #38bdf8;
   box-shadow: 0 0 8px #38bdf8; animation: cam-pulse 1.6s ease-in-out infinite; flex: none;
 }
+.iss-live-dot.is-estimated {
+  background: #f59e0b; box-shadow: 0 0 8px #f59e0b; animation: none; opacity: .85;
+}
 .iss-live-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 @keyframes cam-pulse { 50% { opacity: .35; transform: scale(.85); } }
 

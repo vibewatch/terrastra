@@ -15,6 +15,7 @@ export interface QuakeEvent {
 }
 
 export type QuakeDepthBand = 'shallow' | 'intermediate' | 'deep';
+export type QuakeFeedStatus = 'loading' | 'live' | 'empty' | 'stale' | 'unavailable';
 
 export function quakeDepthBand(depthKm: number): QuakeDepthBand {
   if (depthKm < 70) return 'shallow';
@@ -51,12 +52,30 @@ const FALLBACK_QUAKES: readonly Omit<QuakeEvent, 'timeMs' | 'live'>[] = [
   { id: 'fb_ph_mindanao', mag: 5.1, place: '42 km E of Hinatuan, Philippines', lat: 8.35, lon: 126.7, depthKm: 54 },
 ];
 
-export function fallbackQuakes(nowMs = Date.now()): QuakeEvent[] {
-  return FALLBACK_QUAKES.map((q, idx) => ({
+export function fallbackQuakes(): QuakeEvent[] {
+  return FALLBACK_QUAKES.map(q => ({
     ...q,
-    timeMs: nowMs - (idx + 1) * 42 * 60_000,
+    timeMs: 0,
     live: false,
   }));
+}
+
+export function isValidUsgsFeatureCollection(raw: unknown): raw is { type?: unknown; features: unknown[] } {
+  if (!raw || typeof raw !== 'object') return false;
+  const obj = raw as { type?: unknown; features?: unknown };
+  if (obj.type !== undefined && obj.type !== 'FeatureCollection') return false;
+  if (!Array.isArray(obj.features)) return false;
+  if (obj.features.length === 0) return true;
+  return obj.features.some(f => {
+    if (!f || typeof f !== 'object') return false;
+    const props = (f as { properties?: Record<string, unknown> }).properties;
+    const geom = (f as { geometry?: { coordinates?: unknown } }).geometry;
+    if (!props || !geom || !Array.isArray(geom.coordinates)) return false;
+    const lon = Number(geom.coordinates[0]);
+    const lat = Number(geom.coordinates[1]);
+    const mag = Number(props.mag);
+    return Number.isFinite(lat) && Number.isFinite(lon) && Number.isFinite(mag);
+  });
 }
 
 /** Parses a USGS GeoJSON FeatureCollection into up to `limit` sorted QuakeEvents. */
@@ -101,10 +120,24 @@ export function parseUsgsQuakes(raw: unknown, limit = 160): QuakeEvent[] {
 const QUAKE_TTL_MS = 5 * 60_000;
 let cachedQuakes: { at: number; events: QuakeEvent[] } | null = null;
 let quakeInflight: Promise<QuakeEvent[]> | null = null;
+let lastFeedStatus: QuakeFeedStatus = 'loading';
+
+export function getQuakeFeedStatus(): QuakeFeedStatus {
+  return lastFeedStatus;
+}
+
+export function resetQuakeFeedForTest(): void {
+  cachedQuakes = null;
+  quakeInflight = null;
+  lastFeedStatus = 'loading';
+}
 
 /** Fetches M2.5+ earthquakes in the past 24 hours from USGS, falling back to representative events when offline. */
 export async function fetchRecentQuakes(): Promise<QuakeEvent[]> {
-  if (cachedQuakes && Date.now() - cachedQuakes.at < QUAKE_TTL_MS) return cachedQuakes.events;
+  if (cachedQuakes && Date.now() - cachedQuakes.at < QUAKE_TTL_MS) {
+    lastFeedStatus = cachedQuakes.events.length > 0 ? 'live' : 'empty';
+    return cachedQuakes.events;
+  }
   if (quakeInflight) return quakeInflight;
 
   quakeInflight = (async (): Promise<QuakeEvent[]> => {
@@ -115,19 +148,26 @@ export async function fetchRecentQuakes(): Promise<QuakeEvent[]> {
         signal: ctl.signal,
       });
       if (res.ok) {
-        const parsed = parseUsgsQuakes(await res.json());
-        if (parsed.length > 0) {
+        const raw: unknown = await res.json();
+        if (isValidUsgsFeatureCollection(raw)) {
+          const parsed = parseUsgsQuakes(raw);
           cachedQuakes = { at: Date.now(), events: parsed };
+          lastFeedStatus = parsed.length > 0 ? 'live' : 'empty';
           return parsed;
         }
       }
     } catch {
-      // Offline or blocked: use fallback dataset.
+      // Offline or blocked: use cached or fallback dataset.
     } finally {
       clearTimeout(timer);
       quakeInflight = null;
     }
-    return cachedQuakes?.events ?? fallbackQuakes();
+    if (cachedQuakes) {
+      lastFeedStatus = 'stale';
+      return cachedQuakes.events;
+    }
+    lastFeedStatus = 'unavailable';
+    return fallbackQuakes();
   })();
 
   return quakeInflight;

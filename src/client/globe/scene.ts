@@ -899,10 +899,19 @@ export class Globe {
     const p: Placed = { item, obj: wrap, seg: 0, t: 0, pts: item.route ? item.route.pts.map(x => [x[0], x[1]] as [number, number]) : [], heading: new THREE.Vector3(),
       n: new THREE.Vector3(...latLonToVec(item.lat, item.lon)), anim, radius: obj.userData.radius ?? 0.6, far: false, slot: this.plinthSlot(item), cull: false };
     if (item.route) {
-      // Spread vehicles along their routes deterministically.
-      const h = [...item.key].reduce((a, c) => a + c.charCodeAt(0), 0);
-      p.seg = h % Math.max(1, item.route.pts.length - 1);
-      p.t = (h % 97) / 97;
+      if (item.key === 'sp_iss' && this.issSync) {
+        p.pts = this.issSync.pts.map(x => [x[0], x[1]] as [number, number]);
+        p.seg = Math.max(0, Math.min(p.pts.length - 1, this.issSync.seg));
+        p.t = Math.max(0, Math.min(0.999999, this.issSync.t));
+        item.lat = this.issSync.lat;
+        item.lon = this.issSync.lon;
+        p.n.set(...latLonToVec(item.lat, item.lon));
+      } else {
+        // Spread vehicles along their routes deterministically.
+        const h = [...item.key].reduce((a, c) => a + c.charCodeAt(0), 0);
+        p.seg = h % Math.max(1, item.route.pts.length - 1);
+        p.t = (h % 97) / 97;
+      }
     }
     this.orientAt(wrap, item.lat, item.lon, 1.0);
     this.itemsRoot.add(wrap);
@@ -1126,7 +1135,7 @@ export class Globe {
     const r = this.zoomRange;
     return Math.max(r ? Math.max(MIN_H, r[0]) : MIN_H, Math.min(r ? Math.min(MAX_H, r[1]) : MAX_H, h));
   }
-  setH(h: number): void { this.h = this.clampH(h); this.dirty = true; }
+  setH(h: number): void { this.fly = null; this.h = this.clampH(h); this.dirty = true; }
   zoomBy(f: number): void {
     if (f < 1 && this.h >= MAX_H - 1e-3 && !this.ride && !this.gameMode && !this.zoomRange) { this.ev.onBeyond?.(); return; }
     this.flyTo(this.lat, this.lon, this.h / f, 350);
@@ -1257,24 +1266,31 @@ export class Globe {
     this.live = [bass, mid, high];
   }
 
+  private issSync: { pts: [number, number][]; seg: number; t: number; lat: number; lon: number } | null = null;
+
   /** Synchronizes the 3D ISS (`sp_iss`) miniature and its ground track with real-time orbital telemetry. */
   syncIssOrbit(pts: [number, number][], seg: number, t: number, lat: number, lon: number): void {
     if (pts.length < 2) return;
+    const clampedSeg = Math.max(0, Math.min(pts.length - 1, seg));
+    const clampedT = Math.max(0, Math.min(0.999999, t));
+    const ptsCopy = pts.map(x => [x[0], x[1]] as [number, number]);
+    this.issSync = { pts: ptsCopy, seg: clampedSeg, t: clampedT, lat, lon };
     const pend = this.pending.get('sp_iss');
     if (pend) {
       pend.lat = lat;
       pend.lon = lon;
-      if (pend.route) pend.route.pts = pts;
+      if (pend.route) pend.route.pts = ptsCopy;
       this.pendingN.set('sp_iss', new THREE.Vector3(...latLonToVec(lat, lon)));
     }
     const p = this.placed.get('sp_iss');
     if (p) {
       p.item.lat = lat;
       p.item.lon = lon;
-      if (p.item.route) p.item.route.pts = pts;
-      p.pts = pts.map(x => [x[0], x[1]] as [number, number]);
-      p.seg = Math.max(0, Math.min(pts.length - 2, seg));
-      p.t = Math.max(0, Math.min(0.999, t));
+      if (p.item.route) p.item.route.pts = ptsCopy;
+      p.pts = ptsCopy.map(x => [x[0], x[1]] as [number, number]);
+      p.seg = clampedSeg;
+      p.t = clampedT;
+      p.n.set(...latLonToVec(lat, lon));
       this.dirty = true;
     }
   }
@@ -1474,6 +1490,35 @@ export class Globe {
   }
 
   private updateItems(dt: number): void {
+    if (!this.placed.has('sp_iss') && this.issSync && dt > 0) {
+      const pts = this.issSync.pts;
+      if (pts.length >= 2) {
+        const stepMs = (92.9 * 60_000) / pts.length;
+        const earthDegPerMs = ((360 / 86164) + (5.0 / 86400)) / 1000;
+        const dLon = earthDegPerMs * dt;
+        for (let i = 0; i < pts.length; i++) {
+          pts[i][1] = ((((pts[i][1] - dLon + 180) % 360) + 360) % 360) - 180;
+        }
+        let nextT = this.issSync.t + dt / stepMs;
+        let nextSeg = this.issSync.seg;
+        if (nextT >= 1) {
+          const steps = Math.floor(nextT);
+          nextT -= steps;
+          nextSeg = (nextSeg + steps) % pts.length;
+        }
+        const [la, lo] = slerpLatLon(pts[nextSeg], pts[(nextSeg + 1) % pts.length], nextT);
+        this.issSync.seg = nextSeg;
+        this.issSync.t = nextT;
+        this.issSync.lat = la;
+        this.issSync.lon = lo;
+        const pend = this.pending.get('sp_iss');
+        if (pend) {
+          pend.lat = la;
+          pend.lon = lo;
+          this.pendingN.set('sp_iss', new THREE.Vector3(...latLonToVec(la, lo)));
+        }
+      }
+    }
     const cdir = this.camera.position.clone().normalize(), hz = this.horizonCos(0.12);
     // pixels per world unit at distance 1, for the level-of-detail test
     const pxK = (this.renderer.domElement.clientHeight || 800) / (2 * Math.tan((this.camera.fov * Math.PI) / 360));
@@ -1491,15 +1536,42 @@ export class Globe {
       if (it.route) {
         const r = it.route, pts = p.pts;
         const a = pts[p.seg], b = pts[(p.seg + 1) % pts.length];
-        const seg = this.angDist(a, b) * (180 / Math.PI) || 1;
-        p.t += (r.speed * dt) / 1000 / seg;
+        if (it.key === 'sp_iss') {
+          const stepMs = (92.9 * 60_000) / Math.max(1, pts.length);
+          const earthDegPerMs = ((360 / 86164) + (5.0 / 86400)) / 1000;
+          const dLon = earthDegPerMs * dt;
+          for (let i = 0; i < pts.length; i++) {
+            pts[i][1] = ((((pts[i][1] - dLon + 180) % 360) + 360) % 360) - 180;
+          }
+          p.t += dt / stepMs;
+        } else {
+          const seg = this.angDist(a, b) * (180 / Math.PI) || 1;
+          p.t += (r.speed * dt) / 1000 / seg;
+        }
         if (p.t >= 1) {
-          p.t = 0;
-          if (r.mode === 'loop') p.seg = (p.seg + 1) % pts.length;
-          else { p.seg += 1; if (p.seg >= pts.length - 1) { pts.reverse(); p.seg = 0; } }
+          if (r.mode === 'loop') {
+            const steps = Math.floor(p.t);
+            p.t = it.key === 'sp_iss' ? p.t - steps : 0;
+            p.seg = (p.seg + steps) % pts.length;
+          } else {
+            p.t = 0;
+            p.seg += 1;
+            if (p.seg >= pts.length - 1) { pts.reverse(); p.seg = 0; }
+          }
         }
         const nb = pts[(p.seg + 1) % pts.length];
         const [la, lo] = slerpLatLon(pts[p.seg], nb, p.t);
+        if (it.key === 'sp_iss') {
+          it.lat = la;
+          it.lon = lo;
+          p.n.set(...latLonToVec(la, lo));
+          if (this.issSync) {
+            this.issSync.seg = p.seg;
+            this.issSync.t = p.t;
+            this.issSync.lat = la;
+            this.issSync.lon = lo;
+          }
+        }
         const [la2, lo2] = slerpLatLon(pts[p.seg], nb, Math.min(1, p.t + 0.01));
         const v1 = new THREE.Vector3(...latLonToVec(la, lo)), v2 = new THREE.Vector3(...latLonToVec(la2, lo2));
         const hd = v2.sub(v1);

@@ -3,7 +3,7 @@ import type { Lang } from '../../shared/data/types.ts';
 
 type Dict = Record<string, string>;
 
-const en: Dict = {
+const en = {
   auraWaves: 'Atmosphere', auraAurora: 'Aurora', auraEmber: 'Solar wind', auraDusk: 'Magnetosphere', auraSculpture: 'Ionosphere',
   tools: 'Tools', globeLabel: 'Interactive 3D globe',
   solarSystem: 'Solar System', skyEvents: 'Sky events', solarLabel: 'Interactive 3D Solar System', backToEarth: 'Back to Earth', enterEarth: 'Land on Earth',
@@ -318,17 +318,39 @@ const en: Dict = {
   "solar.day": "Daylight",
   "solar.twilight": "Twilight",
   "solar.night": "Night",
+  solarDay: "Daylight",
+  solarTwilight: "Twilight",
+  solarNight: "Night",
+  wxClear: "Clear",
+  wxPartly: "Partly cloudy",
+  wxCloudy: "Overcast",
+  wxFog: "Fog",
+  wxDrizzle: "Drizzle",
+  wxRain: "Rain",
+  wxSnow: "Snow",
+  wxStorm: "Thunderstorm",
+  kpQuiet: "Quiet magnetosphere",
+  kpActive: "Active aurora",
+  kpStorm: "Geomagnetic storm",
   "weather.wind": "Wind {kmh} km/h",
   "weather.liveTitle": "Live local weather & solar phase",
   "iss.astronautView": "Astronaut View",
   "iss.telemetry": "Live telemetry · Alt {alt} km · {vel} km/h",
+  "iss.telemetryEst": "Estimated orbit · Alt {alt} km · {vel} km/h",
+  "iss.telemetryStale": "Stale telemetry · Alt {alt} km · {vel} km/h",
+  "iss.telemetryUnavailable": "Telemetry offline (estimated) · Alt {alt} km · {vel} km/h",
+  "iss.justNow": "updated just now",
+  "iss.agoMin": "updated {m}m ago",
   "quake.title": "M{mag} Earthquake",
   "quake.depthKm": "Depth {km} km",
   "quake.agoMin": "{m} min ago",
   "quake.agoHr": "{h} hr ago",
-};
+  "quake.demo": "Offline sample",
+} as const;
 
-const zh: Dict = {
+export type I18nKey = keyof typeof en;
+
+const zh: Record<I18nKey, string> = {
   title: '寰星', webglFail: '你的浏览器无法启动 3D 图形。请换一个浏览器，或开启硬件加速。',
   photo: '拍照', collection: '图鉴', game: '游戏', close: '关闭', back: '返回', open: '打开', start: '开始', next: '下一步', done: '完成', skip: '跳过',
   hintDrag: '<b>拖动</b> 旋转地球', hintZoom: '<b>滚轮 / 双指</b> 放大看到更多地方', hintTap: '<b>点击标记</b> 查看图片与介绍', tutorialAgain: '再看一次教程', hintSpaceDrag: '<b>拖动</b> 环顾四周', hintSpaceZoom: '<b>滚轮 / 双指</b> 缩放 · 一直缩小会升到上一层级', hintSpaceTap: '<b>点击名字</b> 查看图片与介绍', hintSpaceRail: '<b>左上角层级</b> 在各层级之间切换',
@@ -643,14 +665,34 @@ const zh: Dict = {
   "solar.day": "白天",
   "solar.twilight": "晨昏",
   "solar.night": "夜晚",
+  solarDay: "白天",
+  solarTwilight: "晨昏",
+  solarNight: "夜晚",
+  wxClear: "晴朗",
+  wxPartly: "少云",
+  wxCloudy: "阴天",
+  wxFog: "雾",
+  wxDrizzle: "毛毛雨",
+  wxRain: "雨",
+  wxSnow: "雪",
+  wxStorm: "雷暴",
+  kpQuiet: "地磁平静",
+  kpActive: "极光活跃",
+  kpStorm: "地磁暴",
   "weather.wind": "风速 {kmh} 公里/时",
   "weather.liveTitle": "当地实时天气与昼夜状态",
   "iss.astronautView": "宇航员第一视角",
   "iss.telemetry": "实时遥测 · 高度 {alt} 公里 · {vel} 公里/时",
+  "iss.telemetryEst": "轨道推算 · 高度 {alt} 公里 · {vel} 公里/时",
+  "iss.telemetryStale": "过时遥测 · 高度 {alt} 公里 · {vel} 公里/时",
+  "iss.telemetryUnavailable": "遥测离线（轨道推算）· 高度 {alt} 公里 · {vel} 公里/时",
+  "iss.justNow": "刚刚更新",
+  "iss.agoMin": "{m} 分钟前更新",
   "quake.title": "M{mag} 级地震",
   "quake.depthKm": "震源深度 {km} 公里",
   "quake.agoMin": "{m} 分钟前",
   "quake.agoHr": "{h} 小时前",
+  "quake.demo": "离线示例数据",
 };
 
 const DICTS: Record<Lang, Dict> = { en, zh };
@@ -676,7 +718,7 @@ export function onLang(fn: (l: Lang) => void): () => void { subs.add(fn); return
 const warned = new Set<string>();
 export function t(key: string, vars?: Record<string, string | number>, l: Lang = current): string {
   if (import.meta.env?.DEV && !(key in en) && !warned.has(key)) { warned.add(key); console.warn(`i18n: no key "${key}"`); }
-  let s = DICTS[l][key] ?? en[key] ?? key;
+  let s = DICTS[l][key] ?? en[key as I18nKey] ?? key;
   if (vars) for (const [k, v] of Object.entries(vars)) s = s.replaceAll('{' + k + '}', String(v));
   return s;
 }
