@@ -486,7 +486,7 @@ export class Globe {
   private audioLevel = 0;
   /** Live radio levels (0..1): bass, mid, high. */
   private live: [number, number, number] = [0, 0, 0];
-  private layers: GlobeLayers | null = null;
+  layers: GlobeLayers | null = null;
   private dirty = true;
   private last = performance.now();
   private lastLabel = 0;
@@ -1489,8 +1489,10 @@ export class Globe {
     this.camera.updateMatrixWorld();
   }
 
+  private lastItemsClock = 0;
+
   private updateItems(dt: number): void {
-    if (!this.placed.has('sp_iss') && this.issSync && dt > 0) {
+    if (this.issSync && dt > 0) {
       const pts = this.issSync.pts;
       if (pts.length >= 2) {
         const stepMs = (92.9 * 60_000) / pts.length;
@@ -1517,6 +1519,18 @@ export class Globe {
           pend.lon = lo;
           this.pendingN.set('sp_iss', new THREE.Vector3(...latLonToVec(la, lo)));
         }
+        const placedIss = this.placed.get('sp_iss');
+        if (placedIss) {
+          for (let i = 0; i < pts.length && i < placedIss.pts.length; i++) {
+            placedIss.pts[i][0] = pts[i][0];
+            placedIss.pts[i][1] = pts[i][1];
+          }
+          placedIss.seg = nextSeg;
+          placedIss.t = nextT;
+          placedIss.item.lat = la;
+          placedIss.item.lon = lo;
+          placedIss.n.set(...latLonToVec(la, lo));
+        }
       }
     }
     const cdir = this.camera.position.clone().normalize(), hz = this.horizonCos(0.12);
@@ -1537,13 +1551,15 @@ export class Globe {
         const r = it.route, pts = p.pts;
         const a = pts[p.seg], b = pts[(p.seg + 1) % pts.length];
         if (it.key === 'sp_iss') {
-          const stepMs = (92.9 * 60_000) / Math.max(1, pts.length);
-          const earthDegPerMs = ((360 / 86164) + (5.0 / 86400)) / 1000;
-          const dLon = earthDegPerMs * dt;
-          for (let i = 0; i < pts.length; i++) {
-            pts[i][1] = ((((pts[i][1] - dLon + 180) % 360) + 360) % 360) - 180;
+          if (!this.issSync) {
+            const stepMs = (92.9 * 60_000) / Math.max(1, pts.length);
+            const earthDegPerMs = ((360 / 86164) + (5.0 / 86400)) / 1000;
+            const dLon = earthDegPerMs * dt;
+            for (let i = 0; i < pts.length; i++) {
+              pts[i][1] = ((((pts[i][1] - dLon + 180) % 360) + 360) % 360) - 180;
+            }
+            p.t += dt / stepMs;
           }
-          p.t += dt / stepMs;
         } else {
           const seg = this.angDist(a, b) * (180 / Math.PI) || 1;
           p.t += (r.speed * dt) / 1000 / seg;
@@ -1565,12 +1581,6 @@ export class Globe {
           it.lat = la;
           it.lon = lo;
           p.n.set(...latLonToVec(la, lo));
-          if (this.issSync) {
-            this.issSync.seg = p.seg;
-            this.issSync.t = p.t;
-            this.issSync.lat = la;
-            this.issSync.lon = lo;
-          }
         }
         const [la2, lo2] = slerpLatLon(pts[p.seg], nb, Math.min(1, p.t + 0.01));
         const v1 = new THREE.Vector3(...latLonToVec(la, lo)), v2 = new THREE.Vector3(...latLonToVec(la2, lo2));
@@ -1784,7 +1794,9 @@ export class Globe {
     // Re-scan the queue when the view changed (or every ¼ s for moving vehicles / freshly loaded packs).
     if (this.pending.size && (this.dirty || now - this.lastDrain > 250)) { this.lastDrain = now; this.drainPlacement(this.quality.drainMs); }
     if (!animate && !this.dirty) return;
-    this.updateItems(dt);
+    const itemDt = Math.max(0, Math.min(5000, this.clock - this.lastItemsClock));
+    this.lastItemsClock = this.clock;
+    this.updateItems(itemDt);
     this.updateSun();
     this.styleBorders();
     if (this.layers) {

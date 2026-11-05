@@ -4,7 +4,7 @@ import type { CatalogueItem } from '../../shared/data/types.ts';
 import { TYPE_META } from '../../shared/data/typemeta.ts';
 import { latLonToVec } from '../../shared/lib/geo.ts';
 import { isHappening } from '../../shared/lib/season.ts';
-import { fetchRecentQuakes, getQuakeFeedStatus, quakeColorRgb, type QuakeEvent, type QuakeFeedStatus } from '../lib/earthquakes.ts';
+import { DEFAULT_QUAKE_FILTER, fetchRecentQuakes, filterQuakes, getQuakeFeedStatus, quakeColorRgb, type QuakeEvent, type QuakeFeedStatus, type QuakeFilter } from '../lib/earthquakes.ts';
 import { currentKpStatus, fetchKpStatus } from '../lib/weather.ts';
 
 /**
@@ -831,7 +831,9 @@ export class Earthquakes {
   private phaseAttr: THREE.BufferAttribute;
   private unitPos = new Float32Array(MAX_QUAKES * 3);
   private projMat = new THREE.Matrix4();
+  allEvents: QuakeEvent[] = [];
   events: QuakeEvent[] = [];
+  filter: QuakeFilter = { ...DEFAULT_QUAKE_FILTER };
   status: QuakeFeedStatus = 'loading';
   private lastFetchAt = 0;
 
@@ -892,16 +894,26 @@ export class Earthquakes {
     this.geo.setDrawRange(0, count);
   }
 
+  setFilter(next: Partial<QuakeFilter>): void {
+    this.filter = { ...this.filter, ...next };
+    this.loadEvents(filterQuakes(this.allEvents, this.filter));
+  }
+
+  async refresh(force = false): Promise<QuakeEvent[]> {
+    this.lastFetchAt = Date.now();
+    this.status = 'loading';
+    const ev = await fetchRecentQuakes(force);
+    this.status = getQuakeFeedStatus();
+    this.allEvents = ev;
+    this.loadEvents(filterQuakes(ev, this.filter));
+    return ev;
+  }
+
   setVisible(on: boolean): void {
     const becameVisible = on && !this.root.visible;
     this.root.visible = on;
     if (becameVisible || (on && Date.now() - this.lastFetchAt > 300_000)) {
-      this.lastFetchAt = Date.now();
-      this.status = 'loading';
-      void fetchRecentQuakes().then(ev => {
-        this.status = getQuakeFeedStatus();
-        this.loadEvents(ev);
-      });
+      void this.refresh();
     }
   }
 

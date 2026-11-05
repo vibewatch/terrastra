@@ -959,3 +959,75 @@ html.classroom .lv-text b { font-size: .95rem; }
 .menu .switch-card.sw-chip .sw-label { font-size: .8rem; }
 .menu .switch-card.sw-chip .sw-emoji .ico { width: 14px; height: 14px; }
 @media (pointer: coarse) { .menu .seg button, .menu .seg-row .pill, .menu .switch-card.sw-chip { min-height: 34px; } }
+
+/* ---- Learning journal & resume pills ---- */
+.lesson-journal-bar {
+  display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; margin: 10px 0 14px;
+  border: 1px solid var(--hud-line); background: var(--hud-fill);
+  clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
+}
+.lesson-journal-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px; }
+.lesson-journal-head strong { font-size: .92rem; color: var(--hud-hi); }
+.lesson-journal-continue { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; }
+.lesson-journal-review { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.lesson-resume-pill { margin-bottom: 8px; align-self: flex-start; border-color: var(--sig); color: var(--sig); }
+.tour-score { margin-left: auto; font-size: .78rem; color: var(--sig); font-variant-numeric: tabular-nums; }
+
+/* ---- Live Earth monitor modal ---- */
+.live-earth { display: flex; flex-direction: column; gap: 12px; }
+.le-status-bar {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 9px 12px; border: 1px solid var(--hud-line); background: var(--hud-fill);
+}
+.le-status-left, .le-status-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.le-badge {
+  display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; font-size: .76rem; font-weight: 600;
+  border: 1px solid var(--hud-line); background: rgba(125, 211, 252, 0.12); color: var(--hud-hi);
+}
+.le-badge.le-live { border-color: rgba(52, 211, 153, 0.55); background: rgba(16, 185, 129, 0.16); color: #6ee7b7; }
+.le-badge.le-stale { border-color: rgba(251, 191, 36, 0.55); background: rgba(245, 158, 11, 0.16); color: #fcd34d; }
+.le-badge.le-unavailable, .le-badge.le-classroom { border-color: rgba(148, 163, 184, 0.45); background: rgba(148, 163, 184, 0.12); color: var(--text-2); }
+.le-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+.le-card {
+  display: flex; flex-direction: column; gap: 6px; padding: 10px 12px;
+  border: 1px solid var(--hud-line); background: var(--hud-fill);
+}
+.le-card-head { display: flex; align-items: center; gap: 7px; }
+.le-card-head small { margin-left: auto; }
+.le-card-val { margin: 0; font-family: var(--font-data); font-size: .85rem; color: var(--text); }
+.le-card .pill-sm { align-self: flex-start; }
+.le-legend {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 7px 10px;
+  border: 1px dashed var(--hud-line); font-size: .8rem; color: var(--text-2);
+}
+.le-swatch { display: inline-flex; align-items: center; gap: 6px; }
+.le-swatch i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
+.le-filters { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+.le-filter-group { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.le-count { margin: 0; }
+.quake-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; max-height: 320px; overflow-y: auto; }
+.quake-row {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px;
+  border: 1px solid var(--hud-line); background: var(--hud-fill); color: var(--text);
+  font: inherit; text-align: left; cursor: pointer;
+}
+.quake-row:hover, .quake-row:focus-visible { background: var(--hud-fill-hi); border-color: var(--line-strong); }
+.quake-mag-badge {
+  flex: none; min-width: 48px; padding: 3px 7px; text-align: center; font-family: var(--font-data); font-weight: 700; font-size: .82rem;
+  border: 1px solid var(--q-col, #fd6138); background: rgba(4, 11, 20, 0.75); color: var(--q-col, #fd6138);
+}
+.quake-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.quake-row-main strong { font-size: .88rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.quake-row-main small { font-size: .76rem; }
+.quake-row-age { flex: none; font-size: .76rem; color: var(--muted); white-space: nowrap; }
+
+/* ---- Observing planner inside Tonight ---- */
+.tn-planner-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.tn-forecast {
+  margin: 6px 0 2px; padding: 6px 10px; border-left: 3px solid var(--hud);
+  background: var(--hud-fill); font-size: .84rem;
+}
+.tn-forecast.tn-fc-excellent, .tn-forecast.tn-fc-good { border-left-color: #34d399; }
+.tn-forecast.tn-fc-fair { border-left-color: #fbbf24; }
+.tn-forecast.tn-fc-poor { border-left-color: #f87171; }
+

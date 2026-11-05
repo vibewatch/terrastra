@@ -3,6 +3,7 @@
  * Uses https://api.wheretheiss.at/v1/satellites/25544 when online and smoothly propagates a
  * 51.64° inclined low-Earth orbit between polls or when offline.
  */
+import { classroom } from './classroom.ts';
 import { solarStatusAt } from './weather.ts';
 
 /** Freshness window (5 minutes) during which a live observation is considered current rather than stale. */
@@ -213,6 +214,7 @@ export function currentIssOrbitPts(nowMs = Date.now()): { pts: [number, number][
 /** Fetches live ISS position from wheretheiss.at (throttled to 15 s) and updates the orbital anchor. */
 export async function refreshIssTelemetry(): Promise<IssTelemetry> {
   const now = Date.now();
+  if (classroom()) return propagateIss(now);
   if (lastFetchMs > 0 && now - lastFetchMs < 15_000) return propagateIss(now);
   if (inflight) return inflight;
 

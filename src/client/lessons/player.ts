@@ -20,6 +20,7 @@ import { CATALOGS, lessonById, nextLesson, subjectOf, type Lesson, type Quiz, ty
 import { renderFig, type Fig } from './figs.ts';
 import { optionOrder, shuffled } from './shuffle.ts';
 import type { AstroScene, Home, LL, Pair } from './kit.ts';
+import { pickContinueLesson, recordLessonFinish, recordLessonStep, type LessonJournal } from '../../shared/lib/journal.ts';
 
 /** Where the learner tapped, how far from the answer, and the country tapped ("find the country" questions). */
 type Tap = { ll: LL; km: number; a2?: string | null };
@@ -38,6 +39,8 @@ export interface LessonHost {
 }
 
 const done = () => new Set(load<string[]>('lessonsDone', []));
+const journal = (): LessonJournal => load<LessonJournal>('lessonJournal', {});
+const saveJournal = (j: LessonJournal): void => save('lessonJournal', j);
 /** The curriculum picked in a subject's lesson list; Chinese readers start with the Chinese course. */
 const view = (sub: Subject): string => { const c = CATALOGS[sub], v = load<string>(c.key, ''); return v in c.views ? v : c.def(lang() === 'zh'); };
 const figure = (f: Fig | undefined) => f ? h('figure', { class: 'lesson-fig', 'data-testid': 'lesson-fig', html: renderFig(f, L) }) : '';
@@ -46,15 +49,22 @@ let active: { stop: () => void } | null = null;
 export const lessoning = () => active !== null;
 export function stopLesson(): void { active?.stop(); }
 
-export function startLesson(id: string, host: LessonHost): void {
+export function nextForJournal(id: string): string {
+  const sub = subjectOf(id);
+  const v = view(sub);
+  const nx = nextLesson(id, v) ?? (v === 'all' ? undefined : nextLesson(id, 'all'));
+  return nx?.id ?? id;
+}
+
+export function startLesson(id: string, host: LessonHost, opts?: { resume?: boolean }): void {
   const lesson = lessonById(id);
   if (!lesson || host.blocked()) return;
   stopLesson();
   document.querySelector('.tutorial')?.remove();
-  host.toEarth(() => run(lesson, host));
+  host.toEarth(() => run(lesson, host, opts?.resume ?? false));
 }
 
-function run(lesson: Lesson, host: LessonHost): void {
+function run(lesson: Lesson, host: LessonHost, resume = false): void {
   stopLesson();
   const g = host.globe;
   const stage = new LessonStage(g, { low: host.low, lang, frame: () => freeArea(card) });
@@ -73,6 +83,7 @@ function run(lesson: Lesson, host: LessonHost): void {
   // a lesson about the learner's own place is made once they say where they live (`pickHome`); practice tests are drawn afresh
   let steps = lesson.steps, quiz = lesson.quiz;
   if (lesson.gen) ({ steps, quiz } = lesson.gen());
+  const priorStep = !lesson.gen ? (journal()[lesson.id]?.stepIndex ?? 0) : 0;
   /** 0 … steps-1 are steps; steps … steps+quiz-1 are questions; steps+quiz is the score card. */
   let i = 0;
   let answers: (boolean | null)[] = quiz.map(() => null);
@@ -148,9 +159,16 @@ function run(lesson: Lesson, host: LessonHost): void {
     const st = steps[i];
     stage.onClock = null;
     if (astro) astro.onClock = null;
+    const canResume = i === 0 && priorStep > 0 && priorStep < steps.length;
     card.replaceChildren(
       head(`${i + 1} / ${steps.length}`),
       h('h2', { id: 'lesson-title' }, L(st.title)),
+      canResume ? h('button', {
+        class: 'pill pill-sm lesson-resume-btn',
+        'data-testid': 'lesson-resume-step',
+        html: icon('clock', 13),
+        onclick: () => go(priorStep),
+      }, h('span', {}, t('lessonResumeAt', { i: priorStep + 1, n: steps.length }))) : '',
       st.sketch ? h('p', { class: 'tour-track tour-sketch', 'data-testid': 'lesson-sketch', html: icon('sparkle', 14) }, h('span', {}, t('lessonSketch'))) : '',
       h('p', { class: 'tour-body', 'aria-live': 'polite' }, L(st.body)),
       figure(st.fig),
@@ -457,8 +475,11 @@ function run(lesson: Lesson, host: LessonHost): void {
     picked = was?.picked ?? null; tap = was?.tap ?? null; work = was?.work ?? fresh();
     g.captureTaps = false; g.ev.onGlobeTap = undefined;
     if (astro) astro.onPick = null;
-    if (i < steps.length) showStep(steps[i]);
-    else if (i < steps.length + quiz.length) {
+    if (i < steps.length) {
+      if (i > 0) saveJournal(recordLessonStep(journal(), lesson.id, i, steps.length + quiz.length));
+      showStep(steps[i]);
+    } else if (i < steps.length + quiz.length) {
+      saveJournal(recordLessonStep(journal(), lesson.id, i, steps.length + quiz.length));
       const q = quiz[i - steps.length];
       quizScene(q);
       listen(i - steps.length);
@@ -471,6 +492,23 @@ function run(lesson: Lesson, host: LessonHost): void {
     astro?.hide();
     stage.show({ cam: [g.lat, g.lon, Math.max(g.h, 3)] });
     save('lessonsDone', [...done().add(lesson.id)]);
+    let score = 0, total = 0;
+    const missed: (readonly [string, string])[] = [];
+    quiz.forEach((q, k) => {
+      if (lesson.exam && q.match) {
+        const pairs = kept[k]?.work.pairs;
+        total += q.match.length;
+        q.match.forEach((p, j) => {
+          if (pairs?.get(j) === j) score += 1;
+          else missed.push(p[0]);
+        });
+      } else {
+        total += 1;
+        if (answers[k]) score += 1;
+        else missed.push(q.tag ?? q.q);
+      }
+    });
+    saveJournal(recordLessonFinish(journal(), lesson.id, score, Math.max(1, total), missed, steps.length + quiz.length));
     if (answers.filter(Boolean).length >= quiz.length - 1) confetti(40);
   };
 
@@ -492,7 +530,11 @@ function run(lesson: Lesson, host: LessonHost): void {
   active = self;
   document.body.append(root);
   document.body.classList.add('lessoning');
-  if (lesson.build) askHome(); else go(0);
+  if (lesson.build) askHome();
+  else {
+    const startIdx = resume && priorStep > 0 && priorStep < steps.length ? priorStep : 0;
+    go(startIdx);
+  }
 }
 
 /** The biggest clear part of the screen beside the card (below the top bar, above the bottom controls). */
@@ -526,20 +568,90 @@ function nextSolstice(): string | undefined {
 
 /** The lesson picker of a subject: pick a curriculum, then its lessons in groups (textbook volumes, or themes). */
 export function openLessons(host: LessonHost, sub: Subject = 'geo'): void {
-  const seen = done(), cat = CATALOGS[sub];
+  const seen = done(), jMap = journal(), cat = CATALOGS[sub];
   const list = h('div', { class: 'tour-list lesson-list', 'data-testid': 'lesson-list' });
+  const journalBox = h('div', { class: 'lesson-journal-wrap' });
   const note = h('p', { class: 'muted small' });
+
+  const renderJournal = (v: string) => {
+    const cont = pickContinueLesson(jMap, id => subjectOf(id) === sub && !!lessonById(id));
+    const subEntries = Object.values(jMap).filter(e => subjectOf(e.id) === sub && !!lessonById(e.id));
+    const reviewPairs: Pair[] = [];
+    const seenTopics = new Set<string>();
+    for (const e of subEntries.sort((a, b) => b.updatedAt - a.updatedAt)) {
+      for (const topic of e.missedTopics) {
+        const key = `${topic[0]}|${topic[1]}`;
+        if (!seenTopics.has(key)) {
+          seenTopics.add(key);
+          reviewPairs.push(topic);
+        }
+        if (reviewPairs.length >= 6) break;
+      }
+      if (reviewPairs.length >= 6) break;
+    }
+
+    if (!cont && seen.size === 0) {
+      journalBox.replaceChildren();
+      return;
+    }
+
+    const isMid = !!cont && cont.stepIndex > 0 && cont.stepIndex < cont.totalSteps;
+    const targetLesson = cont
+      ? (isMid
+          ? lessonById(cont.id)
+          : (nextLesson(cont.id, v) ?? (v === 'all' ? undefined : nextLesson(cont.id, 'all')) ?? lessonById(cont.id)))
+      : undefined;
+
+    const completedCount = [...seen].filter(id => subjectOf(id) === sub).length;
+    const scoredEntries = subEntries.filter(e => e.bestScore !== null && e.quizTotal > 0);
+    const totalGot = scoredEntries.reduce((acc, e) => acc + (e.bestScore ?? 0), 0);
+    const totalPts = scoredEntries.reduce((acc, e) => acc + e.quizTotal, 0);
+
+    journalBox.replaceChildren(
+      h('section', { class: 'lesson-journal-bar', 'data-testid': 'lesson-journal' },
+        h('div', { class: 'lj-main' },
+          h('p', { class: 'lj-kicker', html: icon('book', 14) },
+            h('strong', {}, t('journal.title')),
+            h('span', { class: 'muted small' },
+              totalPts > 0
+                ? t('journal.statsScore', { done: completedCount, got: totalGot, total: totalPts })
+                : t('journal.statsDone', { done: completedCount }))),
+          targetLesson ? h('p', { class: 'lj-sub' },
+            isMid && cont
+              ? `${L(targetLesson.title)} · ${t('lessonInProg', { i: cont.stepIndex + 1, n: cont.totalSteps })}`
+              : `${t('journal.nextUp')}: ${L(targetLesson.title)}`) : null,
+          reviewPairs.length > 0 ? h('p', { class: 'lj-review muted small', 'data-testid': 'lesson-journal-review' },
+            h('strong', {}, t('journal.review') + ': '),
+            reviewPairs.map(L).join(lang() === 'zh' ? '、' : ', ')) : null),
+        targetLesson ? h('button', {
+          class: 'cta pill-sm',
+          'data-testid': 'lesson-continue',
+          onclick: () => {
+            closeModal('lessons');
+            startLesson(targetLesson.id, host, { resume: isMid });
+          },
+        }, isMid ? t('journal.continueBtn') : t('journal.startNextBtn')) : null));
+  };
+
   const fill = (v: string) => {
     note.textContent = L(cat.views[v].note);
+    renderJournal(v);
     const groups = cat.course(v).map(gr => h('section', { class: 'lesson-group' },
       h('h3', { class: 'lesson-grade' }, h('span', {}, L(gr.name)), h('small', {}, `${gr.lessons.filter(x => seen.has(x.id)).length}/${gr.lessons.length}`)),
-      ...gr.lessons.map(x => h('div', { class: 'tour-row lesson-row' + (seen.has(x.id) ? ' done' : '') },
-        h('button', { class: 'tour-pick', 'data-testid': 'lesson-' + x.id, onclick: () => { closeModal('lessons'); startLesson(x.id, host); } },
-          h('span', { class: 'tile', html: icon(x.icon, 18) }),
-          h('span', { class: 'grow' }, h('strong', {}, L(x.title)), h('span', { class: 'muted small' }, `${L(x.unit)} · ${L(x.blurb)}`)),
-          h('span', { class: 'meta' }, (seen.has(x.id) ? '✓ ' : '') + t('minutesN', { n: x.minutes }))),
-        h('button', { class: 'icon-btn tour-link', 'aria-label': t('classLink'), title: t('classLink'), html: icon('share', 14),
-          onclick: () => void copyLink(sub === 'ssbs' ? ssbsLink(x.id) : classroomLink(x.id, 'lesson')) })))));
+      ...gr.lessons.map(x => {
+        const je = jMap[x.id];
+        const scoreTag = je && je.bestScore !== null && je.quizTotal > 0 ? `★ ${je.bestScore}/${je.quizTotal} · ` : '';
+        const progTag = !seen.has(x.id) && je && je.stepIndex > 0 && je.stepIndex < je.totalSteps
+          ? `${t('lessonInProg', { i: je.stepIndex + 1, n: je.totalSteps })} · `
+          : '';
+        return h('div', { class: 'tour-row lesson-row' + (seen.has(x.id) ? ' done' : '') },
+          h('button', { class: 'tour-pick', 'data-testid': 'lesson-' + x.id, onclick: () => { closeModal('lessons'); startLesson(x.id, host); } },
+            h('span', { class: 'tile', html: icon(x.icon, 18) }),
+            h('span', { class: 'grow' }, h('strong', {}, L(x.title)), h('span', { class: 'muted small' }, `${L(x.unit)} · ${L(x.blurb)}`)),
+            h('span', { class: 'meta' }, (seen.has(x.id) ? '✓ ' : '') + scoreTag + progTag + t('minutesN', { n: x.minutes }))),
+          h('button', { class: 'icon-btn tour-link', 'aria-label': t('classLink'), title: t('classLink'), html: icon('share', 14),
+            onclick: () => void copyLink(sub === 'ssbs' ? ssbsLink(x.id) : classroomLink(x.id, 'lesson')) }));
+      })));
     list.replaceChildren(...groups);
   };
   const sel = new Select({ label: t('lessonTrack'), testid: 'lesson-track', icon: 'book', value: view(sub),
@@ -547,6 +659,7 @@ export function openLessons(host: LessonHost, sub: Subject = 'geo'): void {
     onChange: v => { save(cat.key, v); fill(v); } });
   fill(view(sub));
   openModal('lessons', t(sub === 'astro' ? 'astroLessons' : sub === 'ssbs' ? 'ssbsLessons' : 'lessons'), h('div', { class: 'lesson-pickwrap' }, h('p', { class: 'muted' }, t(sub === 'astro' ? 'astroIntro' : sub === 'ssbs' ? 'ssbsIntro' : 'lessonsIntro')),
+    journalBox,
     h('div', { class: 'lesson-track' }, sel.el, note), list));
 }
 

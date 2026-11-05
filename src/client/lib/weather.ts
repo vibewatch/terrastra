@@ -4,6 +4,7 @@
  */
 import { latLonToVec } from '../../shared/lib/geo.ts';
 import { subsolar } from '../../shared/lib/sun.ts';
+import { classroom } from './classroom.ts';
 import type { I18nKey } from './i18n.ts';
 
 export type SolarPhase = 'day' | 'twilight' | 'night';
@@ -68,7 +69,7 @@ function weatherKey(lat: number, lon: number): string {
 
 /** Fetches live local surface weather from Open-Meteo, cached by 0.1° grid cell for 10 minutes. */
 export async function fetchLocalWeather(lat: number, lon: number): Promise<LocalWeather | null> {
-  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  if (!Number.isFinite(lat) || !Number.isFinite(lon) || classroom()) return null;
   const key = weatherKey(lat, lon);
   const hit = weatherCache.get(key);
   if (hit && Date.now() - hit.at < WEATHER_TTL_MS) return hit.data;
@@ -147,6 +148,7 @@ let kpInflight: Promise<KpStatus> | null = null;
 
 /** Fetches the latest NOAA planetary Kp geomagnetic index (cached 15 minutes, falls back gracefully). */
 export async function fetchKpStatus(): Promise<KpStatus> {
+  if (classroom()) return kpCached?.status ?? KP_FALLBACK;
   if (kpCached && Date.now() - kpCached.at < 15 * 60_000) return kpCached.status;
   if (kpInflight) return kpInflight;
   kpInflight = (async (): Promise<KpStatus> => {
@@ -173,4 +175,85 @@ export async function fetchKpStatus(): Promise<KpStatus> {
 
 export function currentKpStatus(): KpStatus {
   return kpCached?.status ?? KP_FALLBACK;
+}
+
+export interface NightCloudForecast {
+  /** Mean cloud cover percentage (0..100) across the dark/night hours. */
+  meanCloudPct: number;
+  /** Minimum cloud cover percentage (0..100) during the best observing window. */
+  bestCloudPct: number;
+  /** Best 2-hour observing window `[startMs, endMs]` within the night window. */
+  bestWindow: [number, number] | null;
+  /** Overall sky condition verdict key (`wxClear`, `wxPartly`, or `wxCloudy`). */
+  verdictKey: 'wxClear' | 'wxPartly' | 'wxCloudy';
+  /** Hourly samples within the night window. */
+  hours: { timeMs: number; cloudPct: number }[];
+}
+
+/** Parses an Open-Meteo hourly `cloud_cover` payload for `[startMs, endMs]`. */
+export function parseNightCloudForecast(raw: unknown, startMs: number, endMs: number): NightCloudForecast | null {
+  if (!raw || typeof raw !== 'object' || !(endMs > startMs)) return null;
+  const hourly = (raw as { hourly?: { time?: unknown[]; cloud_cover?: unknown[] } }).hourly;
+  if (!hourly || !Array.isArray(hourly.time) || !Array.isArray(hourly.cloud_cover)) return null;
+  const n = Math.min(hourly.time.length, hourly.cloud_cover.length);
+  const hours: { timeMs: number; cloudPct: number }[] = [];
+  for (let i = 0; i < n; i++) {
+    const rawT = hourly.time[i];
+    const timeMs = typeof rawT === 'number'
+      ? rawT * 1000
+      : typeof rawT === 'string'
+        ? Date.parse(rawT.endsWith('Z') ? rawT : rawT + 'Z')
+        : NaN;
+    const cloud = Number(hourly.cloud_cover[i]);
+    if (!Number.isFinite(timeMs) || !Number.isFinite(cloud)) continue;
+    if (timeMs >= startMs - 3600_000 && timeMs <= endMs + 1800_000) {
+      hours.push({ timeMs, cloudPct: Math.max(0, Math.min(100, Math.round(cloud))) });
+    }
+  }
+  if (hours.length === 0) return null;
+  const meanCloudPct = Math.round(hours.reduce((acc, h) => acc + h.cloudPct, 0) / hours.length);
+  let bestCloudPct = hours[0].cloudPct;
+  let bestStartMs = Math.max(startMs, hours[0].timeMs);
+  for (let i = 0; i < hours.length; i++) {
+    const pairAvg = i + 1 < hours.length ? Math.round((hours[i].cloudPct + hours[i + 1].cloudPct) / 2) : hours[i].cloudPct;
+    if (pairAvg < bestCloudPct) {
+      bestCloudPct = pairAvg;
+      bestStartMs = Math.max(startMs, hours[i].timeMs);
+    }
+  }
+  const bestEndMs = Math.min(endMs, bestStartMs + 2 * 3600_000);
+  const verdictKey: 'wxClear' | 'wxPartly' | 'wxCloudy' = meanCloudPct < 30 ? 'wxClear' : meanCloudPct <= 65 ? 'wxPartly' : 'wxCloudy';
+  return {
+    meanCloudPct,
+    bestCloudPct,
+    bestWindow: bestEndMs > bestStartMs ? [bestStartMs, bestEndMs] : [startMs, endMs],
+    verdictKey,
+    hours,
+  };
+}
+
+const nightForecastCache = new Map<string, { at: number; data: NightCloudForecast }>();
+
+export async function fetchNightCloudForecast(lat: number, lon: number, startMs: number, endMs: number): Promise<NightCloudForecast | null> {
+  if (!Number.isFinite(lat) || !Number.isFinite(lon) || !(endMs > startMs) || classroom()) return null;
+  const key = `${weatherKey(lat, lon)}:${Math.floor(startMs / 3600_000)}`;
+  const hit = nightForecastCache.get(key);
+  if (hit && Date.now() - hit.at < WEATHER_TTL_MS) return hit.data;
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 4500);
+  try {
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(2)}&longitude=${lon.toFixed(2)}&hourly=cloud_cover&timeformat=unixtime&timezone=GMT&forecast_days=2`;
+    const res = await fetch(url, { signal: ctl.signal });
+    if (!res.ok) return null;
+    const parsed = parseNightCloudForecast(await res.json(), startMs, endMs);
+    if (parsed) {
+      nightForecastCache.set(key, { at: Date.now(), data: parsed });
+      return parsed;
+    }
+    return null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
 }

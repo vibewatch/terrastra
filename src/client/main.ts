@@ -32,6 +32,7 @@ import { initTooltips } from './ui/tooltip.ts';
 import { lazy, withBusy, showLoadError } from './ui/lazy.ts';
 import { SceneModeController } from './lib/scene-mode.ts';
 import { refreshIssTelemetry, currentIssOrbitPts } from './lib/iss.ts';
+import { getQuakeFeedStatus } from './lib/earthquakes.ts';
 import type { ScaleId } from '../shared/data/cosmos.ts';
 
 /** Panels not needed for the first screen load on first use (their chunks stay out of the entry). */
@@ -112,9 +113,12 @@ async function boot(): Promise<void> {
     onQuakeHover: (q, scr) => shell?.showQuakeHover(q, scr),
     onQuake: q => {
       globe.flyTo(q.lat, q.lon, Math.min(globe.h, 1.4), 1000);
-      const detail = q.live
-        ? t('quake.depthKm', { km: Math.round(q.depthKm) })
-        : `${t('quake.depthKm', { km: Math.round(q.depthKm) })} · ${t('quake.demo')}`;
+      const isStale = q.live && getQuakeFeedStatus() === 'stale';
+      const detail = !q.live
+        ? `${t('quake.depthKm', { km: Math.round(q.depthKm) })} · ${t('quake.demo')}`
+        : isStale
+          ? `${t('quake.depthKm', { km: Math.round(q.depthKm) })} · ${t('quake.stale')}`
+          : t('quake.depthKm', { km: Math.round(q.depthKm) });
       toast(`🌋 ${t('quake.title', { mag: q.mag.toFixed(1) })} · ${q.place} (${detail})`, 4200);
     },
     onView: (z, la, lo) => {
@@ -140,7 +144,7 @@ async function boot(): Promise<void> {
     globe.syncIssOrbit(pts, seg, curT, current.lat, current.lon);
   };
   syncIss();
-  void refreshIssTelemetry().then(syncIss);
+  if (!classroom()) void refreshIssTelemetry().then(syncIss);
   setInterval(syncIss, 20_000);
   setInterval(() => { if (!classroom() && !globe.paused) void refreshIssTelemetry().then(syncIss); }, 60_000);
   // finer borders and 1:50m land fills (including small island states missing from 1:110m) after the opening fly-in,
@@ -192,17 +196,25 @@ async function boot(): Promise<void> {
   };
 
   const openIssLive = () => {
-    if (sceneMode.gaming) return;
+    if (sceneMode.gaming || sceneMode.inSolar || sceneMode.inSky) return;
     closeMap(false);
-    void refreshIssTelemetry().then(() => {
-      syncIss();
-      const iss = BY_KEY.get('sp_iss');
-      if (iss) shell.showItem(iss, true);
-    });
+    const seq = sceneMode.beginNav();
+    const iss = BY_KEY.get('sp_iss');
+    if (iss) shell.showItem(iss, true);
+    if (!classroom()) {
+      void refreshIssTelemetry().then(() => {
+        if (!sceneMode.isCurrentNav(seq) || sceneMode.gaming || sceneMode.inSolar || sceneMode.inSky || sceneMode.inMap || isLessoning()) return;
+        syncIss();
+        if (iss && shell.current?.key === 'sp_iss') globe.flyTo(iss.lat, iss.lon, globe.h, 600);
+      });
+    }
   };
 
-  // Classroom mode has no live streams: switching it on stops the radio.
-  onClassroom(() => { if (classroom() && radio?.active) radio.toggle(false); });
+  // Classroom mode has no live streams: switching it on stops the radio; switching it off refreshes live orbit telemetry.
+  onClassroom(() => {
+    if (classroom() && radio?.active) radio.toggle(false);
+    else if (!classroom() && !globe.paused) void refreshIssTelemetry().then(syncIss);
+  });
 
   // ---- Solar System (lazy: its own renderer, loaded on first use) ----
   let solar: SolarUI | null = null;
@@ -412,6 +424,15 @@ async function boot(): Promise<void> {
   const openAstro = () => lessonsMod(m => m.openLessons(lessonHost, 'astro'));
   const openSsbs = () => lessonsMod(m => m.openLessons(lessonHost, 'ssbs'));
   const startLesson = (id: string) => lessonsMod(m => m.startLesson(id, lessonHost));
+  const continueLesson = (id: string, resume: boolean) => lessonsMod(m => {
+    const target = resume ? id : m.nextForJournal(id);
+    m.startLesson(target, lessonHost, { resume });
+  });
+  const liveEarthMod = later(() => import('./ui/live-earth.ts'), () => t('liveEarth'));
+  const openLiveEarth = () => {
+    closeMap(false);
+    liveEarthMod(m => m.openLiveEarth(globe, openIssLive));
+  };
 
   // ---- saved views (F02) ----
   const tonightMod = later(() => import('./ui/tonight.ts'), () => t('tonight'));
@@ -483,6 +504,7 @@ async function boot(): Promise<void> {
     openGame, openPassport: showPassport, openAlbum: () => photoMod(m => void m.openAlbum()),
     openTutorial: () => openTutorial(openTours),
     openTours, openLessons, openAstro, openSsbs, openBookmarks,
+    continueLesson,
     openCompare: (id?: string) => cmpMod(m => m.openCompare(id)),
     openTonight: () => tonightMod(m => m.openTonight(navTo)),
     openAccount: () => account(m => m.openAccount()), openGuestbook: () => account(m => void m.openGuestbook()),
@@ -490,6 +512,7 @@ async function boot(): Promise<void> {
     openSky: () => void openSky(),
     openRadio: () => void toggleRadio(),
     openIssLive,
+    openLiveEarth,
     toEarth: it => { if (!sceneMode.inSolar) return false; leaveSolar(it.lat, it.lon, () => shell.showItem(it)); return true; },
     zoom: inward => {
       if (sceneMode.inMap && flatMap) { flatMap.zoomBy(inward ? 1.6 : 1 / 1.6); return true; }

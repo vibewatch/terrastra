@@ -10,6 +10,7 @@ import { icon, type IconName } from './icons.ts';
 import { sfx } from '../lib/sfx.ts';
 import { dayIndex } from '../../shared/games/daily.ts';
 import { ssbsOn } from '../lib/ssbs.ts';
+import { pickContinueLesson, type LessonJournal } from '../../shared/lib/journal.ts';
 
 export type HubTab = 'learn' | 'look' | 'play' | 'me';
 const HUB_TABS: HubTab[] = ['learn', 'look', 'play', 'me'];
@@ -18,7 +19,8 @@ const TAB_LABEL: Record<HubTab, string> = { learn: 'hubLearn', look: 'hubLook', 
 
 interface HubActions {
   lessons(): void; astro(): void; ssbs(): void; tours(): void;
-  sky(): void; tonight(): void; time(): void; compare(): void; bookmarks(): void; radio(): void; iss(): void;
+  continueLesson?(id: string, resume: boolean): void;
+  sky(): void; tonight(): void; time(): void; compare(): void; bookmarks(): void; radio(): void; iss(): void; liveEarth(): void;
   game(kind: 'daily' | 'placeit' | 'quiz'): void;
   passport(): void; collection(): void; album(): void; account(): void; guestbook(): void;
   /** In space: the globe-only shelves offer a way home instead. */
@@ -36,17 +38,33 @@ function entries(tab: HubTab, a: HubActions): Entry[] {
   const lessonIds = load<string[]>('lessonsDone', []), astroDone = lessonIds.filter(x => x.startsWith('a-')).length;
   const ssbsDone = lessonIds.filter(x => x.startsWith('ssbs-')).length, geoDone = lessonIds.length - astroDone - ssbsDone;
   switch (tab) {
-    case 'learn': return [
-      { id: 'menu-lessons', ic: 'book', title: t('lessons'), sub: t('hubLessonsSub'), stat: tick(geoDone), go: a.lessons },
-      { id: 'menu-astro', ic: 'planet', title: t('astroLessons'), sub: t('hubAstroSub'), stat: tick(astroDone), go: a.astro },
-      ...(ssbsOn() ? [{ id: 'menu-ssbs', ic: 'trophy' as IconName, title: t('ssbsLessons'), sub: t('hubSsbsSub'), stat: tick(ssbsDone), go: a.ssbs }] : []),
-      { id: 'menu-tours', ic: 'compass', title: t('tours'), sub: t('hubToursSub'), stat: tick(done('toursDone')), go: a.tours },
-      { id: 'menu-link-encyclopedia', ic: 'external', title: t('encyclopedia'), sub: t('hubEncSub'), go: () => {}, href: url('encyclopedia/') },
-    ];
+    case 'learn': {
+      const cont = pickContinueLesson(load<LessonJournal>('lessonJournal', {}));
+      const showCont = Boolean(cont && (!cont.id.startsWith('ssbs-') || ssbsOn()) && a.continueLesson);
+      const inProg = Boolean(cont && cont.stepIndex > 0 && cont.stepIndex < cont.totalSteps);
+      const contEntry: Entry[] = showCont && cont ? [{
+        id: 'menu-continue-lesson',
+        ic: 'sparkle',
+        title: t('journal.continueHub'),
+        sub: inProg ? t('lessonInProg', { i: cont.stepIndex + 1, n: cont.totalSteps }) : t('journal.continueSub'),
+        stat: cont.bestScore !== null && cont.quizTotal > 0 ? `★ ${cont.bestScore}/${cont.quizTotal}` : '',
+        go: () => a.continueLesson!(cont.id, inProg),
+        earth: true,
+      }] : [];
+      return [
+        ...contEntry,
+        { id: 'menu-lessons', ic: 'book', title: t('lessons'), sub: t('hubLessonsSub'), stat: tick(geoDone), go: a.lessons },
+        { id: 'menu-astro', ic: 'planet', title: t('astroLessons'), sub: t('hubAstroSub'), stat: tick(astroDone), go: a.astro },
+        ...(ssbsOn() ? [{ id: 'menu-ssbs', ic: 'trophy' as IconName, title: t('ssbsLessons'), sub: t('hubSsbsSub'), stat: tick(ssbsDone), go: a.ssbs }] : []),
+        { id: 'menu-tours', ic: 'compass', title: t('tours'), sub: t('hubToursSub'), stat: tick(done('toursDone')), go: a.tours },
+        { id: 'menu-link-encyclopedia', ic: 'external', title: t('encyclopedia'), sub: t('hubEncSub'), go: () => {}, href: url('encyclopedia/') },
+      ];
+    }
     case 'look': return [
       { id: 'menu-sky', ic: 'eclipse', title: t('skyEvents'), sub: t('hubSkySub'), go: a.sky },
       { id: 'menu-tonight', ic: 'telescope', title: t('tonight'), sub: t('hubTonightSub'), go: a.tonight },
       { id: 'menu-iss', ic: 'rocket', title: t('issLive'), sub: t('hubIssSub'), go: a.iss, earth: true },
+      { id: 'menu-live-earth', ic: 'quake', title: t('liveEarth'), sub: t('hubLiveEarthSub'), go: a.liveEarth, earth: true },
       { id: 'menu-time', ic: 'clock', title: t('timeMachine'), sub: t('hubTimeSub'), go: a.time, earth: true },
       { id: 'menu-compare', ic: 'ruler', title: t('compare'), sub: t('hubCompareSub'), go: a.compare },
       { id: 'menu-bookmarks', ic: 'pin', title: t('bookmarks'), sub: t('hubBookmarksSub'), go: a.bookmarks },

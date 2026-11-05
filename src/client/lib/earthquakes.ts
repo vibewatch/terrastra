@@ -3,6 +3,8 @@
  * https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_day.geojson
  */
 
+import { classroom } from './classroom.ts';
+
 export interface QuakeEvent {
   id: string;
   mag: number;
@@ -17,10 +19,25 @@ export interface QuakeEvent {
 export type QuakeDepthBand = 'shallow' | 'intermediate' | 'deep';
 export type QuakeFeedStatus = 'loading' | 'live' | 'empty' | 'stale' | 'unavailable';
 
+export interface QuakeFilter {
+  minMag: number;
+  depth: 'all' | QuakeDepthBand;
+}
+
+export const DEFAULT_QUAKE_FILTER: QuakeFilter = { minMag: 2.5, depth: 'all' };
+
 export function quakeDepthBand(depthKm: number): QuakeDepthBand {
   if (depthKm < 70) return 'shallow';
   if (depthKm <= 300) return 'intermediate';
   return 'deep';
+}
+
+export function filterQuakes(events: readonly QuakeEvent[], filter: QuakeFilter = DEFAULT_QUAKE_FILTER): QuakeEvent[] {
+  return events.filter(q => {
+    if (q.mag < filter.minMag) return false;
+    if (filter.depth !== 'all' && quakeDepthBand(q.depthKm) !== filter.depth) return false;
+    return true;
+  });
 }
 
 export function quakeColorRgb(depthKm: number): [number, number, number] {
@@ -126,6 +143,14 @@ export function getQuakeFeedStatus(): QuakeFeedStatus {
   return lastFeedStatus;
 }
 
+export function getQuakeFeedUpdatedAt(): number | null {
+  return cachedQuakes?.at ?? null;
+}
+
+export function getCachedQuakes(): QuakeEvent[] {
+  return cachedQuakes?.events ?? fallbackQuakes();
+}
+
 export function resetQuakeFeedForTest(): void {
   cachedQuakes = null;
   quakeInflight = null;
@@ -133,8 +158,16 @@ export function resetQuakeFeedForTest(): void {
 }
 
 /** Fetches M2.5+ earthquakes in the past 24 hours from USGS, falling back to representative events when offline. */
-export async function fetchRecentQuakes(): Promise<QuakeEvent[]> {
-  if (cachedQuakes && Date.now() - cachedQuakes.at < QUAKE_TTL_MS) {
+export async function fetchRecentQuakes(force = false): Promise<QuakeEvent[]> {
+  if (classroom()) {
+    if (cachedQuakes) {
+      lastFeedStatus = 'stale';
+      return cachedQuakes.events;
+    }
+    lastFeedStatus = 'unavailable';
+    return fallbackQuakes();
+  }
+  if (!force && cachedQuakes && Date.now() - cachedQuakes.at < QUAKE_TTL_MS) {
     lastFeedStatus = cachedQuakes.events.length > 0 ? 'live' : 'empty';
     return cachedQuakes.events;
   }

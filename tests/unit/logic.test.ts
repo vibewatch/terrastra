@@ -597,5 +597,106 @@ describe('cross-tab progress store reconciliation (#3)', async () => {
       }
     }
   });
+
+  it('merges a Daily Planet loss (streak reset to 0 with higher played count) over an older winning state', async () => {
+    const { mergeProgress } = await import('../../src/shared/lib/progress.ts');
+    const olderWin = emptyProgress();
+    olderWin.updatedAt = 1000;
+    olderWin.daily = { played: 4, won: 3, streak: 3, maxStreak: 3, lastWonDay: 100, dist: [1, 1, 1, 0, 0, 0] };
+
+    const newerLoss = emptyProgress();
+    newerLoss.updatedAt = 2000;
+    newerLoss.daily = { played: 5, won: 3, streak: 0, maxStreak: 3, lastWonDay: 100, dist: [1, 1, 1, 0, 0, 0] };
+
+    expect(mergeProgress(olderWin, newerLoss).daily?.streak).toBe(0);
+    expect(mergeProgress(olderWin, newerLoss).daily?.played).toBe(5);
+    expect(mergeProgress(newerLoss, olderWin).daily?.streak).toBe(0);
+    expect(mergeProgress(newerLoss, olderWin).daily?.played).toBe(5);
+  });
 });
+
+describe('learning journal, earthquake filters, and observing planner', async () => {
+  const {
+    recordLessonStep,
+    recordLessonFinish,
+    mergeLessonJournal,
+    pickContinueLesson,
+  } = await import('../../src/shared/lib/journal.ts');
+  const { backupOf, readBackupFull } = await import('../../src/client/lib/backup-file.ts');
+  const { filterQuakes } = await import('../../src/client/lib/earthquakes.ts');
+  const { parseNightCloudForecast } = await import('../../src/client/lib/weather.ts');
+  const { buildObservingIcs } = await import('../../src/client/ui/tonight.ts');
+
+  it('records lesson steps, quiz scores, missed review topics, and merges journals monotonically', () => {
+    let jA = recordLessonStep({}, 'latlon', 2, 6, 1000);
+    expect(jA.latlon.stepIndex).toBe(2);
+    expect(pickContinueLesson(jA)?.id).toBe('latlon');
+
+    let jB = recordLessonStep({}, 'latlon', 4, 6, 1500);
+    jB = recordLessonFinish(jB, 'latlon', 3, 4, [['Equator', '赤道']], 6, 2000);
+    expect(jB.latlon.bestScore).toBe(3);
+    expect(jB.latlon.attempts).toBe(1);
+    expect(jB.latlon.missedTopics).toEqual([['Equator', '赤道']]);
+
+    // Retrying with a higher score updates bestScore and replaces missedTopics
+    const jRetry = recordLessonFinish(jB, 'latlon', 4, 4, [], 6, 3000);
+    expect(jRetry.latlon.bestScore).toBe(4);
+    expect(jRetry.latlon.attempts).toBe(2);
+    expect(jRetry.latlon.missedTopics).toEqual([]);
+
+    const merged = mergeLessonJournal(jA, jB);
+    expect(merged.latlon.bestScore).toBe(3);
+    expect(merged.latlon.completedAt).toBe(2000);
+
+    // Backup round-trip preserves lessonsDone and lessonJournal
+    const raw = JSON.stringify(backupOf(emptyProgress(), 2500, { lessonsDone: ['latlon'], lessonJournal: merged }));
+    const full = readBackupFull(raw);
+    expect(full?.lessonsDone).toEqual(['latlon']);
+    expect(full?.lessonJournal.latlon.bestScore).toBe(3);
+  });
+
+  it('filters earthquakes by minimum magnitude and depth band', () => {
+    const sample = [
+      { id: 's1', place: 'Shallow 3.2', mag: 3.2, depthKm: 18, lat: 10, lon: 20, timeMs: 100, live: true },
+      { id: 'i1', place: 'Inter 5.0', mag: 5.0, depthKm: 140, lat: -10, lon: 120, timeMs: 200, live: true },
+      { id: 'd1', place: 'Deep 6.1', mag: 6.1, depthKm: 480, lat: -20, lon: -175, timeMs: 300, live: true },
+    ];
+    expect(filterQuakes(sample, { minMag: 4.5, depth: 'all' }).map(q => q.id)).toEqual(['i1', 'd1']);
+    expect(filterQuakes(sample, { minMag: 2.5, depth: 'shallow' }).map(q => q.id)).toEqual(['s1']);
+    expect(filterQuakes(sample, { minMag: 4.5, depth: 'deep' }).map(q => q.id)).toEqual(['d1']);
+  });
+
+  it('parses hourly nighttime cloud cover and builds valid RFC 5545 .ics calendar reminders', () => {
+    const t0 = Date.UTC(2026, 7, 12, 20, 0, 0);
+    const startMs = t0;
+    const endMs = t0 + 4 * 3600_000;
+    const fc = parseNightCloudForecast({
+      hourly: {
+        time: [0, 1, 2, 3, 4].map(h => Math.floor((t0 + h * 3600_000) / 1000)),
+        cloud_cover: [60, 40, 10, 14, 30],
+      },
+    }, startMs, endMs);
+    expect(fc).not.toBeNull();
+    expect(fc!.bestCloudPct).toBe(12);
+    expect(fc!.meanCloudPct).toBe(31);
+    expect(fc!.verdictKey).toBe('wxPartly');
+    expect(fc!.bestWindow).toEqual([t0 + 2 * 3600_000, t0 + 4 * 3600_000]);
+
+    const ics = buildObservingIcs({
+      city: 'Beijing, China',
+      startMs,
+      endMs,
+      summary: 'Terrastra Stargazing · Beijing',
+      description: 'Best window: 21:00–01:00\nTop targets: Saturn, Perseids',
+      nowMs: t0 - 3600_000,
+    });
+    expect(ics).toContain('BEGIN:VCALENDAR\r\n');
+    expect(ics).toContain('DTSTART:20260812T200000Z\r\n');
+    expect(ics).toContain('DTEND:20260813T000000Z\r\n');
+    expect(ics).toContain('LOCATION:Beijing\\, China\r\n');
+    expect(ics).toContain('DESCRIPTION:Best window: 21:00–01:00\\nTop targets: Saturn\\, Perseids\r\n');
+    expect(ics).toContain('END:VCALENDAR\r\n');
+  });
+});
+
 

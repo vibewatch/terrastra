@@ -68,7 +68,12 @@ export function mergeProgress(a: Progress, b: Progress): Progress {
   const bySet = new Map(Object.entries(a.quiz?.bySet ?? {}));
   for (const [k, v] of Object.entries(b.quiz?.bySet ?? {})) bySet.set(k, Math.max(bySet.get(k) ?? 0, v));
   const da = a.daily ?? EMPTY_STATS, db = b.daily ?? EMPTY_STATS;
-  const dailyNewer = (da.lastWonDay ?? -1) >= (db.lastWonDay ?? -1) ? da : db;
+  const wa = da.lastWonDay ?? -1, wb = db.lastWonDay ?? -1;
+  const dailyNewer = wa !== wb
+    ? (wa > wb ? da : db)
+    : da.played !== db.played
+      ? (da.played > db.played ? da : db)
+      : (a.updatedAt ?? 0) >= (b.updatedAt ?? 0) ? da : db;
   return {
     v: 1,
     dex: unionEarliest(a.dex, b.dex), logs: unionEarliest(a.logs, b.logs), stickers: unionEarliest(a.stickers, b.stickers),

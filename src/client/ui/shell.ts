@@ -30,7 +30,7 @@ import { classroom, setClassroom, setStill, motion, onClassroom } from '../lib/c
 import { renderHub, hubTab, type HubTab } from './hub.ts';
 import { fetchLocalWeather, solarStatusAt } from '../lib/weather.ts';
 import { onIssTelemetry, propagateIss, type IssTelemetry } from '../lib/iss.ts';
-import type { QuakeEvent } from '../lib/earthquakes.ts';
+import { getQuakeFeedStatus, type QuakeEvent } from '../lib/earthquakes.ts';
 
 const DEX_ZOOM = 10;
 const typeName = (ty: CatalogueItem['type']) => tr(TYPE_META[ty].one, lang());
@@ -38,6 +38,7 @@ const AURA_ORDER: AuraPreset[] = ['waves', 'aurora', 'ember', 'dusk', 'sculpture
 
 interface ShellHooks {
   openPhoto: () => void; openCollection: () => void; openGame: (kind: 'daily' | 'placeit' | 'quiz') => void; openPassport: () => void; openAlbum: () => void; openTutorial: () => void; openTours: () => void; openLessons: () => void; openAstro: () => void; openSsbs: () => void; openBookmarks: () => void; openCompare: (id?: string) => void; openTonight: () => void;
+  continueLesson?: (id: string, resume: boolean) => void;
   openAccount: () => void; openGuestbook: () => void;
   openSolar: () => void;
   openSky: () => void;
@@ -45,6 +46,8 @@ interface ShellHooks {
   openRadio?: () => void;
   /** Focus real-time International Space Station telemetry & orbit. */
   openIssLive?: () => void;
+  /** Open Live Earth seismic & space-weather panel. */
+  openLiveEarth?: () => void;
   /** In space: a picked Earth item first takes you home (true = handled, the shell does nothing more). */
   toEarth?: (it: CatalogueItem) => boolean;
   /** In space the +/−/overview buttons drive the space view (true = handled). */
@@ -198,11 +201,13 @@ export class Shell {
       return;
     }
     const ageMin = q.live && q.timeMs > 0 ? Math.max(1, Math.round((Date.now() - q.timeMs) / 60000)) : 0;
-    const ageTxt = !q.live
+    const isStale = q.live && getQuakeFeedStatus() === 'stale';
+    const baseAge = !q.live
       ? t('quake.demo')
       : ageMin < 90
         ? t('quake.agoMin', { m: ageMin })
         : t('quake.agoHr', { h: Math.round(ageMin / 60) });
+    const ageTxt = isStale ? `${baseAge} · ${t('quake.stale')}` : baseAge;
     this.tipEl.replaceChildren(
       h('span', { class: 'tip-emoji' }, q.mag >= 5.5 ? '🌋' : '🔴'),
       h('span', { class: 'tip-name' }, `${t('quake.title', { mag: q.mag.toFixed(1) })} · ${q.place}`),
@@ -383,8 +388,9 @@ export class Shell {
     const hk = this.hooks;
     this.hub.replaceChildren(...renderHub(this.tab, this.space, {
       lessons: hk.openLessons, astro: hk.openAstro, ssbs: hk.openSsbs, tours: hk.openTours,
+      continueLesson: hk.continueLesson,
       sky: hk.openSky, tonight: hk.openTonight, time: () => this.time.toggle(), compare: () => hk.openCompare(), bookmarks: hk.openBookmarks,
-      radio: () => hk.openRadio?.(), iss: () => hk.openIssLive?.(),
+      radio: () => hk.openRadio?.(), iss: () => hk.openIssLive?.(), liveEarth: () => hk.openLiveEarth?.(),
       game: hk.openGame, passport: hk.openPassport, collection: hk.openCollection, album: hk.openAlbum, account: hk.openAccount, guestbook: hk.openGuestbook,
       toEarth: () => this.hooks.toHome?.(),
     }, tab => { this.tab = tab; this.renderHub(); }, () => this.toggleHub(false)));

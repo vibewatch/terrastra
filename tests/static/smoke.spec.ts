@@ -28,7 +28,21 @@ async function stubExternalFeeds(page: Page): Promise<void> {
           wind_speed_10m: 11.4,
           is_day: 1,
         },
+        hourly: {
+          time: Array.from({ length: 48 }, (_, i) => Math.floor(Date.now() / 3600_000) * 3600 + i * 3600),
+          cloud_cover: Array.from({ length: 48 }, (_, i) => (i % 5) * 8),
+        },
       }),
+    }),
+  );
+  await page.route('https://services.swpc.noaa.gov/**', route =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([
+        ['time_tag', 'Kp'],
+        ['2026-04-20 00:00:00.000', '3.3'],
+      ]),
     }),
   );
   await page.route('https://earthquake.usgs.gov/**', route =>
@@ -98,6 +112,30 @@ test('static build works below a sub-path', async ({ page }) => {
   await expect(page.getByTestId('iss-live-box')).toBeVisible();
   await expect(page.getByTestId('iss-telemetry-text')).toContainText('km');
   await page.evaluate(() => (window as any).__pp.shell.showItem(null));
+
+  // Live Earth monitor modal (Feature 2) & Tonight observing planner (Feature 3)
+  await page.locator('#btn-hub').click();
+  await page.getByTestId('hub-tab-look').click();
+  await page.getByTestId('menu-live-earth').click();
+  await expect(page.getByTestId('live-earth')).toBeVisible();
+  await expect(page.getByTestId('quake-feed-status')).toBeVisible();
+  await expect(page.getByTestId('quake-row').first()).toContainText('Kermadec Islands');
+  await page.getByTestId('quake-mag-5.5').click();
+  await expect(page.getByTestId('quake-empty')).toBeVisible();
+  await page.getByTestId('quake-mag-2.5').click();
+  await expect(page.getByTestId('quake-row')).toHaveCount(1);
+  await page.keyboard.press('Escape');
+
+  await page.locator('#btn-hub').click();
+  await page.getByTestId('hub-tab-look').click();
+  await page.getByTestId('menu-tonight').click();
+  await page.getByTestId('tn-city').click();
+  await page.locator('[role=option][data-value="beijing"]').click();
+  await expect(page.getByTestId('tn-planner')).toBeVisible();
+  await page.getByTestId('tn-forecast-btn').click();
+  await expect(page.getByTestId('tn-forecast')).toBeVisible();
+  await expect(page.getByTestId('tn-export-ics')).toBeVisible();
+  await page.keyboard.press('Escape');
 
   await page.locator('#btn-menu').click();
   await expect(page.getByTestId('backup-export')).toBeVisible();

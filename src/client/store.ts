@@ -107,8 +107,13 @@ if (typeof window !== 'undefined' && typeof window.addEventListener === 'functio
       try {
         const incoming: unknown = JSON.parse(e.newValue);
         if (isProgress(incoming)) {
-          store.progress = isEmptyProgress(incoming) ? emptyProgress() : mergeProgress(store.progress, incoming);
+          const normalized = isEmptyProgress(incoming) ? emptyProgress() : mergeProgress(emptyProgress(), incoming);
+          const merged = isEmptyProgress(incoming) ? emptyProgress() : mergeProgress(store.progress, normalized);
+          store.progress = merged;
           lastSavedRef = store.progress;
+          if (!isEmptyProgress(incoming) && JSON.stringify(merged) !== JSON.stringify(normalized)) {
+            save('progress', merged);
+          }
           emit();
         }
       } catch { /* ignore malformed storage payload */ }
