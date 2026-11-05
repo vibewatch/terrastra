@@ -154,10 +154,24 @@ test('static build works below a sub-path', async ({ page }) => {
   await page.getByTestId('tn-city').click();
   await page.locator('[role=option][data-value="beijing"]').click();
   await expect(page.getByTestId('tn-planner')).toBeVisible();
+  await expect(page.getByTestId('tn-iss')).toBeVisible();
+  await expect(page.getByTestId('tn-iss-track')).toBeVisible();
   await page.getByTestId('tn-forecast-btn').click();
   await expect(page.getByTestId('tn-forecast')).toBeVisible();
   await expect(page.getByTestId('tn-export-ics')).toBeVisible();
   await page.keyboard.press('Escape');
+
+  await page.locator('#btn-hub').click();
+  await page.getByTestId('hub-tab-look').click();
+  await page.getByTestId('menu-time').click();
+  await expect(page.getByTestId('time-bar')).toBeVisible();
+  await expect(page.getByTestId('time-era-note')).toContainText(/Living Planet Today/);
+  await page.getByTestId('time-prev').click();
+  await expect(page.getByTestId('time-year')).toHaveText('2000');
+  await expect(page.getByTestId('time-era-note')).toContainText(/Millennium/);
+  await page.getByTestId('time-next').click();
+  await expect(page.getByTestId('time-year')).toHaveText('Today');
+  await page.getByTestId('time-close').click();
 
   await page.locator('#btn-menu').click();
   await expect(page.getByTestId('backup-export')).toBeVisible();

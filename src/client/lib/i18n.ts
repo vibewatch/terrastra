@@ -444,6 +444,15 @@ const en = {
   "passport.extremes": "Reach: {north} to {south}",
   "passport.exportMd": "Export Field Log (.md)",
   "passport.exportedMd": "Explorer Field Log (.md) downloaded",
+  "tnIss.title": "ISS passes (next 24h)",
+  "tnIss.pass": "Peak {t} · Max {a}° ({d}) · {d1} → {d2} · {m} min",
+  "tnIss.visible": "Naked-eye visible (sunlit in dark sky)",
+  "tnIss.daylight": "Daylight pass",
+  "tnIss.eclipsed": "In Earth's shadow",
+  "tnIss.none": "No high-elevation ISS passes over this latitude in the next 24 hours.",
+  "tnIss.track": "Track ISS in 3D",
+  tmPrev: "Earlier era",
+  tmNext: "Later era",
 } as const;
 
 export type I18nKey = keyof typeof en;
@@ -889,6 +898,15 @@ const zh: Record<I18nKey, string> = {
   "passport.extremes": "南北跨度：{north} 至 {south}",
   "passport.exportMd": "导出探索日志 (.md)",
   "passport.exportedMd": "已下载探索者野外日志 (.md)",
+  "tnIss.title": "空间站过境预报（未来 24 小时）",
+  "tnIss.pass": "最高点 {t} · 仰角 {a}°（{d}）· {d1} → {d2} · 持续 {m} 分钟",
+  "tnIss.visible": "肉眼可见（夜空照亮）",
+  "tnIss.daylight": "白天过境",
+  "tnIss.eclipsed": "进入地影",
+  "tnIss.none": "未来 24 小时内该纬度没有仰角较高的空间站过境。",
+  "tnIss.track": "在 3D 地球上追踪空间站",
+  tmPrev: "上一个时代",
+  tmNext: "下一个时代",
 };
 
 const DICTS: Record<Lang, Dict> = { en, zh };

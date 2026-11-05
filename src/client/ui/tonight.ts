@@ -7,6 +7,7 @@ import { load, save } from '../lib/storage.ts';
 import { classroom } from '../lib/classroom.ts';
 import { sfx } from '../lib/sfx.ts';
 import { fetchNightCloudForecast, type NightCloudForecast } from '../lib/weather.ts';
+import { predictIssPasses } from '../lib/iss.ts';
 import { tr } from '../../shared/data/types.ts';
 import { SHOWERS } from '../../shared/data/showers.ts';
 import { tonight, type EventAhead } from '../../shared/lib/astro/tonight.ts';
@@ -62,11 +63,12 @@ export function openTonight(open: (hash: string) => void, now = Date.now()): voi
   let forecast: NightCloudForecast | null = null;
   let forecastSiteId = '';
   let loadingForecast = false;
+  let reqSeq = 0;
 
   const body = h('div', { class: 'tn-body', 'aria-live': 'polite' });
   const select = new Select({ testid: 'tn-city', label: t('tnCity'), icon: 'pin', className: 'xsel-wide', value: siteId, placeholder: t('tnPick'),
     options: SITES.map(x => ({ value: x.id, label: tr(x.name, lang()) })),
-    onChange: v => { siteId = v; forecast = null; forecastSiteId = ''; loadingForecast = false; save('tonightSite', siteId); render(); } }).el;
+    onChange: v => { reqSeq++; siteId = v; forecast = null; forecastSiteId = ''; loadingForecast = false; save('tonightSite', siteId); render(); } }).el;
 
   const render = () => {
     const site = SITES.find(x => x.id === siteId);
@@ -139,26 +141,58 @@ export function openTonight(open: (hash: string) => void, now = Date.now()): voi
     const loadForecast = async () => {
       if (loadingForecast || classroom()) return;
       sfx.tap();
+      const seq = ++reqSeq;
+      const targetSiteId = site.id;
       loadingForecast = true;
       render();
       try {
         const res = await fetchNightCloudForecast(site.lat, site.lon, win[0], win[1]);
+        if (seq !== reqSeq || siteId !== targetSiteId) return;
         forecast = res;
-        forecastSiteId = site.id;
+        forecastSiteId = targetSiteId;
       } finally {
-        loadingForecast = false;
-        render();
+        if (seq === reqSeq && siteId === targetSiteId) {
+          loadingForecast = false;
+          render();
+        }
       }
     };
+
+    const issPasses = predictIssPasses(site.lat, site.lon, now, 24, 10);
+    const issShown = issPasses.slice(0, 3);
+    const issList = issShown.length
+      ? h('ul', { class: 'tn-list tn-iss-list' }, ...issShown.map(p => li(
+          h('span', { class: `tn-iss-badge tn-iss-${p.quality}` }, t(`tnIss.${p.quality}`)),
+          ' · ',
+          t('tnIss.pass', {
+            t: hm(p.maxTimeMs),
+            a: p.maxElDeg,
+            d: dir(p.maxAzDeg),
+            d1: dir(p.startAzDeg),
+            d2: dir(p.endAzDeg),
+            m: p.durationMin,
+          }),
+        )))
+      : h('p', { class: 'muted' }, t('tnIss.none'));
+    const issSec = sec('iss', 'rocket', t('tnIss.title'),
+      issList,
+      h('div', { class: 'tn-iss-actions' },
+        h('button', {
+          class: 'pill pill-sm',
+          'data-testid': 'tn-iss-track',
+          onclick: () => { sfx.tap(); closeModal('tonight'); open('sp_iss'); },
+        }, h('span', { html: icon('rocket', 14) }), h('span', {}, t('tnIss.track')))));
 
     const exportIcs = () => {
       sfx.tap();
       const cityName = tr(site.name, lang());
       const useWin = fc?.bestWindow ?? win;
+      const visIss = issPasses.find(p => p.visible);
       const descParts = [
         winLabel,
         t(skyKey),
         topTargets.length ? `${t('tnPlanner.targets')}: ${topTargets.join(', ')}` : '',
+        visIss ? `ISS: ${t('tnIss.pass', { t: hm(visIss.maxTimeMs), a: visIss.maxElDeg, d: dir(visIss.maxAzDeg), d1: dir(visIss.startAzDeg), d2: dir(visIss.endAzDeg), m: visIss.durationMin })}` : '',
         fc ? t('tnPlanner.cloudSummary', { avg: fc.meanCloudPct, best: bestWinStr, min: fc.bestCloudPct }) : '',
       ].filter(Boolean);
       const ics = buildObservingIcs({
@@ -202,6 +236,7 @@ export function openTonight(open: (hash: string) => void, now = Date.now()): voi
       sec('night', 'clock', t('tnNightT'), h('p', {}, night)),
       sec('moon', 'eclipse', t('tnMoonT'), h('p', {}, moonTxt)),
       sec('planets', 'planet', t('tnPlanetsT'), planets),
+      issSec,
       sec('showers', 'star', t('tnShowersT'), showerList),
       sec('events', 'calendar', t('tnEventsT'), h('p', { class: 'muted small' }, t('tnEventsNote')), events),
       h('p', { class: 'tn-weather', 'data-testid': 'tn-weather', html: icon('cloud', 16) }, h('span', {}, t('tnWeather'))));

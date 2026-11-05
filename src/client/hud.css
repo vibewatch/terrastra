@@ -1064,4 +1064,18 @@ html.classroom .lv-text b { font-size: .95rem; }
 .passport-summary-text { display: flex; flex-direction: column; gap: 2px; }
 .passport-summary-text strong { font-size: .86rem; color: var(--hud-hi); }
 
+/* ---- ISS pass predictor in Tonight & Time Machine era stepper ---- */
+.tn-iss-badge {
+  display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: .74rem; font-weight: 600;
+  border: 1px solid var(--hud-line); background: var(--hud-fill);
+}
+.tn-iss-badge.tn-iss-visible { color: #34d399; border-color: rgba(52, 211, 153, 0.45); background: rgba(52, 211, 153, 0.12); }
+.tn-iss-badge.tn-iss-daylight { color: #fbbf24; border-color: rgba(251, 191, 36, 0.4); }
+.tn-iss-badge.tn-iss-eclipsed { color: var(--text-2); }
+.tn-iss-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.time-head .time-step { margin-left: 0; width: 26px; height: 26px; padding: 0; }
+.time-head .time-step:disabled { opacity: .35; cursor: default; }
+.time-era-note { margin: 2px 0 4px; font-size: .78rem; line-height: 1.35; }
+
+
 

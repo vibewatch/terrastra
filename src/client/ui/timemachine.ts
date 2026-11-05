@@ -2,7 +2,7 @@ import { h } from './dom.ts';
 import { t, lang, fmtNum } from '../lib/i18n.ts';
 import { CATALOGUE } from '../../shared/data/catalogue.ts';
 import { tr, type CatalogueItem } from '../../shared/data/types.ts';
-import { STOPS, visibleAt, appearingAt, type Stop } from '../../shared/lib/timeline.ts';
+import { STOPS, visibleAt, appearingAt, eraNote, type Stop } from '../../shared/lib/timeline.ts';
 import type { Globe } from '../globe/scene.ts';
 import { sfx } from '../lib/sfx.ts';
 import { icon } from './icons.ts';
@@ -43,6 +43,15 @@ export class TimeMachine {
     return r;
   })();
 
+  private step(delta: number): void {
+    const next = Math.max(0, Math.min(STOPS.length - 1, this.idx + delta));
+    if (next === this.idx) return;
+    this.idx = next;
+    sfx.tap();
+    this.apply(STOPS[this.idx]);
+    this.render();
+  }
+
   private render(): void {
     const l = lang(), stop = STOPS[this.idx], range = this.range;
     range.value = String(this.idx);
@@ -55,9 +64,28 @@ export class TimeMachine {
     range.before(
       h('div', { class: 'time-head' },
         h('span', { class: 'time-ico', html: icon('clock', 16) }),
+        h('button', {
+          class: 'icon-btn time-step',
+          'aria-label': t('tmPrev'),
+          title: t('tmPrev'),
+          'data-testid': 'time-prev',
+          disabled: this.idx <= 0,
+          html: icon('collapse', 14),
+          onclick: () => this.step(-1),
+        }),
         h('strong', { class: 'time-year', 'data-testid': 'time-year' }, stopLabel(stop)),
+        h('button', {
+          class: 'icon-btn time-step',
+          'aria-label': t('tmNext'),
+          title: t('tmNext'),
+          'data-testid': 'time-next',
+          disabled: this.idx >= STOPS.length - 1,
+          html: icon('chevron', 14),
+          onclick: () => this.step(1),
+        }),
         h('span', { class: 'muted', title: t('tmNote') }, t('tmCount', { n: shown })),
-        h('button', { class: 'icon-btn', 'aria-label': t('close'), 'data-testid': 'time-close', html: icon('close', 15), onclick: () => this.toggle(false) })));
+        h('button', { class: 'icon-btn', 'aria-label': t('close'), 'data-testid': 'time-close', html: icon('close', 15), onclick: () => this.toggle(false) })),
+      h('p', { class: 'time-era-note muted small', 'data-testid': 'time-era-note' }, tr(eraNote(stop), l)));
     range.after(...[
       h('div', { class: 'time-ticks', 'aria-hidden': 'true' }, ...STOPS.map((s, i) => h('span', { class: i === this.idx ? 'on' : '' }, i === 0 ? h('b', { html: icon('dino', 13) }) : s === 'now' ? '•' : ''))),
       fresh.length ? h('div', { class: 'time-new' }, h('span', { class: 'muted' }, t('tmAppear')),

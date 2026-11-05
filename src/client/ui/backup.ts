@@ -5,12 +5,15 @@ import { load, save } from '../lib/storage.ts';
 import { store, canReplaceProgress, replaceProgress } from '../store.ts';
 import { mergeProgress } from '../../shared/lib/progress.ts';
 import { mergeLessonJournal, type LessonJournal } from '../../shared/lib/journal.ts';
-import { backupOf, readBackupFull, summary } from '../lib/backup-file.ts';
+import { bookmarks, type Bookmark } from '../lib/viewlink.ts';
+import { backupOf, mergeBookmarks, readBackupFull, summary } from '../lib/backup-file.ts';
 
 export function exportProgress(): void {
   const payload = backupOf(store.progress, Date.now(), {
     lessonsDone: load<string[]>('lessonsDone', []),
+    toursDone: load<string[]>('toursDone', []),
     lessonJournal: load<LessonJournal>('lessonJournal', {}),
+    bookmarks: bookmarks(),
   });
   const blob = new Blob([JSON.stringify(payload, null, 1)], { type: 'application/json' });
   const a = h('a', { href: URL.createObjectURL(blob), download: `terrastra-progress-${new Date().toISOString().slice(0, 10)}.json` });
@@ -44,9 +47,17 @@ export function importProgress(): void {
             const curDone = load<string[]>('lessonsDone', []);
             save('lessonsDone', [...new Set([...curDone, ...parsed.lessonsDone])]);
           }
+          if (parsed.toursDone.length > 0) {
+            const curTours = load<string[]>('toursDone', []);
+            save('toursDone', [...new Set([...curTours, ...parsed.toursDone])]);
+          }
           if (Object.keys(parsed.lessonJournal).length > 0) {
             const curJournal = load<LessonJournal>('lessonJournal', {});
             save('lessonJournal', mergeLessonJournal(curJournal, parsed.lessonJournal));
+          }
+          if (parsed.bookmarks.length > 0) {
+            const curBm = load<Bookmark[]>('bookmarks', []);
+            save('bookmarks', mergeBookmarks(curBm, parsed.bookmarks));
           }
           closeModal('backup-import'); toast('✅ ' + t('backupDone'));
         } }, t('backupMergeBtn')),

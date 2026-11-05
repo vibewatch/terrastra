@@ -5,6 +5,7 @@
  */
 import { classroom } from './classroom.ts';
 import { solarStatusAt } from './weather.ts';
+import { bearingDeg } from '../../shared/lib/geo.ts';
 
 /** Freshness window (5 minutes) during which a live observation is considered current rather than stale. */
 export const ISS_FRESH_TTL_MS = 5 * 60_000;
@@ -275,3 +276,138 @@ export async function refreshIssTelemetry(): Promise<IssTelemetry> {
 
   return inflight;
 }
+
+export interface IssPass {
+  startMs: number;
+  maxTimeMs: number;
+  endMs: number;
+  durationMin: number;
+  maxElDeg: number;
+  startAzDeg: number;
+  maxAzDeg: number;
+  endAzDeg: number;
+  visible: boolean;
+  quality: 'visible' | 'daylight' | 'eclipsed';
+}
+
+const EARTH_RADIUS_KM = 6371;
+const DEG2RAD = Math.PI / 180;
+const RAD2DEG = 180 / Math.PI;
+
+/**
+ * Compute topocentric elevation angle, azimuth, and slant range from a surface
+ * observer (`obsLat`, `obsLon`) to the ISS at (`issLat`, `issLon`, `issAltKm`).
+ */
+export function issElevationAndAzimuth(
+  obsLat: number,
+  obsLon: number,
+  issLat: number,
+  issLon: number,
+  issAltKm = 418,
+): { elevationDeg: number; azimuthDeg: number; slantRangeKm: number } {
+  const phiO = obsLat * DEG2RAD;
+  const lamO = obsLon * DEG2RAD;
+  const phiS = issLat * DEG2RAD;
+  const lamS = issLon * DEG2RAD;
+
+  // Unit normal at observer
+  const ux = Math.cos(phiO) * Math.cos(lamO);
+  const uy = Math.cos(phiO) * Math.sin(lamO);
+  const uz = Math.sin(phiO);
+
+  // ECEF positions (km)
+  const rIss = EARTH_RADIUS_KM + Math.max(100, issAltKm);
+  const dx = rIss * Math.cos(phiS) * Math.cos(lamS) - EARTH_RADIUS_KM * ux;
+  const dy = rIss * Math.cos(phiS) * Math.sin(lamS) - EARTH_RADIUS_KM * uy;
+  const dz = rIss * Math.sin(phiS) - EARTH_RADIUS_KM * uz;
+
+  const slantRangeKm = Math.hypot(dx, dy, dz);
+  if (slantRangeKm < 1e-3) {
+    return { elevationDeg: 90, azimuthDeg: 0, slantRangeKm: 0 };
+  }
+  const sinEl = Math.max(-1, Math.min(1, (dx * ux + dy * uy + dz * uz) / slantRangeKm));
+  const elevationDeg = Math.asin(sinEl) * RAD2DEG;
+  const azimuthDeg = bearingDeg(obsLat, obsLon, issLat, issLon);
+  return { elevationDeg, azimuthDeg, slantRangeKm };
+}
+
+/**
+ * Predict upcoming ISS passes above `minElDeg` (default 10°) over an observer
+ * within the next `hours` hours (default 24h).
+ * A pass is naked-eye `visible` when the ISS is sunlit (`daylight`) while the
+ * observer is in twilight or night (`solarStatusAt(...).phase !== 'day'`).
+ */
+export function predictIssPasses(
+  obsLat: number,
+  obsLon: number,
+  startMs = Date.now(),
+  hours = 24,
+  minElDeg = 10,
+): IssPass[] {
+  const stepMs = 30_000; // 30s resolution captures every ~5–10 min LEO pass
+  const endHorizonMs = startMs + Math.max(1, hours) * 3_600_000;
+  const passes: IssPass[] = [];
+
+  let inPass = false;
+  let passStartMs = 0;
+  let startAzDeg = 0;
+  let maxTimeMs = 0;
+  let maxElDeg = -90;
+  let maxAzDeg = 0;
+  let lastAzDeg = 0;
+  let lastAboveMs = 0;
+
+  const closePass = () => {
+    if (!inPass) return;
+    inPass = false;
+    if (maxElDeg < minElDeg) return;
+    const peakState = propagateIss(maxTimeMs);
+    const obsSolar = solarStatusAt(obsLat, obsLon, maxTimeMs);
+    const quality: IssPass['quality'] =
+      peakState.visibility === 'eclipsed'
+        ? 'eclipsed'
+        : obsSolar.phase !== 'day'
+          ? 'visible'
+          : 'daylight';
+    const durationMin = Math.max(1, Math.round((lastAboveMs - passStartMs) / 60_000) + 1);
+    passes.push({
+      startMs: passStartMs,
+      maxTimeMs,
+      endMs: lastAboveMs,
+      durationMin,
+      maxElDeg: Math.round(maxElDeg),
+      startAzDeg: Math.round(startAzDeg),
+      maxAzDeg: Math.round(maxAzDeg),
+      endAzDeg: Math.round(lastAzDeg),
+      visible: quality === 'visible',
+      quality,
+    });
+  };
+
+  for (let t = startMs; t <= endHorizonMs; t += stepMs) {
+    const st = propagateIss(t);
+    const { elevationDeg, azimuthDeg } = issElevationAndAzimuth(obsLat, obsLon, st.lat, st.lon, st.altitudeKm);
+    if (elevationDeg >= minElDeg) {
+      if (!inPass) {
+        inPass = true;
+        passStartMs = t;
+        startAzDeg = azimuthDeg;
+        maxTimeMs = t;
+        maxElDeg = elevationDeg;
+        maxAzDeg = azimuthDeg;
+      } else if (elevationDeg > maxElDeg) {
+        maxElDeg = elevationDeg;
+        maxTimeMs = t;
+        maxAzDeg = azimuthDeg;
+      }
+      lastAzDeg = azimuthDeg;
+      lastAboveMs = t;
+    } else if (inPass) {
+      closePass();
+      if (passes.length >= 6) break;
+    }
+  }
+  if (inPass && passes.length < 6) closePass();
+  return passes;
+}
+

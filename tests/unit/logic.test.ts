@@ -19,6 +19,9 @@ import { graticuleStep } from '../../src/client/globe/layers.ts';
 import { antipodeOf, greatCircleSummary, nearestCatalogueItem, solarTimeOffsetHours, wrapLon } from '../../src/shared/lib/geodesic.ts';
 import { analyzeQuakeTectonics, pointToSegmentKm } from '../../src/shared/lib/tectonics.ts';
 import { computeExplorerStats, formatFieldLogMarkdown } from '../../src/shared/lib/field-log.ts';
+import { STOPS, eraNote } from '../../src/shared/lib/timeline.ts';
+import { issElevationAndAzimuth, predictIssPasses } from '../../src/client/lib/iss.ts';
+import { backupOf, readBackupFull, mergeBookmarks } from '../../src/client/lib/backup-file.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -802,6 +805,56 @@ describe('static i18n key coverage, geodesic lab, quake tectonics & explorer fie
     const mdZh = formatFieldLogMarkdown(p, undefined, 'zh', Date.UTC(2026, 7, 12));
     expect(mdZh).toContain('# 寰星探索者野外日志 (2026-08-12)');
     expect(mdZh).toContain('3 / 7');
+  });
+
+  it('iss pass predictor: computes elevation/azimuth and predicts 24h passes for mid-latitude vs polar observers', () => {
+    const overhead = issElevationAndAzimuth(35, 139, 35, 139, 418);
+    expect(overhead.elevationDeg).toBeCloseTo(90, 3);
+    expect(overhead.slantRangeKm).toBeCloseTo(418, 3);
+
+    const nadir = issElevationAndAzimuth(35, 139, -35, -41, 418);
+    expect(nadir.elevationDeg).toBeCloseTo(-90, 2);
+
+    const startMs = Date.UTC(2026, 7, 12, 12, 0, 0);
+    const midLatPasses = predictIssPasses(39.9, 116.4, startMs, 24, 10);
+    expect(midLatPasses.length).toBeGreaterThan(0);
+    for (const p of midLatPasses) {
+      expect(p.maxElDeg).toBeGreaterThanOrEqual(10);
+      expect(p.durationMin).toBeGreaterThanOrEqual(1);
+      expect(['visible', 'daylight', 'eclipsed']).toContain(p.quality);
+      expect(p.visible).toBe(p.quality === 'visible');
+    }
+
+    // Because ISS orbital inclination is 51.64°, an observer at 89°N never sees the ISS above 10° elevation
+    const polarPasses = predictIssPasses(89, 0, startMs, 24, 10);
+    expect(polarPasses).toEqual([]);
+  });
+
+  it('timeline era notes and backup round-trip for toursDone and bookmarks', () => {
+    for (const stop of STOPS) {
+      const note = eraNote(stop);
+      expect(note.en.length).toBeGreaterThan(20);
+      expect(note.zh.length).toBeGreaterThan(10);
+    }
+
+    const b1 = [{ route: 'eiffel', cam: { lat: 48.85, lon: 2.35, h: 1.5 }, label: { en: 'Paris', zh: '巴黎' }, at: 1000 }];
+    const b2 = [
+      { route: 'eiffel', cam: { lat: 48.85, lon: 2.35, h: 1.5 }, label: { en: 'Paris Updated', zh: '巴黎更新' }, at: 2000 },
+      { route: 'greatwall', cam: { lat: 39.9, lon: 116.4, h: 1.6 }, label: { en: 'Beijing', zh: '北京' }, at: 1500 },
+    ];
+    const mergedBm = mergeBookmarks(b1, b2);
+    expect(mergedBm.map(b => b.route)).toEqual(['eiffel', 'greatwall']);
+    expect(mergedBm[0].label.en).toBe('Paris Updated');
+
+    const raw = JSON.stringify(backupOf(emptyProgress(), 1200, {
+      lessonsDone: ['latlon'],
+      toursDone: ['wonders', 'oceans'],
+      bookmarks: mergedBm,
+    }));
+    const parsed = readBackupFull(raw);
+    expect(parsed?.toursDone).toEqual(['wonders', 'oceans']);
+    expect(parsed?.bookmarks).toHaveLength(2);
+    expect(parsed?.bookmarks[0].route).toBe('eiffel');
   });
 });
 
