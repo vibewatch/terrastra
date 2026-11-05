@@ -3,15 +3,34 @@ import { h, openModal, closeModal } from './dom.ts';
 import { Select } from './select.ts';
 import { t, lang } from '../lib/i18n.ts';
 import { store } from '../store.ts';
-import { ANIMALS, DISCOVERIES, BY_TYPE } from '../../shared/data/catalogue.ts';
+import { ANIMALS, DISCOVERIES, BY_TYPE, CATALOGUE } from '../../shared/data/catalogue.ts';
 import { TYPE_META, TYPE_ORDER } from '../../shared/data/typemeta.ts';
 import { tr, type CatalogueItem } from '../../shared/data/types.ts';
 import { STICKERS } from '../../shared/lib/stickers.ts';
+import { upcomingFestivals } from '../../shared/lib/season.ts';
 import { load, save } from '../lib/storage.ts';
 import { icon, TYPE_ICON, type IconName } from './icons.ts';
 
 export function openCollection(go: (it: CatalogueItem) => void): void {
   const p = store.progress;
+  const l = lang();
+  const seasons = upcomingFestivals(CATALOGUE, new Date(), 4);
+  const seasonBanner = seasons.length
+    ? h('section', { class: 'season-banner', 'data-testid': 'collection-seasons' },
+        h('div', { class: 'season-head' },
+          h('span', { html: icon('festival', 15) }),
+          h('strong', {}, t('season.bannerTitle'))),
+        h('div', { class: 'season-chips' },
+          ...seasons.map(s => h('button', {
+            class: 'pill pill-sm season-chip' + (s.happeningNow ? ' active' : ''),
+            'data-testid': 'season-item-' + s.item.key,
+            onclick: () => { closeModal('collection'); go(s.item); },
+          },
+            h('span', { 'aria-hidden': 'true' }, s.item.emoji),
+            h('span', {}, tr(s.item.name, l)),
+            h('small', { class: 'season-when' }, s.happeningNow ? t('season.happeningNow') : t('season.inDays', { n: s.daysUntil })),
+          ))))
+    : null;
   const card = (id: string, cls: string, ic: IconName, title: string, sub: string, stat: string, fn: () => void) =>
     h('button', { class: 'hub-card ' + cls, 'data-testid': id, onclick: fn },
       h('span', { class: 'hub-ico', html: icon(ic, 20) }), h('strong', {}, title), h('span', { class: 'hub-sub' }, sub),
@@ -20,11 +39,11 @@ export function openCollection(go: (it: CatalogueItem) => void): void {
     card('hub-animals', 'c-green', 'paw', t('animalDex'), t('animalDexSub'), t('found', { n: Object.keys(p.dex).length, t: ANIMALS.length }), () => dex(t('animalDex'), ANIMALS, p.dex, go)),
     card('hub-discoveries', 'c-purple', 'compass', t('discoveryDex'), t('discoveryDexSub'), t('found', { n: Object.keys(p.logs).length, t: DISCOVERIES.length }), () => dex(t('discoveryDex'), DISCOVERIES, p.logs, go)),
     ...TYPE_ORDER.filter(ty => TYPE_META[ty].collect === 'found' && BY_TYPE[ty].length).map(ty => {
-      const m = TYPE_META[ty], items = BY_TYPE[ty], l = lang();
+      const m = TYPE_META[ty], items = BY_TYPE[ty];
       return card('hub-' + ty, 'c-type', TYPE_ICON[ty], tr(m.many, l), tr(m.hint, l), t('found', { n: items.filter(i => i.key in p.found).length, t: items.length }), () => dex(tr(m.many, l), items, p.found, go));
     }),
     card('hub-stickers', 'c-orange', 'sparkle', t('stickers'), t('stickersSub'), t('found', { n: Object.keys(p.stickers).length, t: STICKERS.length }), stickers));
-  openModal('collection', t('collection'), grid, { wide: true });
+  openModal('collection', t('collection'), h('div', { class: 'collection-wrap' }, seasonBanner, grid), { wide: true });
 }
 
 function dex(title: string, items: CatalogueItem[], got: Record<string, number>, go: (it: CatalogueItem) => void): void {

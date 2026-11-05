@@ -17,11 +17,14 @@ import { parseExtract, articleUrl } from '../../src/client/lib/wikipedia.ts';
 import { WIKI } from '../../src/shared/data/wiki.ts';
 import { graticuleStep } from '../../src/client/globe/layers.ts';
 import { antipodeOf, greatCircleSummary, nearestCatalogueItem, solarTimeOffsetHours, wrapLon } from '../../src/shared/lib/geodesic.ts';
-import { analyzeQuakeTectonics, pointToSegmentKm } from '../../src/shared/lib/tectonics.ts';
+import { analyzeQuakeTectonics, pointToSegmentKm, quakeEnergyJoules, summarizeQuakeFeed } from '../../src/shared/lib/tectonics.ts';
 import { computeExplorerStats, formatFieldLogMarkdown } from '../../src/shared/lib/field-log.ts';
 import { STOPS, eraNote } from '../../src/shared/lib/timeline.ts';
+import { dayLengthHours, solarNoonAltitudeDeg, earthSolarSummary } from '../../src/shared/lib/sun.ts';
+import { upcomingFestivals } from '../../src/shared/lib/season.ts';
 import { issElevationAndAzimuth, predictIssPasses } from '../../src/client/lib/iss.ts';
 import { backupOf, readBackupFull, mergeBookmarks } from '../../src/client/lib/backup-file.ts';
+import { formatBookmarksMarkdown } from '../../src/client/ui/bookmarks.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -855,6 +858,51 @@ describe('static i18n key coverage, geodesic lab, quake tectonics & explorer fie
     expect(parsed?.toursDone).toEqual(['wonders', 'oceans']);
     expect(parsed?.bookmarks).toHaveLength(2);
     expect(parsed?.bookmarks[0].route).toBe('eiffel');
+
+    const bmMd = formatBookmarksMarkdown(mergedBm, 'en');
+    expect(bmMd).toContain('# Terrastra Saved Views Itinerary');
+    expect(bmMd).toContain('**Paris Updated** (48.9°N · 2.4°E');
+  });
+
+  it('solar daylight analytics, Gutenberg-Richter seismic energy & seasonal festival calendar', () => {
+    // Equator has ~12.1 hours of daylight (with atmospheric refraction) year-round
+    const eq = dayLengthHours(0, 23.4);
+    expect(eq.polar).toBeNull();
+    expect(eq.hours).toBeGreaterThan(12.0);
+    expect(eq.hours).toBeLessThan(12.3);
+    expect(solarNoonAltitudeDeg(23.4, 23.4)).toBeCloseTo(90, 1);
+
+    // Svalbard (78°N) at June solstice (+23.4°): 24h Polar Day; South Pole (-90°S): 0h Polar Night
+    expect(dayLengthHours(78, 23.4)).toEqual({ hours: 24, polar: 'day' });
+    expect(dayLengthHours(-80, 23.4)).toEqual({ hours: 0, polar: 'night' });
+
+    const juneSolstice = earthSolarSummary(Date.UTC(2026, 5, 21, 12, 0, 0));
+    expect(juneSolstice.declinationDeg).toBeGreaterThan(22);
+    expect(juneSolstice.polarDayHemisphere).toBe('N');
+    expect(juneSolstice.antisolarLat).toBeCloseTo(-juneSolstice.subsolarLat, 5);
+
+    // Gutenberg-Richter energy: +1.0 magnitude = 10^1.5 ≈ 31.6228x radiated energy
+    const e5 = quakeEnergyJoules(5);
+    const e6 = quakeEnergyJoules(6);
+    expect(e6 / e5).toBeCloseTo(Math.pow(10, 1.5), 3);
+
+    const qSum = summarizeQuakeFeed([
+      { mag: 6.0, lat: 38.1, lon: 142.9 }, // Japan Trench (plate boundary)
+      { mag: 4.5, lat: -25.0, lon: 134.0 }, // Central Australia (intraplate)
+    ]);
+    expect(qSum).not.toBeNull();
+    expect(qSum!.maxMag).toBe(6.0);
+    expect(qSum!.plateBoundaryPct).toBe(50);
+    expect(qSum!.tntTons).toBeGreaterThan(10);
+
+    // Seasonal festival calendar
+    const octFestivals = upcomingFestivals(CATALOGUE, new Date(Date.UTC(2026, 10, 1)), 4);
+    expect(octFestivals.length).toBe(4);
+    expect(octFestivals[0].happeningNow).toBe(true);
+    expect(octFestivals[0].daysUntil).toBe(0);
+    for (let i = 1; i < octFestivals.length; i++) {
+      expect(octFestivals[i].daysUntil).toBeGreaterThanOrEqual(octFestivals[i - 1].daysUntil);
+    }
   });
 });
 

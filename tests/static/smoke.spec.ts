@@ -120,6 +120,8 @@ test('static build works below a sub-path', async ({ page }) => {
   await expect(page.getByTestId('live-earth')).toBeVisible();
   await expect(page.getByTestId('quake-feed-status')).toBeVisible();
   await expect(page.getByTestId('live-earth-tectonics-toggle')).toBeVisible();
+  await expect(page.getByTestId('live-earth-sun-card')).toBeVisible();
+  await expect(page.getByTestId('quake-summary-stats')).toContainText(/TNT/);
   await expect(page.getByTestId('quake-row').first()).toContainText('Kermadec Islands');
   await expect(page.getByTestId('quake-tectonic').first()).toContainText(/Kermadec|Trench|ridge|fault/i);
   await page.getByTestId('quake-mag-5.5').click();
@@ -146,6 +148,12 @@ test('static build works below a sub-path', async ({ page }) => {
   await page.getByTestId('menu-passport').click();
   await expect(page.getByTestId('passport-summary')).toBeVisible();
   await expect(page.getByTestId('passport-export-md')).toBeVisible();
+  await page.keyboard.press('Escape');
+
+  await page.locator('#btn-hub').click();
+  await page.getByTestId('hub-tab-me').click();
+  await page.getByTestId('menu-collection').click();
+  await expect(page.getByTestId('collection-seasons')).toBeVisible();
   await page.keyboard.press('Escape');
 
   await page.locator('#btn-hub').click();

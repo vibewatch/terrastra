@@ -24,3 +24,46 @@ export function isHappening(item: Seasonal, date: Date = new Date()): boolean {
   const len = Math.max(1, s.days ?? 1);
   return starts(s, date).some(st => today >= st - LEAD_DAYS && today < st + len + LEAD_DAYS);
 }
+
+export interface UpcomingFestival<T extends Seasonal = CatalogueItem> {
+  item: T;
+  happeningNow: boolean;
+  daysUntil: number;
+}
+
+/**
+ * Returns seasonal items (festivals) sorted by what is happening right now (`daysUntil === 0`)
+ * followed by the next upcoming celebrations on the calendar within the next 365 days.
+ */
+export function upcomingFestivals<T extends Seasonal>(
+  items: readonly T[],
+  date: Date = new Date(),
+  limit = 4,
+): UpcomingFestival<T>[] {
+  const today = localDay(date);
+  const out: UpcomingFestival<T>[] = [];
+  for (const item of items) {
+    const s = item.season;
+    if (!s) continue;
+    const len = Math.max(1, s.days ?? 1);
+    const sts = starts(s, date);
+    let happeningNow = false;
+    let bestDays = Infinity;
+    for (const st of sts) {
+      if (today >= st - LEAD_DAYS && today < st + len + LEAD_DAYS) {
+        happeningNow = true;
+        bestDays = 0;
+        break;
+      }
+      if (st > today && st - today < bestDays) {
+        bestDays = st - today;
+      }
+    }
+    if (Number.isFinite(bestDays)) {
+      out.push({ item, happeningNow, daysUntil: happeningNow ? 0 : bestDays });
+    }
+  }
+  out.sort((a, b) => a.daysUntil - b.daysUntil);
+  return out.slice(0, Math.max(1, limit));
+}
+

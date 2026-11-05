@@ -1077,5 +1077,21 @@ html.classroom .lv-text b { font-size: .95rem; }
 .time-head .time-step:disabled { opacity: .35; cursor: default; }
 .time-era-note { margin: 2px 0 4px; font-size: .78rem; line-height: 1.35; }
 
+/* ---- Subsolar card, Seismic energy summary & World Seasonal Calendar ---- */
+.le-sun-note { margin: 0; font-size: .75rem; }
+.le-summary-row {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px;
+}
+.quake-summary-stats { font-size: .78rem; color: var(--hud-hi); font-family: var(--font-data); }
+.collection-wrap { display: flex; flex-direction: column; gap: 12px; }
+.season-banner {
+  display: flex; flex-direction: column; gap: 8px; padding: 10px 12px;
+  border: 1px solid var(--hud-line); background: var(--hud-fill);
+}
+.season-head { display: flex; align-items: center; gap: 7px; font-size: .84rem; color: var(--hud-hi); }
+.season-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.season-chip .season-when { margin-left: 4px; opacity: .82; font-size: .72rem; }
+
+
 
 

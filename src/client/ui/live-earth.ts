@@ -22,7 +22,8 @@ import {
   type QuakeEvent,
   type QuakeFilter,
 } from '../lib/earthquakes.ts';
-import { analyzeQuakeTectonics } from '../../shared/lib/tectonics.ts';
+import { analyzeQuakeTectonics, summarizeQuakeFeed } from '../../shared/lib/tectonics.ts';
+import { earthSolarSummary } from '../../shared/lib/sun.ts';
 import { currentKpStatus, fetchKpStatus } from '../lib/weather.ts';
 import { propagateIss, refreshIssTelemetry } from '../lib/iss.ts';
 import type { Globe } from '../globe/scene.ts';
@@ -106,7 +107,9 @@ export function openLiveEarth(globe: Globe, onIss: () => void): void {
 
     const kp = currentKpStatus();
     const iss = propagateIss(Date.now());
+    const sun = earthSolarSummary(globe.simTime ?? Date.now());
     const filtered = filterQuakes(allEvents, filter);
+    const feedSum = summarizeQuakeFeed(filtered);
     const isStale = effStatus === 'stale';
 
     const magBtn = (m: number, label: string) => h('button', {
@@ -203,6 +206,7 @@ export function openLiveEarth(globe: Globe, onIss: () => void): void {
           h('button', {
             class: 'pill pill-sm' + (store.settings.aurora ? ' active' : ''),
             'data-testid': 'live-earth-aurora-toggle',
+            'aria-pressed': String(Boolean(store.settings.aurora)),
             onclick: () => { sfx.tap(); updateSettings({ aurora: !store.settings.aurora }); render(); },
           }, t(store.settings.aurora ? 'liveEarth.auroraOn' : 'liveEarth.auroraOff'))),
         h('div', { class: 'le-card', 'data-testid': 'live-earth-iss-card' },
@@ -215,7 +219,31 @@ export function openLiveEarth(globe: Globe, onIss: () => void): void {
             class: 'pill pill-sm',
             'data-testid': 'live-earth-iss',
             onclick: () => { sfx.tap(); closeModal('live-earth'); onIss(); },
-          }, t('liveEarth.trackIss')))),
+          }, t('liveEarth.trackIss'))),
+        h('div', { class: 'le-card', 'data-testid': 'live-earth-sun-card' },
+          h('div', { class: 'le-card-head' },
+            h('span', { html: icon('sun', 16) }),
+            h('strong', {}, t('sun.cardTitle')),
+            h('small', { class: 'muted' }, t('sun.zenithNow'))),
+          h('p', { class: 'le-card-val' },
+            t('sun.cardMeta', {
+              coord: formatCoord(sun.subsolarLat, sun.subsolarLon),
+              decl: (sun.declinationDeg > 0 ? '+' : '') + sun.declinationDeg.toFixed(1),
+            })),
+          h('p', { class: 'muted small le-sun-note' },
+            sun.polarDayHemisphere
+              ? t('sun.polarNote', { lat: sun.polarDayLat.toFixed(1), hem: sun.polarDayHemisphere })
+              : t('sun.equinoxNote')),
+          h('button', {
+            class: 'pill pill-sm',
+            'data-testid': 'live-earth-subsolar-fly',
+            onclick: () => {
+              sfx.tap();
+              if (!store.settings.shadows) updateSettings({ shadows: true });
+              closeModal('live-earth');
+              globe.flyTo(sun.subsolarLat, sun.subsolarLon, 2.2, 1300);
+            },
+          }, t('sun.flyNoon')))),
 
       h('section', { class: 'le-legend', 'data-testid': 'quake-legend' },
         h('span', { class: 'le-swatch' }, h('i', { style: `background:${DEPTH_SWATCH.shallow}` }), t('quake.legendShallow')),
@@ -236,8 +264,18 @@ export function openLiveEarth(globe: Globe, onIss: () => void): void {
           depthBtn('intermediate', t('quake.bandInter')),
           depthBtn('deep', t('quake.bandDeep')))),
 
-      h('p', { class: 'muted small le-count', 'data-testid': 'quake-count' },
-        t('liveEarth.showingN', { n: filtered.length, total: allEvents.length })),
+      h('div', { class: 'le-summary-row', 'data-testid': 'quake-summary-bar' },
+        h('span', { class: 'muted small le-count', 'data-testid': 'quake-count' },
+          t('liveEarth.showingN', { n: filtered.length, total: allEvents.length })),
+        feedSum
+          ? h('span', { class: 'quake-summary-stats', 'data-testid': 'quake-summary-stats' },
+              t('quake.summaryStats', {
+                max: feedSum.maxMag.toFixed(1),
+                energy: feedSum.energyLabel,
+                tnt: fmtNum(feedSum.tntTons),
+                pct: feedSum.plateBoundaryPct,
+              }))
+          : null),
 
       filtered.length > 0
         ? h('ul', { class: 'quake-list', 'data-testid': 'quake-list' }, ...rows)

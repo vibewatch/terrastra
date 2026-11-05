@@ -79,3 +79,55 @@ export function analyzeQuakeTectonics(lat: number, lon: number): QuakeTectonicCo
     nearestVolcano: nearVolcano,
   };
 }
+
+const JOULES_PER_TON_TNT = 4.184e9;
+
+/** Gutenberg–Richter radiated seismic energy in Joules: E = 10^(4.8 + 1.5 * M). */
+export function quakeEnergyJoules(mag: number): number {
+  const m = Math.max(-2, Math.min(10, mag));
+  return Math.pow(10, 4.8 + 1.5 * m);
+}
+
+/** Formats an energy in Joules using SI prefixes (MJ, GJ, TJ, PJ). */
+export function formatEnergyJoules(joules: number): string {
+  if (joules >= 1e15) return `${(joules / 1e15).toFixed(1)} PJ`;
+  if (joules >= 1e12) return `${(joules / 1e12).toFixed(1)} TJ`;
+  if (joules >= 1e9) return `${(joules / 1e9).toFixed(1)} GJ`;
+  return `${Math.max(1, Math.round(joules / 1e6))} MJ`;
+}
+
+export interface QuakeFeedSummary {
+  count: number;
+  maxMag: number;
+  totalEnergyJoules: number;
+  energyLabel: string;
+  tntTons: number;
+  plateBoundaryPct: number;
+}
+
+/** Computes aggregate seismic energy, TNT equivalent, peak magnitude, and plate-boundary ratio for a feed. */
+export function summarizeQuakeFeed(
+  events: readonly { mag: number; lat: number; lon: number }[],
+): QuakeFeedSummary | null {
+  if (!events.length) return null;
+  let maxMag = -Infinity;
+  let totalEnergyJoules = 0;
+  let boundaryCount = 0;
+  for (const q of events) {
+    if (q.mag > maxMag) maxMag = q.mag;
+    totalEnergyJoules += quakeEnergyJoules(q.mag);
+    const tec = analyzeQuakeTectonics(q.lat, q.lon);
+    if (tec.boundaryKind !== 'intraplate') boundaryCount++;
+  }
+  const tntTons = Math.max(0.1, Math.round((totalEnergyJoules / JOULES_PER_TON_TNT) * 10) / 10);
+  const plateBoundaryPct = Math.round((boundaryCount / events.length) * 100);
+  return {
+    count: events.length,
+    maxMag: Math.round(maxMag * 10) / 10,
+    totalEnergyJoules,
+    energyLabel: formatEnergyJoules(totalEnergyJoules),
+    tntTons,
+    plateBoundaryPct,
+  };
+}
+

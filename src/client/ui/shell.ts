@@ -32,6 +32,7 @@ import { fetchLocalWeather, solarStatusAt } from '../lib/weather.ts';
 import { onIssTelemetry, propagateIss, type IssTelemetry } from '../lib/iss.ts';
 import { getQuakeFeedStatus, type QuakeEvent } from '../lib/earthquakes.ts';
 import { antipodeOf, formatCoordPair, nearestCatalogueItem } from '../../shared/lib/geodesic.ts';
+import { subsolar, dayLengthHours, solarNoonAltitudeDeg } from '../../shared/lib/sun.ts';
 
 const DEX_ZOOM = 10;
 const typeName = (ty: CatalogueItem['type']) => tr(TYPE_META[ty].one, lang());
@@ -280,10 +281,16 @@ export class Shell {
       ...(['all', 'space', ...TYPE_ORDER.filter(ty => BY_TYPE[ty].length)] as const).map(f =>
         h('button', {
           class: 'pill' + (filter === f ? ' active' : ''),
+          'aria-pressed': String(filter === f),
           onclick: e => {
             filter = f;
-            (e.currentTarget as HTMLElement).parentElement?.querySelectorAll('.pill').forEach(b => b.classList.remove('active'));
-            (e.currentTarget as HTMLElement).classList.add('active');
+            (e.currentTarget as HTMLElement).parentElement?.querySelectorAll('.pill').forEach(b => {
+              b.classList.remove('active');
+              b.setAttribute('aria-pressed', 'false');
+            });
+            const cur = e.currentTarget as HTMLElement;
+            cur.classList.add('active');
+            cur.setAttribute('aria-pressed', 'true');
             renderList();
           },
         }, f === 'all' ? t('filterAll') : f === 'space' ? t('filterSpace') : typeName(f))
@@ -616,7 +623,22 @@ export class Shell {
         } }, h('span', { class: 'react-label' }, t(kind)), count);
     };
     const key = chips.slice(0, 3), extra = chips.slice(3);
-    if (!it.route) extra.push([t('latitude'), coordStr]);
+    if (!it.route) {
+      extra.push([t('latitude'), coordStr]);
+      const [declDeg] = subsolar(this.globe.simTime ?? Date.now());
+      const dl = dayLengthHours(it.lat, declDeg);
+      const noonAlt = Math.round(solarNoonAltitudeDeg(it.lat, declDeg));
+      const dlText = dl.polar === 'day'
+        ? t('sun.polarDayVal', { alt: noonAlt })
+        : dl.polar === 'night'
+          ? t('sun.polarNightVal')
+          : t('sun.daylightVal', {
+              h: Math.floor(dl.hours),
+              m: String(Math.round((dl.hours % 1) * 60) % 60).padStart(2, '0'),
+              alt: noonAlt,
+            });
+      extra.push([t('sun.daylightLabel'), dlText]);
+    }
     const antiInfo = !it.route ? (() => {
       const [aLat, aLon] = antipodeOf(it.lat, it.lon);
       const near = nearestCatalogueItem(aLat, aLon, CATALOGUE, it.key);
