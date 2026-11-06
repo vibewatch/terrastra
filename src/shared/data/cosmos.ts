@@ -819,3 +819,23 @@ export const DEEP_OBJECTS: DeepObject[] = [...NEARBY_STARS, ...GALAXY, ...GROUP,
 
 /** All 110 Messier objects, in catalogue order. */
 export const MESSIER: DeepObject[] = DEEP_OBJECTS.filter(o => o.messier).sort((a, b) => a.messier! - b.messier!);
+
+/**
+ * Matches a deep-space object's light-travel distance (`distLy`, in light-years) to the corresponding
+ * era on Earth (or before Earth's formation) when the light we see today began its journey.
+ */
+export function lookbackEarthEra(distLy: number): I18n | null {
+  if (!(distLy > 0) || !Number.isFinite(distLy)) return null;
+  if (distLy < 20) return { en: 'Modern digital era on Earth', zh: '地球已进入现代数字时代' };
+  if (distLy < 100) return { en: '20th-century space & radio age', zh: '20世纪太空与无线电时代' };
+  if (distLy < 600) return { en: 'Age of sail & Renaissance', zh: '大航海与文艺复兴时代' };
+  if (distLy < 3_500) return { en: 'Ancient civilizations (Bronze/Iron Age)', zh: '古代文明（青铜与铁器时代）' };
+  if (distLy < 12_000) return { en: 'End of last Ice Age & early farming', zh: '末次冰期结束与早期农耕' };
+  if (distLy < 300_000) return { en: 'Ice Age mammoth steppes & early Homo sapiens', zh: '冰河期猛犸草原与早期智人' };
+  if (distLy < 5_000_000) return { en: 'Early hominins in Africa (Pliocene–Pleistocene)', zh: '非洲早期古人类演化期' };
+  if (distLy < 66_000_000) return { en: 'Cenozoic Age of Mammals', zh: '新生代哺乳动物时代' };
+  if (distLy < 252_000_000) return { en: 'Mesozoic Era — dinosaurs walked Earth', zh: '中生代——恐龙正漫步地球' };
+  if (distLy < 541_000_000) return { en: 'Paleozoic seas & first land forests', zh: '古生代海洋与最早的陆地森林' };
+  if (distLy < 4_540_000_000) return { en: 'Precambrian Earth — microbial life only', zh: '前寒武纪地球——仅有微生物' };
+  return { en: 'Before Earth and the Sun even existed', zh: '太阳和地球尚未诞生之前' };
+}

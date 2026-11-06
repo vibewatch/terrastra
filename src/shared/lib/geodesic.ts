@@ -96,3 +96,25 @@ export function formatCoordPair(lat: number, lon: number): string {
   const ew = lon >= 0 ? 'E' : 'W';
   return `${Math.abs(lat).toFixed(1)}°${ns}, ${Math.abs(lon).toFixed(1)}°${ew}`;
 }
+
+export interface AltitudePhysics {
+  pressurePct: number;
+  tempDropC: number;
+  boilingPointC: number;
+}
+
+/**
+ * Standard ISA tropospheric physics at elevation `heightM` (meters above sea level):
+ * - `pressurePct`: barometric pressure as % of sea-level standard atmosphere
+ * - `tempDropC`: standard environmental lapse-rate cooling (6.5 °C / 1000 m)
+ * - `boilingPointC`: water boiling point (°C) from Clausius–Clapeyron relation
+ */
+export function altitudePhysics(heightM: number): AltitudePhysics {
+  const h = Math.max(0, Math.min(11000, Number.isFinite(heightM) ? heightM : 0));
+  const ratio = Math.pow(1 - 2.25577e-5 * h, 5.25588);
+  const pressurePct = Math.round(ratio * 1000) / 10;
+  const tempDropC = Math.round((h / 1000) * 6.5 * 10) / 10;
+  const invTb = (1 / 373.15) - 2.04487e-4 * Math.log(Math.max(0.05, ratio));
+  const boilingPointC = Math.round(((1 / invTb) - 273.15) * 10) / 10;
+  return { pressurePct, tempDropC, boilingPointC };
+}

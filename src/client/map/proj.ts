@@ -62,6 +62,36 @@ export function inverse(p: ProjId, x: number, y: number): [number, number] | nul
 /** Cylindrical maps repeat sideways forever; the equal-earth oval is drawn once. */
 export const wraps = (p: ProjId) => p !== 'equalearth';
 
+/**
+ * Tissot local scale & distortion factors at latitude `latDeg` relative to the equator:
+ * - `areaFactor`: areal inflation (1.0 everywhere on Equal Earth; sec²(φ) on Mercator; sec(φ) on Plate carrée)
+ * - `parallelScale`: east-west scale factor k(φ)
+ * - `meridianScale`: north-south scale factor h(φ)
+ * - `shapeRatio`: maximum local axis stretch max(h/k, k/h) (1.0 everywhere on conformal Mercator)
+ */
+export function projDistortion(p: ProjId, latDeg: number): {
+  areaFactor: number;
+  shapeRatio: number;
+  parallelScale: number;
+  meridianScale: number;
+} {
+  const clamped = Math.max(-85, Math.min(85, Number.isFinite(latDeg) ? latDeg : 0));
+  const phi = clamped * (Math.PI / 180);
+  const cosPhi = Math.max(1e-4, Math.cos(phi));
+  if (p === 'equalearth') {
+    const parallelScale = xScale('equalearth', phi) / (cosPhi * xScale('equalearth', 0));
+    const meridianScale = 1 / parallelScale;
+    const shapeRatio = Math.max(parallelScale / meridianScale, meridianScale / parallelScale);
+    return { areaFactor: 1, shapeRatio, parallelScale, meridianScale };
+  }
+  if (p === 'mercator') {
+    const sec = 1 / cosPhi;
+    return { areaFactor: sec * sec, shapeRatio: 1, parallelScale: sec, meridianScale: sec };
+  }
+  const sec = 1 / cosPhi;
+  return { areaFactor: sec, shapeRatio: sec, parallelScale: sec, meridianScale: 1 };
+}
+
 export const wrapPi = (a: number) => a - 2 * Math.PI * Math.floor((a + Math.PI) / (2 * Math.PI));
 
 /** A conservative geographic-bounds test; tiles partly beyond a view or the date line must remain drawable. */

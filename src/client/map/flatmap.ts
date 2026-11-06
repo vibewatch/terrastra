@@ -17,7 +17,7 @@ import { loadRelief } from '../lib/relief.ts';
 import { url } from '../lib/env.ts';
 import { h } from '../ui/dom.ts';
 import { icon } from '../ui/icons.ts';
-import { EXTENT, PROJ_GLSL, PROJ_IDS, PROJ_INDEX, boundsInView, forward, inverse, phiOf, wrapPi, wraps, xScale, yOf, type ProjId } from './proj.ts';
+import { EXTENT, PROJ_GLSL, PROJ_IDS, PROJ_INDEX, boundsInView, forward, inverse, phiOf, projDistortion, wrapPi, wraps, xScale, yOf, type ProjId } from './proj.ts';
 
 const D = Math.PI / 180;
 const R_KM = 6371;
@@ -815,8 +815,19 @@ export class FlatMap {
     const raw = kmPerPx * 110, p10 = 10 ** Math.floor(Math.log10(raw));
     const nice = [5, 2, 1].map(m => m * p10).find(n => n <= raw) ?? p10;
     const w = nice / kmPerPx;
+    const dist = projDistortion(this.proj, lat);
+    const latStr = `${Math.abs(Math.round(lat))}°${lat >= 0 ? 'N' : 'S'}`;
+    const distTxt = this.proj === 'equalearth'
+      ? t('mapDistEqual', { lat: latStr, s: dist.shapeRatio.toFixed(2) })
+      : this.proj === 'mercator'
+        ? t('mapDistMerc', { lat: latStr, a: dist.areaFactor.toFixed(dist.areaFactor >= 10 ? 1 : 2) })
+        : t('mapDistPlate', { lat: latStr, a: dist.areaFactor.toFixed(2) });
     this.scaleEl.hidden = false;
-    this.scaleEl.replaceChildren(h('i', { style: `width:${w.toFixed(1)}px` }), h('span', {}, t('kmN', { n: fmtNum(nice) })));
+    this.scaleEl.replaceChildren(
+      h('i', { style: `width:${w.toFixed(1)}px` }),
+      h('span', {}, t('kmN', { n: fmtNum(nice) })),
+      h('small', { class: 'fm-distortion', 'data-testid': 'map-distortion' }, distTxt),
+    );
   }
 
   private renderBar(): void {

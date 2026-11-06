@@ -1,6 +1,22 @@
+import { CATALOGUE } from '../../shared/data/catalogue.ts';
 import { CONTINENT_NAMES } from '../../shared/data/iso.ts';
 import type { Lang } from '../../shared/data/types.ts';
 import type { CountryInfo } from './painter.ts';
+
+let byCountryCache: Map<string, number> | null = null;
+
+/** Number of Terrastra catalogue items located in ISO alpha-2 country `a2`. */
+export function countryCatalogueCount(a2: string): number {
+  if (!a2) return 0;
+  if (!byCountryCache) {
+    byCountryCache = new Map<string, number>();
+    for (const it of CATALOGUE) {
+      if (!it.country) continue;
+      byCountryCache.set(it.country, (byCountryCache.get(it.country) ?? 0) + 1);
+    }
+  }
+  return byCountryCache.get(a2) ?? 0;
+}
 
 export type LabelBox = [number, number, number, number];
 
@@ -44,9 +60,12 @@ export function countryMapLabel(c: CountryInfo, l: Lang, cache: Map<string, stri
 export function fillCountryTag(tag: HTMLElement, c: CountryInfo, l: Lang): void {
   tag.replaceChildren(document.createTextNode(countryDisplayName(c, l)));
   const cont = c.a2 !== 'AQ' ? CONTINENT_NAMES[c.continent]?.[l] ?? CONTINENT_NAMES[c.continent]?.en : '';
-  if (cont) {
+  const count = countryCatalogueCount(c.a2);
+  const countLabel = count > 0 ? (l === 'zh' ? `${count} 处发现` : `${count} ${count === 1 ? 'place' : 'places'}`) : '';
+  const subText = [cont, countLabel].filter(Boolean).join(' · ');
+  if (subText) {
     const sub = document.createElement('small');
-    sub.textContent = cont;
+    sub.textContent = subText;
     tag.append(sub);
   }
 }

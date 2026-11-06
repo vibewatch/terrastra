@@ -12,7 +12,7 @@ import { formatKm } from '../../shared/lib/geo.ts';
 import type { Globe } from '../globe/scene.ts';
 import { createModelPreview } from '../models/preview.ts';
 import { icon } from './icons.ts';
-import { DIFFS, ROUNDS, effectiveKm, scoreFor, verdict, pickRounds, updateRecord, type Difficulty } from '../../shared/games/placeit.ts';
+import { DIFFS, ROUNDS, effectiveKm, scoreFor, summarizePlaceItRun, verdict, pickRounds, updateRecord, type Difficulty } from '../../shared/games/placeit.ts';
 import { generateQuiz, applyAnswer, ranking, QUIZ_SETS, type QuizSet, type QuizLevel, type PlayerScore } from '../../shared/games/quiz.ts';
 import { buildPool, dayIndex, puzzleFor, evaluate, applyGuess, finishStats, hintsUnlocked, shareText, MAX_GUESSES, BAND_EMOJI, type DailyState } from '../../shared/games/daily.ts';
 
@@ -62,7 +62,7 @@ async function runPlaceIt(host: GameHost, diff: Difficulty, rnd: () => number = 
       h('div', { class: 'hud-top' },
         h('span', { class: 'hud-pill' }, t('round', { r: r + 1, n: ROUNDS })),
         h('span', { class: 'hud-pill hud-score', 'data-testid': 'placeit-total' }, `${t('total')}: ${fmtNum(total)}`),
-        h('button', { class: 'pill danger pill-sm', onclick: () => { g.ev.onGlobeTap = undefined; quit(); resolve(); r = ROUNDS + 1; } }, '✕')),
+        h('button', { class: 'pill danger pill-sm', 'aria-label': t('close'), onclick: () => { g.ev.onGlobeTap = undefined; quit(); resolve(); r = ROUNDS + 1; } }, '✕')),
       h('div', { class: 'hud-main' },
         createModelPreview(it, { width: 112, height: 72, id: 'placeit-preview' }),
         h('div', { class: 'hud-info' },
@@ -113,8 +113,15 @@ async function runPlaceIt(host: GameHost, diff: Difficulty, rnd: () => number = 
   let isNew = false;
   updateProgress(p => { const u = updateRecord(p.placeit[diff], total); p.placeit[diff] = u.rec; isNew = u.isNew; });
   if (isNew) { confetti(); sfx.fanfare(); }
+  const runStats = summarizePlaceItRun(results);
   openModal('placeit-results', t('results'), h('div', { class: 'results', 'data-testid': 'placeit-results' },
     h('p', { class: 'big-score' }, fmtNum(total), h('small', {}, ` / ${fmtNum(ROUNDS * 1000)}`)),
+    h('p', { class: 'muted', 'data-testid': 'placeit-summary' }, t('placeitSummary', {
+      g: runStats.grade,
+      pct: runStats.accuracyPct,
+      mean: formatKm(runStats.meanKm, lang()),
+      best: formatKm(runStats.bestKm, lang()),
+    })),
     isNew ? h('p', { class: 'record' }, '🏆 ' + t('newRecord')) : h('p', { class: 'muted' }, `${t('best')}: ${fmtNum(store.progress.placeit[diff].best)}`),
     h('ol', { class: 'round-list' }, ...results.map(x => h('li', {}, `${x.item.emoji} ${tr(x.item.name, lang())} — ${formatKm(x.km, lang())} · ${fmtNum(x.score)}`))),
     h('button', { class: 'cta', onclick: () => { closeModal('placeit-results'); void runPlaceIt(host, diff); } }, t('playAgain'))));
@@ -181,10 +188,13 @@ function runQuiz(host: GameHost, names: string[], set: QuizSet, level: QuizLevel
     });
     confetti(40); sfx.fanfare();
     const medals = ['🥇', '🥈', '🥉', '🎖️'];
+    const qTot = store.progress.quiz;
+    const lifePct = Math.round((qTot.correct / Math.max(1, qTot.answered)) * 100);
     openModal('quiz-results', t('results'), h('div', { class: 'results', 'data-testid': 'quiz-results' },
       h('div', { class: 'podium' }, ...ranked.slice(0, 3).map((p, k) => h('div', { class: 'step s' + (k + 1) }, h('span', {}, medals[k]), h('strong', {}, p.name), h('span', {}, String(p.score))))),
       h('table', { class: 'rank' }, h('thead', {}, h('tr', {}, h('th', {}, '#'), h('th', {}, t('players')), h('th', {}, t('score')), h('th', {}, '🔥'))),
         h('tbody', {}, ...ranked.map((p, k) => h('tr', {}, h('td', {}, String(k + 1)), h('td', {}, p.name), h('td', {}, `${p.score} / ${qs.length / players.length}`), h('td', {}, String(p.bestStreak)))))),
+      h('p', { class: 'muted', 'data-testid': 'quiz-summary' }, t('quizLifetimeAcc', { pct: lifePct, c: fmtNum(qTot.correct), n: fmtNum(qTot.answered) })),
       h('button', { class: 'cta', onclick: () => { closeModal('quiz-results'); runQuiz(host, names, set, level); } }, t('playAgain'))));
   };
   void players;

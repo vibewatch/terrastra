@@ -13,8 +13,15 @@ import { load, save } from '../lib/storage.ts';
 import { h, toast, openModal, closeModal } from './dom.ts';
 import { icon } from './icons.ts';
 import { sfx } from '../lib/sfx.ts';
+import { solarStatusAt } from '../lib/weather.ts';
 import * as THREE from 'three';
 import { latLonToVec } from '../../shared/lib/geo.ts';
+
+/** Local solar clock & day/twilight/night icon for a radio station's coordinates. */
+export function stationSolarBadge(lat: number, lon: number, now = Date.now()): string {
+  const sol = solarStatusAt(lat, lon, now);
+  return `${sol.icon} ${sol.localTimeStr}`;
+}
 
 // Station tags are free text in many languages; in Chinese show only the ones that map to a known genre.
 const GENRE_ZH: [RegExp, string][] = [
@@ -257,7 +264,7 @@ export class Radio {
     if (i < 0 || !scr) { this.tip.classList.add('hidden'); return; }
     const s = this.st[i];
     this.tip.replaceChildren(h('span', { class: 'tip-emoji' }, '📻'),
-      h('span', { class: 'tip-name' }, s.name), h('span', { class: 'tip-sub' }, [countryName(s.cc), ...genres(s.tags).slice(0, 1), s.approx ? t('radioApprox') : ''].filter(Boolean).join(' · ')));
+      h('span', { class: 'tip-name' }, s.name), h('span', { class: 'tip-sub' }, [countryName(s.cc), stationSolarBadge(s.lat, s.lon), ...genres(s.tags).slice(0, 1), s.approx ? t('radioApprox') : ''].filter(Boolean).join(' · ')));
     this.tip.style.transform = `translate(${scr.x.toFixed(1)}px, ${(scr.y - 14).toFixed(1)}px) translate(-50%, -100%)`;
     this.tip.classList.remove('hidden');
   }
@@ -287,6 +294,7 @@ export class Radio {
     const fav = !!st && this.favs.has(st.url);
     this.favBtn.classList.toggle('on', fav);
     this.favBtn.setAttribute('aria-pressed', String(fav));
+    this.favBtn.setAttribute('aria-label', t(fav ? 'radioUnfav' : 'radioFav'));
     this.favBtn.title = t(fav ? 'radioUnfav' : 'radioFav');
     if (!st) {
       this.nameEl.textContent = t('radioHint');
@@ -296,7 +304,7 @@ export class Radio {
     this.nameEl.textContent = st.name;
     if (s === 'connecting') { this.subEl.textContent = t('radioTuning'); return; }
     if (s === 'buffering') { this.subEl.textContent = t('radioBuffering'); return; }
-    const bits = [countryName(st.cc), ...genres(st.tags).slice(0, 2)];
+    const bits = [countryName(st.cc), stationSolarBadge(st.lat, st.lon), ...genres(st.tags).slice(0, 2)];
     if (st.kbps) bits.push(`${st.kbps} kbps`);
     if (st.approx) bits.push(t('radioApprox'));
     this.subEl.replaceChildren(s === 'playing' ? h('em', { class: 'radio-live' }, t('radioLive')) : '', h('b', { class: 'radio-cc' }, st.cc), bits.join(' · '));

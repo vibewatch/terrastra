@@ -1341,6 +1341,7 @@ body.flatmap #globe { visibility: hidden; }
 .fm-learn:hover, .fm-learn:focus-visible { background: var(--hud-fill-hi); }
 .fm-scale { position: absolute; right: 86px; bottom: 26px; z-index: 4; pointer-events: none; display: flex; flex-direction: column; align-items: flex-start; gap: 3px; font: 500 .72rem/1 var(--font-data); color: #e2e8f0; text-shadow: 0 1px 4px #000; }
 .fm-scale i { display: block; height: 6px; border: 1.5px solid #e2e8f0; border-top: 0; box-shadow: 0 1px 3px rgba(0, 0, 0, .6); }
+.fm-scale .fm-distortion { font-size: .64rem; color: #94a3b8; letter-spacing: .01em; margin-top: 1px; }
 body.photo-mode :is(.fm-bar, .fm-scale, .fm-pins) { display: none !important; }
 body.immersive :is(.fm-bar, .fm-scale) { display: none !important; }
 @media (max-width: 760px) {

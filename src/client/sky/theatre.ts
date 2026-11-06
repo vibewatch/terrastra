@@ -145,7 +145,7 @@ export class Theatre {
       if (!this.ctx.user) this.cut = true;
     });
 
-    const back = h('button', { class: 'sky-btn sky-btn-sq sky-back', 'data-testid': 'sky-close', title: s('close'), html: icon('close', 20), onclick: () => this.close() });
+    const back = h('button', { class: 'sky-btn sky-btn-sq sky-back', 'data-testid': 'sky-close', title: s('close'), 'aria-label': s('close'), html: icon('close', 20), onclick: () => this.close() });
     const head = h('header', { class: 'sky-head' },
       back,
       h('div', { class: 'sky-titles' },
@@ -163,9 +163,9 @@ export class Theatre {
     const time = h('footer', { class: 'sky-time' },
       this.playBtn,
       h('div', { class: 'sky-speed', role: 'group', 'aria-label': s('simSpeed') },
-        h('button', { class: 'sky-btn sky-btn-sq', title: s('slower'), html: icon('minus', 16), onclick: () => this.setRate(-1) }),
+        h('button', { class: 'sky-btn sky-btn-sq', title: s('slower'), 'aria-label': s('slower'), html: icon('minus', 16), onclick: () => this.setRate(-1) }),
         this.rateEl,
-        h('button', { class: 'sky-btn sky-btn-sq', title: s('faster'), html: icon('plus', 16), onclick: () => this.setRate(1) })),
+        h('button', { class: 'sky-btn sky-btn-sq', title: s('faster'), 'aria-label': s('faster'), html: icon('plus', 16), onclick: () => this.setRate(1) })),
       h('div', { class: 'sky-track' }, h('div', { class: 'sky-rail' }, this.fillEl), this.marksEl, this.range),
       this.clockEl);
     const frame = h('div', { class: 'sky-frame', 'aria-hidden': 'true' }, h('i'), h('i'), h('i'), h('i'));
@@ -228,8 +228,8 @@ export class Theatre {
     }, s(VIEW_KEY[v]))));
     this.viewsEl.hidden = a.views.length < 2;
     this.zoomEl.replaceChildren(
-      h('button', { class: 'sky-btn sky-btn-sq sky-zbtn', 'data-z': 'tele', title: s('tele'), html: icon('telescope', 18), onclick: () => this.zoomTo('tele') }),
-      h('button', { class: 'sky-btn sky-btn-sq sky-zbtn', 'data-z': 'eye', title: s('eye'), html: icon('eye', 18), onclick: () => this.zoomTo('eye') }));
+      h('button', { class: 'sky-btn sky-btn-sq sky-zbtn', 'data-z': 'tele', title: s('tele'), 'aria-label': s('tele'), html: icon('telescope', 18), onclick: () => this.zoomTo('tele') }),
+      h('button', { class: 'sky-btn sky-btn-sq sky-zbtn', 'data-z': 'eye', title: s('eye'), 'aria-label': s('eye'), html: icon('eye', 18), onclick: () => this.zoomTo('eye') }));
     this.buildMarks();
     this.rateIx = 3;
     this.setRate(0);

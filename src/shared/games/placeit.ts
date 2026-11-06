@@ -43,3 +43,21 @@ export function updateRecord(rec: PlaceItRecord | undefined, total: number): { r
   const isNew = total > prev.best;
   return { rec: { best: Math.max(prev.best, total), plays: prev.plays + 1 }, isNew };
 }
+
+export interface PlaceItRunSummary {
+  meanKm: number;
+  bestKm: number;
+  accuracyPct: number;
+  grade: 'S' | 'A' | 'B' | 'C';
+}
+
+export function summarizePlaceItRun(results: readonly { km: number; score: number }[]): PlaceItRunSummary {
+  if (!results.length) return { meanKm: 0, bestKm: 0, accuracyPct: 0, grade: 'C' };
+  const sumKm = results.reduce((acc, r) => acc + r.km, 0);
+  const sumScore = results.reduce((acc, r) => acc + r.score, 0);
+  const meanKm = Math.round(sumKm / results.length);
+  const bestKm = Math.round(Math.min(...results.map(r => r.km)));
+  const accuracyPct = Math.round((sumScore / (results.length * MAX_ROUND_SCORE)) * 100);
+  const grade = accuracyPct >= 90 ? 'S' : accuracyPct >= 75 ? 'A' : accuracyPct >= 50 ? 'B' : 'C';
+  return { meanKm, bestKm, accuracyPct, grade };
+}

@@ -31,8 +31,9 @@ import { renderHub, hubTab, type HubTab } from './hub.ts';
 import { fetchLocalWeather, solarStatusAt } from '../lib/weather.ts';
 import { onIssTelemetry, propagateIss, type IssTelemetry } from '../lib/iss.ts';
 import { getQuakeFeedStatus, type QuakeEvent } from '../lib/earthquakes.ts';
-import { antipodeOf, formatCoordPair, nearestCatalogueItem } from '../../shared/lib/geodesic.ts';
+import { antipodeOf, altitudePhysics, formatCoordPair, nearestCatalogueItem } from '../../shared/lib/geodesic.ts';
 import { subsolar, dayLengthHours, solarNoonAltitudeDeg } from '../../shared/lib/sun.ts';
+import { countryCatalogueCount } from '../globe/overlay.ts';
 
 const DEX_ZOOM = 10;
 const typeName = (ty: CatalogueItem['type']) => tr(TYPE_META[ty].one, lang());
@@ -225,9 +226,9 @@ export class Shell {
     if (pick) this.showItem(pick, true);
   }
 
-  private openSearch(): void {
+  private openSearch(initialQuery = ''): void {
     const l = lang();
-    let query = '';
+    let query = initialQuery;
     let filter: SearchFilter = 'all';
     const listEl = h('div', { class: 'dex-grid search-grid' });
     let space: SpaceHit[] | null = null;
@@ -274,6 +275,7 @@ export class Shell {
     const input = h('input', {
       type: 'search',
       class: 'input',
+      value: initialQuery,
       placeholder: t('searchPlaceholder'),
       oninput: () => { query = input.value; renderList(); },
     });
@@ -638,7 +640,17 @@ export class Shell {
               alt: noonAlt,
             });
       extra.push([t('sun.daylightLabel'), dlText]);
+      if (f.heightM && f.heightM >= 1500 && ['landmark', 'volcano', 'discovery', 'plant'].includes(it.type)) {
+        const phys = altitudePhysics(f.heightM);
+        extra.push([t('altitudePhysicsLabel'), t('altitudePhysicsVal', {
+          p: Math.round(phys.pressurePct),
+          bp: Math.round(phys.boilingPointC),
+          dt: Math.round(phys.tempDropC),
+        })]);
+      }
     }
+    const countryTotal = it.country ? countryCatalogueCount(it.country) : 0;
+    const countryBtnLabel = countryTotal > 1 ? countryName(it.country, l) : '';
     const antiInfo = !it.route ? (() => {
       const [aLat, aLon] = antipodeOf(it.lat, it.lon);
       const near = nearestCatalogueItem(aLat, aLon, CATALOGUE, it.key);
@@ -687,7 +699,12 @@ export class Shell {
               class: 'pill pill-sm',
               'data-testid': 'info-measure-dist',
               onclick: () => this.hooks.openCompare('dist:' + it.key),
-            }, h('span', { html: icon('compass', 13) }), ' ', t('antipode.measure'))) : null,
+            }, h('span', { html: icon('compass', 13) }), ' ', t('antipode.measure')),
+            countryBtnLabel ? h('button', {
+              class: 'pill pill-sm',
+              'data-testid': 'info-country-explore',
+              onclick: () => this.openSearch(countryBtnLabel),
+            }, '🧭 ', t('countryExploreAll', { c: countryBtnLabel, n: countryTotal })) : null) : null,
           h('p', { class: 'meta prov', 'data-testid': 'provenance' }, t('modelNote') + ' ' + t(it.route ? (it.route.line === 'demo' ? 'routeDemo' : 'routeNote') : it.type === 'animal' ? 'rangeNote' : ['landmark', 'volcano', 'space', 'discovery'].includes(it.type) ? 'placeNote' : 'repNote'))),
         h('div', { class: 'info-footer' },
           it.type !== 'vehicle' ? h('div', { class: 'reactions' }, react('like', 'heart'), react('visited', 'flag')) : null,

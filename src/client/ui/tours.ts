@@ -170,6 +170,27 @@ function missionTime(ms: number, t0?: number): string {
   return t('tourMet', { d, met: `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}` });
 }
 
+/** Formats a guided tour as a clean Markdown study guide for classroom or self-study notes. */
+export function formatTourStudyGuideMarkdown(tour: Tour, l: 'en' | 'zh' = lang()): string {
+  const pick = (p: Pair) => (l === 'zh' ? p[1] : p[0]);
+  const steps = tour.steps();
+  const lines: string[] = [
+    `# ${pick(tour.title)}`,
+    '',
+    `> ${pick(tour.blurb)} (${tour.minutes} min)`,
+    '',
+  ];
+  steps.forEach((st, idx) => {
+    lines.push(`## ${idx + 1}. ${pick(st.title)}`);
+    if (st.when !== undefined) {
+      const iso = new Date(st.when).toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
+      lines.push(`*${iso}*`);
+    }
+    lines.push('', pick(st.body), '');
+  });
+  return lines.join('\n').trim() + '\n';
+}
+
 const done = () => new Set(load<string[]>('toursDone', []));
 
 let active: { root: HTMLElement; stop: () => void } | null = null;
@@ -203,7 +224,13 @@ export function startTour(id: string, host: TourHost): void {
       st.track ? h('p', { class: 'tour-track tour-' + st.track, 'data-testid': 'tour-track', html: icon(st.track === 'record' ? 'pin' : 'sparkle', 14) },
         h('span', {}, t(st.track === 'record' ? 'tourRecord' : 'tourSketch'))) : '',
       h('p', { class: 'tour-body', 'aria-live': 'polite' }, L(st.body)),
-      h('div', { class: 'dots', 'aria-hidden': 'true' }, ...steps.map((_, j) => h('span', { class: j === i ? 'on' : '' }))),
+      h('div', { class: 'dots', 'aria-hidden': 'true' }, ...steps.map((sStep, j) => h('span', {
+        class: j === i ? 'on' : '',
+        'data-testid': `tour-dot-${j}`,
+        title: L(sStep.title),
+        style: 'cursor:pointer',
+        onclick: () => go(j),
+      }))),
       h('div', { class: 'row' },
         h('button', { class: 'pill', 'data-testid': 'tour-back', disabled: i === 0, onclick: () => go(i - 1) }, t('tourBack')),
         h('button', { class: 'cta', 'data-testid': 'tour-next', onclick: () => (last ? finish() : go(i + 1)) }, last ? t('tourFinish') : t('next'))));
@@ -249,11 +276,13 @@ export function openTours(host: TourHost): void {
         h('span', { class: 'grow' }, h('strong', {}, L(x.title)), h('span', { class: 'muted small' }, L(x.blurb))),
         h('span', { class: 'meta' }, (seen.has(x.id) ? '✓ ' : '') + t('minutesN', { n: x.minutes }))),
       // A teacher's link: opens straight into this tour with classroom mode on.
+      h('button', { class: 'icon-btn tour-link', 'data-testid': 'tour-guide-' + x.id, 'aria-label': t('tourStudyGuide'), title: t('tourStudyGuide'), html: icon('book', 16),
+        onclick: () => void copyText(formatTourStudyGuideMarkdown(x), t('tourStudyGuideCopied'), t('tourStudyGuide')) }),
       h('button', { class: 'icon-btn tour-link', 'data-testid': 'tour-link-' + x.id, 'aria-label': t('classLink'), title: t('classLink'), html: icon('share', 16),
-        onclick: () => void copyLink(classroomLink(x.id)) })))));
+        onclick: () => void copyText(classroomLink(x.id), t('classLinkCopied'), t('classLink')) })))));
 }
 
-async function copyLink(link: string): Promise<void> {
-  try { await navigator.clipboard.writeText(link); toast(t('classLinkCopied')); }
-  catch { prompt(t('classLink'), link); }
+async function copyText(text: string, okMsg: string, promptLabel: string): Promise<void> {
+  try { await navigator.clipboard.writeText(text); toast(okMsg); }
+  catch { prompt(promptLabel, text); }
 }

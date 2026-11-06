@@ -87,6 +87,45 @@ const KIND_ICON: Partial<Record<SkyEventKind, string>> = {
   equinox: '◒', solstice: '◓', opposition: '⊕', conjunction: '∴', elongation: '∠', transit: '⊙',
 };
 
+function icsUtc(ms: number): string {
+  return new Date(ms).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+}
+
+function icsEsc(str: string): string {
+  return str.replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\n/g, '\\n');
+}
+
+/** Format a list of sky events as an RFC 5545 iCalendar (.ics) document. */
+export function skyEventsToIcs(events: readonly SkyEvent[], site: Site | null, year: number): string {
+  const stamp = icsUtc(Date.now());
+  const lines = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//Terrastra//Sky Events Ephemeris//EN',
+    'CALSCALE:GREGORIAN',
+    `X-WR-CALNAME:Terrastra Sky Events ${year}`,
+  ];
+  for (const e of events) {
+    const t0 = e.solar?.p1 ?? e.lunar?.p1 ?? (e.t - 30 * 60_000);
+    const t1 = e.solar?.p4 ?? e.lunar?.p4 ?? (e.t + 60 * 60_000);
+    const title = eventTitle(e);
+    const desc = seenFrom(e, site) || title;
+    lines.push(
+      'BEGIN:VEVENT',
+      `UID:terrastra-sky-${e.id}@terrastra.app`,
+      `DTSTAMP:${stamp}`,
+      `DTSTART:${icsUtc(t0)}`,
+      `DTEND:${icsUtc(Math.max(t0 + 60_000, t1))}`,
+      `SUMMARY:${icsEsc(title)}`,
+      ...(site?.name ? [`LOCATION:${icsEsc(site.name)}`] : []),
+      `DESCRIPTION:${icsEsc(desc)}`,
+      'END:VEVENT',
+    );
+  }
+  lines.push('END:VCALENDAR');
+  return lines.join('\r\n') + '\r\n';
+}
+
 export class Calendar {
   readonly el: HTMLElement;
   private list: HTMLElement;
@@ -104,12 +143,31 @@ export class Calendar {
       h('header', { class: 'skycal-head' },
         h('span', { class: 'skycal-kicker' }, (lang() === 'zh' ? '' : 'EPHEMERIS · ') + s('list')),
         h('div', { class: 'skycal-years' },
+          h('button', { class: 'sky-btn sky-btn-sq', 'data-testid': 'skycal-today', title: s('calToday'), 'aria-label': s('calToday'), html: icon('reset', 16), onclick: () => { this.year = new Date().getFullYear(); this.render(); } }),
           h('button', { class: 'sky-btn sky-btn-sq', 'aria-label': '−1', html: icon('collapse', 18), onclick: () => this.go(-1) }),
           this.yearEl,
-          h('button', { class: 'sky-btn sky-btn-sq', 'aria-label': '+1', html: icon('chevron', 18), onclick: () => this.go(1) }))),
+          h('button', { class: 'sky-btn sky-btn-sq', 'aria-label': '+1', html: icon('chevron', 18), onclick: () => this.go(1) }),
+          h('button', { class: 'sky-btn sky-btn-sq', 'data-testid': 'skycal-ics', title: s('calExportIcs'), 'aria-label': s('calExportIcs'), html: icon('calendar', 16), onclick: () => this.exportIcs() }))),
       this.chips, this.list,
       h('p', { class: 'skycal-tz' }, s('calTz', { z: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' })));
     this.render();
+  }
+
+  private currentYearEvents(): SkyEvent[] {
+    const y = this.year;
+    return [...eventsOf(y - 1), ...eventsOf(y), ...eventsOf(y + 1)].filter(e => new Date(e.t).getFullYear() === y && match(e, this.filter));
+  }
+
+  private exportIcs(): void {
+    const evs = this.currentYearEvents();
+    if (!evs.length) return;
+    const ics = skyEventsToIcs(evs, this.site(), this.year);
+    const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `terrastra-sky-${this.year}.ics`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   }
 
   private go(d: number): void { this.year = Math.max(1900, Math.min(2199, this.year + d)); this.render(); }

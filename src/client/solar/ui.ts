@@ -14,7 +14,7 @@ import { tr, type Lang } from '../../shared/data/types.ts';
 import { BODIES, BODY, type BodyId, type SolarBody } from '../../shared/data/solar.ts';
 import { BODY_TEXT } from '../../shared/data/solar-text.ts';
 import { SOLAR_FEATURES } from '../../shared/data/solar-features.ts';
-import { AU_KM, LIGHT_KMS, daysJ2000, distanceKm, relativePosition } from '../../shared/lib/orbits.ts';
+import { AU_KM, LIGHT_KMS, apparentArcsec, daysJ2000, distanceKm, lightDelaySec, probeTransitHours, relativePosition } from '../../shared/lib/orbits.ts';
 import type { Quality } from '../globe/quality.ts';
 import type { Reader, Readable } from '../ui/reader.ts';
 import { SolarView, SPEEDS, featuresOf, type SolarSelection } from './view.ts';
@@ -26,7 +26,7 @@ import { foldable, foldButton } from '../ui/fold.ts';
 import { drawConstellation, constellationText } from './constellations.ts';
 import { SOLAR_SITES } from '../../shared/data/solar-sites.ts';
 import { starClass } from '../../shared/data/nearby-stars.ts';
-import { DEEP_OBJECTS, MESSIER, SCALE_INFO, type DeepObject, type DeepKind, type DeepScale, type ScaleId } from '../../shared/data/cosmos.ts';
+import { DEEP_OBJECTS, MESSIER, SCALE_INFO, lookbackEarthEra, type DeepObject, type DeepKind, type DeepScale, type ScaleId } from '../../shared/data/cosmos.ts';
 import { messierGroup, type MessierGroup } from '../../shared/data/messier.ts';
 import type { CatalogueItem } from '../../shared/data/types.ts';
 
@@ -274,13 +274,15 @@ export class SolarUI {
     if (this.meterEl.classList.contains('hidden')) { this.view.meterLabel.textContent = this.view.deep.meterLabel.textContent = ''; return; }
     if (this.view.scale !== 'solar') { this.renderDeepMeter(); return; }
     const l = lang(), a = this.meterA.value as BodyId, b = this.meterB.value as BodyId;
-    const km = a === b ? 0 : distanceKm(a, b, daysJ2000(this.view.simMs));
-    const sec = km / LIGHT_KMS, carH = km / 100;
+    const d = daysJ2000(this.view.simMs);
+    const km = a === b ? 0 : distanceKm(a, b, d);
+    const sec = a === b ? 0 : lightDelaySec(a, b, d), carH = km / 100;
     const light = sec < 90 ? t('secondsN', { n: fmtNum(+sec.toFixed(sec < 10 ? 2 : 0)) }) : sec < 5400 ? t('minutesN', { n: fmtNum(+(sec / 60).toFixed(1)) }) : t('hoursN', { n: +(sec / 3600).toFixed(1) });
     const rows: [string, string][] = [
       [t('meterDist'), fmtKm(km, l)],
       [t('meterAU'), (km / AU_KM).toFixed(km / AU_KM < 0.1 ? 4 : 2) + ' AU'],
       [t('meterLight'), light],
+      [t('meterProbe'), fmtDur(a === b ? 0 : probeTransitHours(a, b, d))],
       [t('meterCar'), fmtDur(carH)],
     ];
     this.showMeterRows(rows);
@@ -457,6 +459,7 @@ export class SolarUI {
     this.speedEl.dataset.idx = String(i);
     this.playBtn.innerHTML = icon(i === 0 ? 'play' : 'pause', 15);
     this.playBtn.title = i === 0 ? t('spDay') : t('spPause');
+    this.playBtn.setAttribute('aria-label', this.playBtn.title);
     this.renderDate(this.view.simMs);
   }
 
@@ -641,11 +644,25 @@ export class SolarUI {
         const au = sunAU(body.id);
         extra.push([t('fromSun'), fmtKm(au * AU_KM, l)]);
         extra.push([t('sunlight'), t('minutesN', { n: fmtNum(Math.round((au * AU_KM) / 299_792.458 / 60)) })]);
-        if (body.id !== 'earth') {
-          const a = relativePosition(body.id, d), e = relativePosition('earth', d);
-          extra.push([t('fromEarth'), fmtKm(Math.hypot(a[0] - e[0], a[1] - e[1], a[2] - e[2]) * AU_KM, l)]);
-        }
       } else if (body.moon) { const p = relativePosition(body.id, d); extra.push([t('fromParent', { p: pName }), fmtKm(Math.hypot(p[0], p[1], p[2]), l)]); }
+      if (body.id !== 'earth') {
+        const distE = distanceKm(body.id, 'earth', d);
+        const delayS = lightDelaySec(body.id, 'earth', d);
+        const delayTxt = delayS < 90
+          ? t('secondsN', { n: fmtNum(+delayS.toFixed(delayS < 10 ? 2 : 1)) })
+          : delayS < 5400
+            ? t('minutesN', { n: fmtNum(+(delayS / 60).toFixed(1)) })
+            : t('hoursN', { n: +(delayS / 3600).toFixed(1) });
+        const arcsec = apparentArcsec(body.id, d);
+        const angTxt = arcsec >= 120
+          ? `${(arcsec / 60).toFixed(1)}′`
+          : arcsec >= 0.1
+            ? `${arcsec.toFixed(1)}″`
+            : `${(arcsec * 1000).toFixed(1)} mas`;
+        extra.push([t('fromEarth'), fmtKm(distE, l)]);
+        extra.push([t('earthLightDelay'), delayTxt]);
+        extra.push([t('apparentSize'), angTxt]);
+      }
       if (f.moons !== undefined && body.kind !== 'star') extra.push([t('moonsN'), fmtNum(f.moons)]);
       if (f.gravity !== undefined) extra.push([t('gravity'), t('xEarth', { n: f.gravity })]);
       if (f.tempC) extra.push([t('temperature'), f.tempC[0] === f.tempC[1] ? `${fmtNum(f.tempC[0])} °C` : `${fmtNum(f.tempC[0])} ~ ${fmtNum(f.tempC[1])} °C`]);
@@ -742,6 +759,8 @@ export class SolarUI {
       if (o.messier) key.push([t('messierNo'), 'M' + o.messier]);
       if (o.sizeLy) key.push([t('across'), fmtLy(o.sizeLy, l)]);
       if (o.distLy >= 1 && o.distLy < 1e9) extra.push([t('lookback'), t('yearsAgo', { n: fmtLy(o.distLy, l).replace(/ ?(light-years|光年)$/, '') })]);
+      const era = lookbackEarthEra(o.distLy);
+      if (era) extra.push([t('lookbackEra'), tr(era, l)]);
       extra.push([t('scaleIs'), t('sc_' + o.scale)]);
     } else if (s.kind === 'scale') {
       const i = SCALE_INFO[s.id];

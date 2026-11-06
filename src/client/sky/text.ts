@@ -168,6 +168,8 @@ const S = {
   jumpTo: { en: 'Jump to {m}', zh: '跳到{m}' },
   dragHint: { en: 'Drag to look around · pinch or scroll to zoom', zh: '拖动环顾四周 · 双指或滚轮缩放' },
   loading: { en: 'Computing the sky…', zh: '正在计算天空…' },
+  calToday: { en: 'Current year', zh: '回到今年' },
+  calExportIcs: { en: 'Export .ics calendar', zh: '导出 .ics 日历' },
 } satisfies Record<string, Pair>;
 
 export type SkyKey = keyof typeof S;

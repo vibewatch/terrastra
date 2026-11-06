@@ -107,6 +107,27 @@ export function distanceKm(a: BodyId, b: BodyId, d: number): number {
   return Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
 }
 
+/** Typical interstellar cruise speed of Voyager 1 (~17.0 km/s). */
+export const PROBE_KMS = 17.0;
+
+/** One-way light / radio travel delay (seconds) between two Solar System bodies on day `d` since J2000. */
+export function lightDelaySec(a: BodyId, b: BodyId, d: number): number {
+  return distanceKm(a, b, d) / LIGHT_KMS;
+}
+
+/** Straight-line spacecraft transit time (hours) between two bodies at `speedKms` (default Voyager 1 ~17 km/s). */
+export function probeTransitHours(a: BodyId, b: BodyId, d: number, speedKms = PROBE_KMS): number {
+  return distanceKm(a, b, d) / Math.max(0.1, speedKms) / 3600;
+}
+
+/** Apparent angular diameter (arcseconds) of body `id` as seen from `from` (default `'earth'`) on day `d` since J2000. */
+export function apparentArcsec(id: BodyId, d: number, from: BodyId = 'earth'): number {
+  if (id === from) return 0;
+  const dist = distanceKm(id, from, d);
+  if (!(dist > 0)) return 0;
+  return (2 * Math.atan2(BODY[id].radiusKm, dist) * 180 / Math.PI) * 3600;
+}
+
 /**
  * Display scale for the overview: real distances would put Neptune 80,000 Earth-radii away, so orbit radii are
  * compressed with a square root and body sizes with a power law. Close-ups use the body at radius `displayRadius`.

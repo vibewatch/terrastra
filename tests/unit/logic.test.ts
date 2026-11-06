@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { haversineKm, bearingDeg, arrow8, latLonToVec, vecToLatLon, formatKm } from '../../src/shared/lib/geo.ts';
 import { mulberry32 } from '../../src/shared/lib/rng.ts';
-import { DIFFS, scoreFor, effectiveKm, verdict, pickRounds, updateRecord, ROUNDS } from '../../src/shared/games/placeit.ts';
+import { DIFFS, scoreFor, effectiveKm, verdict, pickRounds, updateRecord, ROUNDS, summarizePlaceItRun } from '../../src/shared/games/placeit.ts';
 import { generateQuiz, applyAnswer, ranking, LEVEL_OPTIONS, QUIZ_SETS } from '../../src/shared/games/quiz.ts';
 import { buildPool, dayIndex, puzzleFor, evaluate, applyGuess, finishStats, hintsUnlocked, shareText, EMPTY_STATS, type DailyState } from '../../src/shared/games/daily.ts';
 import { emptyProgress, mergeProgress, isProgress, isOn, countOn, fitsSyncRequest, MAX_SYNC_REQUEST_BYTES } from '../../src/shared/lib/progress.ts';
@@ -16,7 +16,14 @@ import { AURA_PRESETS } from '../../src/client/globe/scene.ts';
 import { parseExtract, articleUrl } from '../../src/client/lib/wikipedia.ts';
 import { WIKI } from '../../src/shared/data/wiki.ts';
 import { graticuleStep } from '../../src/client/globe/layers.ts';
-import { antipodeOf, greatCircleSummary, nearestCatalogueItem, solarTimeOffsetHours, wrapLon } from '../../src/shared/lib/geodesic.ts';
+import { antipodeOf, greatCircleSummary, nearestCatalogueItem, solarTimeOffsetHours, wrapLon, altitudePhysics } from '../../src/shared/lib/geodesic.ts';
+import { lightDelaySec, probeTransitHours, apparentArcsec } from '../../src/shared/lib/orbits.ts';
+import { projDistortion } from '../../src/client/map/proj.ts';
+import { skyEventsToIcs } from '../../src/client/sky/panel.ts';
+import { countryCatalogueCount } from '../../src/client/globe/overlay.ts';
+import { lookbackEarthEra } from '../../src/shared/data/cosmos.ts';
+import { formatTourStudyGuideMarkdown, TOURS } from '../../src/client/ui/tours.ts';
+import { stationSolarBadge } from '../../src/client/ui/radio.ts';
 import { analyzeQuakeTectonics, pointToSegmentKm, quakeEnergyJoules, summarizeQuakeFeed } from '../../src/shared/lib/tectonics.ts';
 import { computeExplorerStats, formatFieldLogMarkdown } from '../../src/shared/lib/field-log.ts';
 import { STOPS, eraNote } from '../../src/shared/lib/timeline.ts';
@@ -904,7 +911,79 @@ describe('static i18n key coverage, geodesic lab, quake tectonics & explorer fie
       expect(octFestivals[i].daysUntil).toBeGreaterThanOrEqual(octFestivals[i - 1].daysUntil);
     }
   });
+
+  it('iterations 1–9: interplanetary telemetry, Tissot distortion, sky .ics, country counts, altitude physics, lookback eras, tour study guides, Place-It analytics & radio solar badge', () => {
+    // Iter 1: Solar System interplanetary telemetry (Sun–Earth light delay ≈ 490–508 s)
+    expect(lightDelaySec('sun', 'earth', 0)).toBeGreaterThan(485);
+    expect(lightDelaySec('sun', 'earth', 0)).toBeLessThan(510);
+    expect(probeTransitHours('sun', 'earth', 0)).toBeGreaterThan(2400);
+    // Sun apparent size from Earth ≈ 1919–1952 arcsec (~32 arcmin)
+    expect(apparentArcsec('sun', 0, 'earth')).toBeGreaterThan(1900);
+    expect(apparentArcsec('sun', 0, 'earth')).toBeLessThan(1960);
+
+    // Iter 2: Map projection Tissot distortion
+    expect(projDistortion('plate', 0)).toEqual({ areaFactor: 1, shapeRatio: 1, parallelScale: 1, meridianScale: 1 });
+    // At 60° latitude, Mercator stretches area by sec²(60°) = 4× while remaining conformal (shapeRatio = 1)
+    const merc60 = projDistortion('mercator', 60);
+    expect(merc60.areaFactor).toBeCloseTo(4, 1);
+    expect(merc60.shapeRatio).toBeCloseTo(1, 1);
+    // Equal Earth is equal-area everywhere (areaFactor = 1)
+    expect(projDistortion('equalearth', 55).areaFactor).toBe(1);
+
+    // Iter 3: Sky events .ics calendar export
+    const skyIcs = skyEventsToIcs(
+      [{ id: 'perseids-2026', kind: 'meteor-shower', t: Date.UTC(2026, 7, 12, 22, 0, 0), shower: 'perseids' }],
+      { lat: 39.9, lon: 116.4, name: 'Beijing' },
+      2026,
+    );
+    expect(skyIcs).toContain('BEGIN:VCALENDAR\r\n');
+    expect(skyIcs).toContain('SUMMARY:Perseids');
+    expect(skyIcs).toContain('LOCATION:Beijing\r\n');
+
+    // Iter 4: Country catalogue counts
+    expect(countryCatalogueCount('CN')).toBeGreaterThan(5);
+    expect(countryCatalogueCount('FR')).toBeGreaterThan(0);
+    expect(countryCatalogueCount('ZZ')).toBe(0);
+
+    // Iter 5: High-altitude atmospheric physics (Mount Everest ~8849 m vs sea level)
+    expect(altitudePhysics(0)).toEqual({ pressurePct: 100, tempDropC: 0, boilingPointC: 100 });
+    const everest = altitudePhysics(8849);
+    expect(everest.pressurePct).toBeGreaterThanOrEqual(30);
+    expect(everest.pressurePct).toBeLessThanOrEqual(35);
+    expect(everest.tempDropC).toBeCloseTo(57.5, 0);
+    expect(everest.boilingPointC).toBeLessThan(73);
+
+    // Iter 6: Deep-space lookback Earth eras
+    expect(lookbackEarthEra(8.6)?.en).toContain('Modern digital era');
+    expect(lookbackEarthEra(1500)?.en).toContain('Ancient civilizations');
+    expect(lookbackEarthEra(2_500_000)?.en).toContain('Pleistocene');
+    expect(lookbackEarthEra(100_000_000)?.en).toContain('Mesozoic');
+
+    // Iter 7: Tour study guide Markdown export
+    const tourMdEn = formatTourStudyGuideMarkdown(TOURS[0], 'en');
+    const tourMdZh = formatTourStudyGuideMarkdown(TOURS[0], 'zh');
+    expect(tourMdEn).toContain(`# ${TOURS[0].title[0]}`);
+    expect(tourMdZh).toContain(`# ${TOURS[0].title[1]}`);
+
+    // Iter 8: Place-It accuracy & grade summary
+    const sampleItem = CATALOGUE[0];
+    const sGrade = summarizePlaceItRun([
+      { item: sampleItem, guessLat: 0, guessLon: 0, km: 20, effectiveKm: 10, score: 950 },
+      { item: sampleItem, guessLat: 0, guessLon: 0, km: 40, effectiveKm: 30, score: 900 },
+    ]);
+    expect(sGrade.grade).toBe('S');
+    expect(sGrade.accuracyPct).toBe(93);
+    expect(sGrade.meanKm).toBe(30);
+    expect(sGrade.bestKm).toBe(20);
+
+    // Iter 9: World Radio station local solar clock badge
+    const eqNoon = stationSolarBadge(0, 0, Date.UTC(2026, 2, 20, 12, 0, 0));
+    const eqMidnight = stationSolarBadge(0, 180, Date.UTC(2026, 2, 20, 12, 0, 0));
+    expect(eqNoon).toContain('☀️');
+    expect(eqMidnight).toContain('🌙');
+  });
 });
+
 
 
 
