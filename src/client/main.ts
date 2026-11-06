@@ -37,9 +37,12 @@ import { getQuakeFeedStatus } from './lib/earthquakes.ts';
 import type { ScaleId } from '../shared/data/cosmos.ts';
 
 /** Panels not needed for the first screen load on first use (their chunks stay out of the entry). */
-const later = <M,>(load: () => Promise<M>, what: () => string) => {
+const later = <M,>(load: () => Promise<M>, what: () => string, hash = '') => {
   const get = lazy(load);
-  return (use: (m: M) => void) => void withBusy(get()).then(use, () => toast('⚠️ ' + t('loadFail', { s: what() }) + (navigator.onLine ? '' : ' ' + t('offlineMissing')), navigator.onLine ? 2600 : 5000));
+  const run = (use: (m: M) => void, attempt = 1): void => {
+    void withBusy(get()).then(use, () => showLoadError(what(), n => run(use, n), hash, attempt));
+  };
+  return run;
 };
 const gamesMod = later(() => import('./ui/games.ts'), () => t('game'));
 const collectionMod = later(() => Promise.all([import('./ui/collection.ts'), import('./ui/passport.ts')]), () => t('collection'));
@@ -437,7 +440,7 @@ async function boot(): Promise<void> {
 
   // ---- saved views (F02) ----
   const tonightMod = later(() => import('./ui/tonight.ts'), () => t('tonight'));
-  const cmpMod = later(() => import('./ui/compare.ts'), () => t('compare'));
+  const cmpMod = later(() => import('./ui/compare.ts'), () => t('compare'), 'compare');
   const bmMod = later(() => import('./ui/bookmarks.ts'), () => t('bookmarks'));
   const currentView = async (): Promise<Bookmark | null> => {
     if (sceneMode.gaming) return null;
@@ -499,6 +502,25 @@ async function boot(): Promise<void> {
     travel: (it, from) => { shell.showItem(it); if (Math.abs(from[0] - it.lat) + Math.abs(from[1] - it.lon) > 2) globe.showFlightArc(from, [it.lat, it.lon]); },
   }));
   const openGame = (kind: 'daily' | 'placeit' | 'quiz') => { if (!sceneMode.gaming && !sceneMode.inSolar) gamesMod(m => m.startGame(host, kind)); };
+  const openCompareBench = (id?: string) => cmpMod(m => m.openCompare(id, {
+    onShowArc: (a, b) => {
+      closeModal('compare');
+      if (sceneMode.inMap) closeMap(false);
+      const show = () => {
+        const mid = slerpLatLon(a, b, 0.5);
+        globe.showFlightArc(a, b);
+        globe.flyTo(mid[0], mid[1], 2.2, 1400);
+      };
+      if (sceneMode.inSolar) leaveSolar(a[0], a[1], show);
+      else show();
+    },
+    onFlyTo: (lat, lon) => {
+      closeModal('compare');
+      if (sceneMode.inMap) closeMap(false);
+      if (sceneMode.inSolar) leaveSolar(lat, lon, () => globe.flyTo(lat, lon, 1.4, 1400));
+      else globe.flyTo(lat, lon, 1.4, 1400);
+    },
+  }));
   shell = new Shell(app, globe, {
     openPhoto,
     openCollection: showCollection,
@@ -506,25 +528,7 @@ async function boot(): Promise<void> {
     openTutorial: () => openTutorial(openTours),
     openTours, openLessons, openAstro, openSsbs, openBookmarks,
     continueLesson,
-    openCompare: (id?: string) => cmpMod(m => m.openCompare(id, {
-      onShowArc: (a, b) => {
-        closeModal('compare');
-        if (sceneMode.inMap) closeMap(false);
-        const show = () => {
-          const mid = slerpLatLon(a, b, 0.5);
-          globe.showFlightArc(a, b);
-          globe.flyTo(mid[0], mid[1], 2.2, 1400);
-        };
-        if (sceneMode.inSolar) leaveSolar(a[0], a[1], show);
-        else show();
-      },
-      onFlyTo: (lat, lon) => {
-        closeModal('compare');
-        if (sceneMode.inMap) closeMap(false);
-        if (sceneMode.inSolar) leaveSolar(lat, lon, () => globe.flyTo(lat, lon, 1.4, 1400));
-        else globe.flyTo(lat, lon, 1.4, 1400);
-      },
-    })),
+    openCompare: openCompareBench,
     openTonight: () => tonightMod(m => m.openTonight(navTo)),
     openAccount: () => account(m => m.openAccount()), openGuestbook: () => account(m => void m.openGuestbook()),
     openSolar: () => void enterSolar(),
@@ -629,6 +633,7 @@ async function boot(): Promise<void> {
     const [head, rest = ''] = hsh.split('/');
     if (head === 'sky') { void openSky(rest || undefined); return; }
     if (head === 'map') { history.replaceState(null, '', location.pathname + location.search); void openMap(); return; }
+    if (head === 'compare') { history.replaceState(null, '', location.pathname + location.search); openCompareBench(rest || undefined); return; }
     if (head === 'lesson') { if (rest) startLesson(rest); else openLessons(); history.replaceState(null, '', location.pathname + location.search); return; }
     if (head === 'ssbs') { if (ssbsOn()) openSsbs(); history.replaceState(null, '', location.pathname + location.search); return; }
     if (head === 'astro') { if (rest) startLesson(rest); else openAstro(); history.replaceState(null, '', location.pathname + location.search); return; }

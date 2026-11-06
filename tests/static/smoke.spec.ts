@@ -190,6 +190,10 @@ test('static build works below a sub-path', async ({ page }) => {
   await expect.poll(() => page.evaluate(() => (window as any).__pp.globe.adminData?.regions.length ?? 0), { timeout: 60_000 }).toBeGreaterThan(4000);
 
   // deep link into a lazy scene (its chunk comes from the sub-path)
+  await page.goto('?lowfx=1&notut#map');
+  await ready(page);
+  await expect(page.locator('body.flatmap')).toHaveCount(1, { timeout: 60_000 });
+  await expect(page.getByTestId('map-distortion')).toBeVisible({ timeout: 30_000 });
   await page.goto('?lowfx=1&notut#milkyway');
   await ready(page);
   await expect(page.locator('body.solar')).toHaveCount(1, { timeout: 60_000 });
