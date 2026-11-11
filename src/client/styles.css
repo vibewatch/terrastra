@@ -1360,13 +1360,13 @@ body.immersive :is(.fm-bar, .fm-scale) { display: none !important; }
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 2px 0 8px;
   font: 500 .76rem/1.3 var(--font-mono); color: var(--hud-hi);
 }
-.solar-chip {
-  display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; border-radius: 999px;
-  border: 1px solid var(--hud-line); background: rgba(15, 23, 42, .65); font-size: .72rem;
+.solar-phase-chip {
+  display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px;
+  border: 1px solid var(--hud-line); background: rgba(15, 23, 42, .65); font-size: .72rem; white-space: nowrap;
 }
-.solar-chip.solar-day { border-color: rgba(251, 191, 36, .45); color: #fde68a; }
-.solar-chip.solar-twilight { border-color: rgba(251, 146, 60, .45); color: #fed7aa; }
-.solar-chip.solar-night { border-color: rgba(125, 211, 252, .4); color: #bae6fd; }
+.solar-phase-chip.solar-day { border-color: rgba(251, 191, 36, .45); color: #fde68a; }
+.solar-phase-chip.solar-twilight { border-color: rgba(251, 146, 60, .45); color: #fed7aa; }
+.solar-phase-chip.solar-night { border-color: rgba(125, 211, 252, .4); color: #bae6fd; }
 .live-weather-val:empty { display: none; }
 .live-weather-val { color: var(--text-2); }
 

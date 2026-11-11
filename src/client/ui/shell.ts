@@ -780,7 +780,7 @@ export class Shell {
     const sol = solarStatusAt(it.lat, it.lon, this.globe.simTime ?? Date.now());
     const weatherSpan = h('span', { class: 'live-weather-val' });
     const row = h('div', { class: 'live-weather-row', 'data-testid': 'live-weather', title: t('weather.liveTitle') },
-      h('span', { class: `solar-chip solar-${sol.phase}` }, `${sol.icon} ${t(sol.labelKey)}`),
+      h('span', { class: `solar-phase-chip solar-${sol.phase}` }, `${sol.icon} ${t(sol.labelKey)}`),
       weatherSpan,
     );
     if (!classroom()) {

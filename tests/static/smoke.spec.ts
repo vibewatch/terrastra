@@ -107,6 +107,8 @@ test('static build works below a sub-path', async ({ page }) => {
   await expect(page.getByTestId('live-weather')).toBeVisible();
   await expect(page.getByTestId('live-weather')).toContainText('19.2°C');
   await expect(page.getByTestId('live-weather')).not.toContainText(/solar(Day|Twilight|Night)|wx[A-Z]/);
+  const chipFits = await page.locator('.solar-phase-chip').evaluate(el => el.scrollWidth <= el.clientWidth + 1);
+  expect(chipFits).toBe(true);
 
   await page.evaluate(() => { location.hash = 'sp_iss'; });
   await expect(page.getByTestId('iss-live-box')).toBeVisible();
