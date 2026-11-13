@@ -158,6 +158,39 @@ test('static build works below a sub-path', async ({ page }) => {
   await expect(page.getByTestId('collection-seasons')).toBeVisible();
   await page.keyboard.press('Escape');
 
+  // Geography class: expanded grade lessons, question banks & Wrong-Question Notebook (错题本)
+  await page.locator('#btn-hub').click();
+  await page.getByTestId('hub-tab-learn').click();
+  await page.getByTestId('menu-lessons').click();
+  await expect(page.getByTestId('mistake-book-bar')).toBeVisible();
+  await expect(page.getByTestId('mistake-empty')).toBeVisible();
+  await expect(page.getByTestId('lesson-se-asia')).toBeVisible();
+  await expect(page.getByTestId('lesson-exam-g7a')).toBeVisible();
+  await page.getByTestId('lesson-se-asia').click();
+  await expect(page.getByTestId('lesson')).toBeVisible();
+  for (let s = 0; s < 3; s++) await page.getByTestId('lesson-next').click();
+  // Purposely pick a wrong option on Question 1 so it is recorded into the Mistake Notebook
+  await page.locator('[data-testid="lesson-opt"][data-right="false"]').first().click();
+  await expect(page.getByTestId('lesson-why')).toHaveClass(/no/);
+  await page.getByTestId('lesson-exit').click();
+
+  // Open Geography Class again and verify the Mistake Notebook recorded the wrong question
+  await page.locator('#btn-hub').click();
+  await page.getByTestId('hub-tab-learn').click();
+  await page.getByTestId('menu-lessons').click();
+  await expect(page.getByTestId('mistake-stats')).toContainText('1 to review');
+  await page.getByTestId('mistake-toggle-btn').click();
+  await expect(page.getByTestId('mistake-list')).toBeVisible();
+  await expect(page.getByTestId('mistake-item')).toHaveCount(1);
+  await expect(page.getByTestId('mistake-right-ans')).toContainText('Strait of Malacca');
+  // Practice the missed question and answer it right to master it
+  await page.getByTestId('mistake-practice-btn').click();
+  await expect(page.getByTestId('lesson')).toBeVisible();
+  await page.locator('[data-testid="lesson-opt"][data-right="true"]').click();
+  await page.getByTestId('lesson-next').click();
+  await expect(page.getByTestId('lesson-score')).toContainText('Mastered 1');
+  await page.getByTestId('lesson-done').click();
+
   await page.locator('#btn-hub').click();
   await page.getByTestId('hub-tab-look').click();
   await page.getByTestId('menu-tonight').click();

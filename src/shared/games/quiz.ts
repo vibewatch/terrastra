@@ -91,6 +91,42 @@ const TEMPLATES: Template[] = [
     const cs = shuffle(CITIES, c.rnd).slice(0, c.nOpts); const top = cs.reduce((a, b) => (Math.abs(a[2]) <= Math.abs(b[2]) ? a : b));
     return build('geo_equator', 'geo', { en: 'Which city is closest to the equator?', zh: '哪座城市离赤道最近？' }, cityName(top[0], c.lang), cs.map(x => cityName(x[0], c.lang)), c);
   } },
+  { id: 'geo_city_country', set: 'geo', make: c => {
+    const it = pick(CITIES, c.rnd);
+    return build('geo_city_country', 'geo', { en: `In which country is ${cityName(it[0], 'en')}?`, zh: `${cityName(it[0], 'zh')}位于哪个国家？` },
+      c.country(it[1]), CITIES.map(x => c.country(x[1])), c, { lat: it[2], lon: it[3] });
+  } },
+  { id: 'geo_southern_hem', set: 'geo', make: c => {
+    const south = CITIES.filter(x => x[2] < -5);
+    const north = CITIES.filter(x => x[2] > 10);
+    if (!south.length || north.length < c.nOpts - 1) return null;
+    const it = pick(south, c.rnd);
+    return build('geo_southern_hem', 'geo', { en: 'Which of these cities lies in the Southern Hemisphere?', zh: '下列哪座城市位于南半球？' },
+      cityName(it[0], c.lang), north.map(x => cityName(x[0], c.lang)), c, { lat: it[2], lon: it[3] });
+  } },
+  { id: 'geo_tropics', set: 'geo', make: c => {
+    const trop = CITIES.filter(x => Math.abs(x[2]) < 22);
+    const mid = CITIES.filter(x => Math.abs(x[2]) > 28);
+    if (!trop.length || mid.length < c.nOpts - 1) return null;
+    const it = pick(trop, c.rnd);
+    return build('geo_tropics', 'geo', { en: 'Which of these cities lies in the Tropics (receive direct overhead sunlight)?', zh: '下列哪座城市位于热带（有阳光直射现象）？' },
+      cityName(it[0], c.lang), mid.map(x => cityName(x[0], c.lang)), c, { lat: it[2], lon: it[3] });
+  } },
+  { id: 'geo_populous', set: 'geo', make: c => {
+    const cs = shuffle(CITIES, c.rnd).slice(0, c.nOpts);
+    const top = cs.reduce((a, b) => (a[4] >= b[4] ? a : b));
+    if (cs.filter(x => x[4] === top[4]).length > 1) return null;
+    return build('geo_populous', 'geo', { en: 'Which of these cities has the largest metropolitan population?', zh: '下列哪座城市的都市圈人口最多？' },
+      cityName(top[0], c.lang), cs.map(x => cityName(x[0], c.lang)), c, { lat: top[2], lon: top[3] });
+  } },
+  { id: 'geo_peak_highest', set: 'geo', make: c => {
+    const peaks = shuffle(c.items.filter(i => (i.sub === 'mountain' || i.type === 'volcano') && i.facts?.heightM), c.rnd).slice(0, c.nOpts);
+    if (peaks.length < c.nOpts) return null;
+    const top = peaks.reduce((a, b) => (a.facts!.heightM! >= b.facts!.heightM! ? a : b));
+    if (peaks.filter(p => p.facts!.heightM === top.facts!.heightM).length > 1) return null;
+    return build('geo_peak_highest', 'geo', { en: 'Which of these peaks has the highest elevation above sea level?', zh: '下列哪座山峰的海拔最高？' },
+      nm(c, top), peaks.map(p => nm(c, p)), c, top);
+  } },
   { id: 'sec_kind', set: 'secrets', make: c => {
     const ds = by(c, 'discovery'); const it = pick(ds, c.rnd);
     const kinds: Record<string, I18n> = { wreck: { en: 'A shipwreck', zh: '一艘沉船' }, mystery: { en: 'A mystery', zh: '一个未解之谜' }, cryptid: { en: 'A legendary creature', zh: '一种传说中的生物' }, deepsea: { en: 'A deep-sea place', zh: '一个深海地点' }, extreme: { en: 'An extreme place', zh: '一个极端的地方' }, restricted: { en: 'A secret base', zh: '一个秘密基地' } };

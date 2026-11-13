@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { LESSONS, GRADES, STRANDS, VIEWS, course, lessonById, nextLesson, type View } from '../../src/client/lessons/data.ts';
+import { LESSONS, GRADES, STRANDS, VIEWS, course, findCanonicalQuiz, lessonById, nextLesson, type View } from '../../src/client/lessons/data.ts';
 import { CITIES, DIAGRAMS, PYRAMIDS, renderFig, type Fig } from '../../src/client/lessons/figs.ts';
 import { biomeOf, climateAt } from '../../src/client/lessons/climate.ts';
 import { fitView, oceanAt, tempAt } from '../../src/client/lessons/stage.ts';
@@ -8,6 +8,18 @@ import { BY_KEY } from '../../src/shared/data/catalogue.ts';
 import type { LL, Pair } from '../../src/client/lessons/kit.ts';
 import { checkQuiz, checkStep, okLL, okPair, versions } from './lesson-check.ts';
 import { optionOrder, shuffled } from '../../src/client/lessons/shuffle.ts';
+import {
+  isMistakeBook,
+  listMistakes,
+  mergeMistakeBook,
+  mistakeKey,
+  recordMistake,
+  recordMistakeReview,
+  removeMistake,
+  type MistakeBook,
+} from '../../src/shared/lib/journal.ts';
+import { backupOf, readBackupFull } from '../../src/client/lib/backup-file.ts';
+import { emptyProgress } from '../../src/shared/lib/progress.ts';
 
 describe('geography lessons data', () => {
   it('has unique ids in every grade and finds them by id', () => {
@@ -155,3 +167,73 @@ describe('quiz option order', () => {
     }
   });
 });
+
+describe('grade question banks and mistake notebook', () => {
+  it('includes the expanded grade lessons and all 6 per-grade question banks with dynamic exam draws', () => {
+    for (const id of ['se-asia', 'china-hazards', 'prd', 'h-motion']) {
+      const l = lessonById(id);
+      expect(l, id).toBeDefined();
+      expect(l!.quiz.length).toBeGreaterThanOrEqual(4);
+    }
+    for (const g of Object.keys(GRADES)) {
+      const bank = lessonById(`exam-${g}`);
+      expect(bank, `exam-${g}`).toBeDefined();
+      expect(bank!.exam).toBe(true);
+      expect(bank!.grade).toBe(g);
+      expect(bank!.quiz.length).toBe(12);
+      const drawn = bank!.gen!();
+      expect(drawn.steps.length).toBeGreaterThanOrEqual(3);
+      expect(drawn.quiz.length).toBe(12);
+      for (const q of drawn.quiz) {
+        expect(findCanonicalQuiz(bank!.id, q.q[0])).toBeDefined();
+      }
+    }
+  });
+
+  it('records mistakes, tracks review mastery, merges books, and round-trips through backup', () => {
+    const lesson = lessonById('se-asia')!;
+    const q1 = lesson.quiz[0];
+    const q2 = lesson.quiz[1];
+    let book: MistakeBook = {};
+    book = recordMistake(book, lesson.id, q1, 1000);
+    book = recordMistake(book, lesson.id, q1, 1500);
+    book = recordMistake(book, lesson.id, q2, 2000);
+
+    const k1 = mistakeKey(lesson.id, q1.q[0]);
+    const k2 = mistakeKey(lesson.id, q2.q[0]);
+    expect(book[k1].wrongCount).toBe(2);
+    expect(book[k1].mastered).toBe(false);
+    expect(listMistakes(book, { status: 'active' }).length).toBe(2);
+
+    // Answering q1 right in review marks it mastered
+    book = recordMistakeReview(book, k1, true, 3000);
+    expect(book[k1].mastered).toBe(true);
+    expect(book[k1].reviewStreak).toBe(1);
+    expect(listMistakes(book, { status: 'active' }).map(e => e.key)).toEqual([k2]);
+    expect(listMistakes(book, { status: 'mastered' }).map(e => e.key)).toEqual([k1]);
+
+    // Missing q1 again resets mastery
+    const regressed = recordMistakeReview(book, k1, false, 4000);
+    expect(regressed[k1].mastered).toBe(false);
+    expect(regressed[k1].wrongCount).toBe(3);
+
+    // Merging preserves newer state and max wrongCount
+    const merged = mergeMistakeBook(book, regressed);
+    expect(isMistakeBook(merged)).toBe(true);
+    expect(merged[k1].wrongCount).toBe(3);
+    expect(merged[k1].mastered).toBe(false);
+
+    // Backup round-trip preserves mistakeBook
+    const json = JSON.stringify(backupOf(emptyProgress(), 1000, { mistakeBook: merged }));
+    const parsed = readBackupFull(json);
+    expect(parsed).not.toBeNull();
+    expect(parsed!.mistakeBook?.[k1].wrongCount).toBe(3);
+    expect(parsed!.mistakeBook?.[k2].rightText[0].length).toBeGreaterThan(0);
+
+    // Removing a mistake deletes it cleanly
+    const afterRemove = removeMistake(merged, k1);
+    expect(afterRemove[k1]).toBeUndefined();
+    expect(afterRemove[k2]).toBeDefined();
+  });
+});
+

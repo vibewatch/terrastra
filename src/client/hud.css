@@ -1092,6 +1092,57 @@ html.classroom .lv-text b { font-size: .95rem; }
 .season-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .season-chip .season-when { margin-left: 4px; opacity: .82; font-size: .72rem; }
 
+/* ---- Wrong-question notebook (错题本) & review ---- */
+.mistake-book-bar {
+  display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; margin: 0 0 14px;
+  border: 1px solid rgba(251, 191, 36, 0.45); background: rgba(245, 158, 11, 0.07);
+  clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
+}
+.mistake-book-head {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px;
+}
+.mistake-book-info { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+.mistake-kicker {
+  margin: 0; display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  font-size: .78rem; color: #fcd34d; text-transform: uppercase; letter-spacing: .04em;
+}
+.mistake-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.mistake-list {
+  display: flex; flex-direction: column; gap: 8px; margin-top: 4px; max-height: 340px; overflow-y: auto;
+  padding-right: 2px;
+}
+.mistake-card {
+  display: flex; flex-direction: column; gap: 6px; padding: 10px 12px;
+  border: 1px solid var(--hud-line); background: rgba(4, 11, 20, 0.72);
+}
+.mistake-card.mastered {
+  border-color: rgba(81, 207, 102, 0.45);
+}
+.mistake-card-top {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px;
+  font-size: .75rem;
+}
+.mistake-lesson-tag { color: var(--hud-hi); font-weight: 600; }
+.mistake-status-badge {
+  padding: 1px 7px; border-radius: 999px; font-size: .72rem; font-weight: 600;
+  border: 1px solid rgba(255, 107, 107, 0.5); background: rgba(255, 107, 107, 0.14); color: #ffa8a8;
+}
+.mistake-status-badge.ok {
+  border-color: rgba(81, 207, 102, 0.5); background: rgba(81, 207, 102, 0.14); color: #8ce99a;
+}
+.mistake-q { margin: 0; font-size: .9rem; font-weight: 600; color: var(--text); line-height: 1.4; }
+.mistake-ans { margin: 0; font-size: .82rem; color: #8ce99a; line-height: 1.35; }
+.mistake-why { margin: 0; font-size: .8rem; color: var(--text-2); line-height: 1.4; }
+.mistake-card-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 2px; }
+.quiz-missed-box {
+  display: flex; flex-direction: column; gap: 6px; margin: 8px 0; padding: 10px 12px;
+  border: 1px solid rgba(255, 107, 107, 0.4); background: rgba(255, 107, 107, 0.06); text-align: left;
+}
+.quiz-missed-list {
+  margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; font-size: .82rem;
+}
+
+
 
 
 

@@ -16,11 +16,23 @@ import { skyEvents } from '../../shared/lib/astro/events.ts';
 import type { Globe } from '../globe/scene.ts';
 import { LessonStage, fitView } from './stage.ts';
 import { AstroStage } from './astro/stage.ts';
-import { CATALOGS, lessonById, nextLesson, subjectOf, type Lesson, type Quiz, type Step, type Subject } from './data.ts';
+import { CATALOGS, findCanonicalQuiz, lessonById, nextLesson, subjectOf, type Lesson, type Quiz, type Step, type Subject } from './data.ts';
 import { renderFig, type Fig } from './figs.ts';
 import { optionOrder, shuffled } from './shuffle.ts';
 import type { AstroScene, Home, LL, Pair } from './kit.ts';
-import { pickContinueLesson, recordLessonFinish, recordLessonStep, type LessonJournal } from '../../shared/lib/journal.ts';
+import {
+  listMistakes,
+  mistakeKey,
+  pickContinueLesson,
+  recordLessonFinish,
+  recordLessonStep,
+  recordMistake,
+  recordMistakeReview,
+  removeMistake,
+  type LessonJournal,
+  type MistakeBook,
+  type MistakeEntry,
+} from '../../shared/lib/journal.ts';
 
 /** Where the learner tapped, how far from the answer, and the country tapped ("find the country" questions). */
 type Tap = { ll: LL; km: number; a2?: string | null };
@@ -41,9 +53,32 @@ export interface LessonHost {
 const done = () => new Set(load<string[]>('lessonsDone', []));
 const journal = (): LessonJournal => load<LessonJournal>('lessonJournal', {});
 const saveJournal = (j: LessonJournal): void => save('lessonJournal', j);
+const mistakes = (): MistakeBook => load<MistakeBook>('mistakeBook', {});
+const saveMistakes = (b: MistakeBook): void => save('mistakeBook', b);
 /** The curriculum picked in a subject's lesson list; Chinese readers start with the Chinese course. */
 const view = (sub: Subject): string => { const c = CATALOGS[sub], v = load<string>(c.key, ''); return v in c.views ? v : c.def(lang() === 'zh'); };
 const figure = (f: Fig | undefined) => f ? h('figure', { class: 'lesson-fig', 'data-testid': 'lesson-fig', html: renderFig(f, L) }) : '';
+
+function quizFromMistake(e: MistakeEntry): Quiz {
+  const canon = findCanonicalQuiz(e.lessonId, e.q[0]);
+  if (canon) return { ...canon };
+  return {
+    q: e.snapshot.q,
+    why: e.snapshot.why,
+    tag: e.snapshot.tag,
+    sec: e.snapshot.sec,
+    options: e.snapshot.options,
+    answer: e.snapshot.answer,
+    multi: e.snapshot.multi,
+    order: e.snapshot.order,
+    match: e.snapshot.match,
+    num: e.snapshot.num,
+    at: e.snapshot.at,
+    tolKm: e.snapshot.tolKm,
+    a2: e.snapshot.a2,
+    place: e.snapshot.place,
+  };
+}
 
 let active: { stop: () => void } | null = null;
 export const lessoning = () => active !== null;
@@ -64,7 +99,35 @@ export function startLesson(id: string, host: LessonHost, opts?: { resume?: bool
   host.toEarth(() => run(lesson, host, opts?.resume ?? false));
 }
 
-function run(lesson: Lesson, host: LessonHost, resume = false): void {
+export function startMistakeReview(host: LessonHost, sub: Subject = 'geo', customEntries?: MistakeEntry[]): void {
+  if (host.blocked()) return;
+  const book = mistakes();
+  const entries = customEntries && customEntries.length > 0
+    ? customEntries
+    : (() => {
+        const todo = listMistakes(book, { status: 'active', filterFn: id => subjectOf(id) === sub });
+        return todo.length > 0 ? todo : listMistakes(book, { status: 'all', filterFn: id => subjectOf(id) === sub });
+      })();
+  if (entries.length === 0) return;
+  const reviewLesson: Lesson = {
+    id: sub === 'astro' ? 'a-mistake-review' : sub === 'ssbs' ? 'ssbs-mistake-review' : 'mistake-review-geo',
+    strand: 'maps',
+    tracks: [],
+    unit: ['Wrong-question notebook', '错题本专项复习'],
+    icon: 'book',
+    minutes: Math.max(2, Math.ceil(entries.length * 1.5)),
+    title: ['Mistake Review', '错题本复习'],
+    blurb: ['Re-practice missed questions until mastered.', '针对答错题目进行专项重练，答对即标记为已掌握。'],
+    keys: entries.slice(0, 5).map(e => e.why),
+    steps: [],
+    quiz: entries.map(quizFromMistake),
+  };
+  stopLesson();
+  document.querySelector('.tutorial')?.remove();
+  host.toEarth(() => run(reviewLesson, host, false, entries.map(e => e.key)));
+}
+
+function run(lesson: Lesson, host: LessonHost, resume = false, reviewKeys?: string[]): void {
   stopLesson();
   const g = host.globe;
   const stage = new LessonStage(g, { low: host.low, lang, frame: () => freeArea(card) });
@@ -96,6 +159,21 @@ function run(lesson: Lesson, host: LessonHost, resume = false): void {
   /** What was done on each answered question, so going Back shows it as it was. */
   const kept: ({ picked: number | null; tap: Tap | null; work: ReturnType<typeof fresh> } | undefined)[] = [];
   let stopped = false;
+  const isMistakeSession = Array.isArray(reviewKeys) && reviewKeys.length > 0;
+  const setAnswer = (k: number, ok: boolean) => {
+    answers[k] = ok;
+    const q = quiz[k];
+    if (!q) return;
+    if (isMistakeSession && reviewKeys?.[k]) {
+      saveMistakes(recordMistakeReview(mistakes(), reviewKeys[k], ok));
+    } else if (!ok) {
+      saveMistakes(recordMistake(mistakes(), lesson.id, q));
+    } else {
+      const mk = mistakeKey(lesson.id, q.q[0]);
+      const book = mistakes();
+      if (book[mk]) saveMistakes(recordMistakeReview(book, mk, true));
+    }
+  };
 
   const card = h('section', { class: 'tour-card lesson-card', 'data-occludes': true, 'data-testid': 'lesson', 'aria-labelledby': 'lesson-title' });
   const root = h('div', { class: 'tour lesson' }, card);
@@ -183,7 +261,7 @@ function run(lesson: Lesson, host: LessonHost, resume = false): void {
     const k = i - steps.length, q = quiz[k], ans = answers[k];
     stage.onClock = null;
     if (astro) astro.onClock = null;
-    const check = (ok: boolean) => { answers[k] = ok; renderQuiz(); };
+    const check = (ok: boolean) => { setAnswer(k, ok); renderQuiz(); };
     const checkBtn = (ready: boolean, run: () => void) => ans === null
       ? h('button', { class: 'cta lesson-check', 'data-testid': 'lesson-check', disabled: !ready, onclick: run }, t('lessonCheck')) : '';
     /** What the right answer was, for the question types where the learner built an answer. */
@@ -200,7 +278,7 @@ function run(lesson: Lesson, host: LessonHost, resume = false): void {
       body = h('div', { class: 'lesson-opts' }, ...optionOrder(q.q[0], k, q.options!.length).map(j => h('button', {
         class: 'pill lesson-opt' + (ans !== null && j === q.answer ? ' right' : '') + (ans !== null && j === picked && j !== q.answer ? ' wrong' : ''),
         'data-testid': 'lesson-opt', 'data-right': String(j === q.answer), disabled: ans !== null,
-        onclick: () => { picked = j; answers[k] = j === q.answer; renderQuiz(); },
+        onclick: () => { picked = j; setAnswer(k, j === q.answer); renderQuiz(); },
       }, L(q.options![j]))));
     } else if (q.order) {
       const items = q.order, n = items.length, pool = shuffled(n, q.q[0], k);
@@ -277,7 +355,7 @@ function run(lesson: Lesson, host: LessonHost, resume = false): void {
       figure(q.fig),
       q.astro ? clockRow() : '',
       body, why,
-      nav(() => go(i - 1), () => go(i + 1), k === quiz.length - 1 ? t('tourFinish') : t('next'), ans === null));
+      nav(i > 0 ? () => go(i - 1) : null, () => go(i + 1), k === quiz.length - 1 ? t('tourFinish') : t('next'), ans === null));
   };
 
   /** A practice test's score: a point per matching pair, the parts added up, and what to review. */
@@ -312,20 +390,32 @@ function run(lesson: Lesson, host: LessonHost, resume = false): void {
 
   const renderScore = () => {
     const s = answers.filter(Boolean).length;
-    const v = view(sub), nx = nextLesson(lesson.id, v) ?? (v === 'all' ? undefined : nextLesson(lesson.id, 'all'));
+    const missedIdx = quiz.map((_, idx) => idx).filter(idx => answers[idx] === false);
+    const v = view(sub), nx = isMistakeSession ? undefined : (nextLesson(lesson.id, v) ?? (v === 'all' ? undefined : nextLesson(lesson.id, 'all')));
     const again = () => {
       if (lesson.gen) { ({ steps, quiz } = lesson.gen()); answers = quiz.map(() => null); kept.length = 0; }
       else answers.fill(null);
       go(0);
     };
+    const retryMissed = () => {
+      const book = mistakes();
+      const entries = missedIdx
+        .map(idx => isMistakeSession && reviewKeys?.[idx] ? book[reviewKeys[idx]] : book[mistakeKey(lesson.id, quiz[idx].q[0])])
+        .filter((x): x is MistakeEntry => !!x);
+      if (entries.length) startMistakeReview(host, sub, entries);
+    };
     card.replaceChildren(
       head(t('lessonQuiz'), 1),
-      ...(lesson.exam ? examScore() : [h('h2', { id: 'lesson-title', 'data-testid': 'lesson-score' }, t('lessonScore', { s, n: quiz.length }))]),
+      ...(lesson.exam
+        ? examScore()
+        : [h('h2', { id: 'lesson-title', 'data-testid': 'lesson-score' },
+            t(isMistakeSession ? 'mistake.reviewDone' : 'lessonScore', { s, n: quiz.length }))]),
       h('p', { class: 'lesson-keys-h' }, t('lessonKeys')),
       h('ul', { class: 'lesson-keys', 'data-testid': 'lesson-keys' }, ...lesson.keys.map(k => h('li', {}, L(k)))),
       h('div', { class: 'row' },
         h('button', { class: 'pill', 'data-testid': 'lesson-more', onclick: () => { stop(); openLessons(host, sub); } }, t('lessonMore')),
         h('button', { class: 'pill', 'data-testid': 'lesson-again', onclick: again }, t('lessonAgain')),
+        missedIdx.length > 0 ? h('button', { class: 'pill', 'data-testid': 'lesson-retry-missed', onclick: retryMissed }, t('mistake.retryRun', { n: missedIdx.length })) : '',
         lesson.build ? h('button', { class: 'pill', 'data-testid': 'lesson-home-again', onclick: () => askHome() }, t('lessonHomeOther')) : '',
         nx ? h('button', { class: 'cta', 'data-testid': 'lesson-nextlesson', title: L(nx.title), onclick: () => { stop(); startLesson(nx.id, host); } }, t('lessonNextOne'))
           : h('button', { class: 'cta', 'data-testid': 'lesson-done', onclick: () => stop() }, t('tourFinish'))));
@@ -411,7 +501,7 @@ function run(lesson: Lesson, host: LessonHost, resume = false): void {
     if (q.pick && answers[k] === null) {
       astroBoard().onPick = tag => {
         if (answers[k] !== null || !tag) return;
-        answers[k] = tag === q.pick;
+        setAnswer(k, tag === q.pick);
         picked = null;
         const b = astroBoard();
         b.onPick = null;
@@ -444,7 +534,7 @@ function run(lesson: Lesson, host: LessonHost, resume = false): void {
         // "find this country": anywhere inside it counts; the reveal paints it and names the country tapped
         const hit = countryAt(g.fineShapes(), lat, lon)?.a2 ?? null;
         tap = { ll: [lat, lon], km, a2: hit };
-        answers[k] = hit === q.a2 || km <= (q.tolKm ?? 60);
+        setAnswer(k, hit === q.a2 || km <= (q.tolKm ?? 60));
         const nm = hit && hit !== q.a2 ? regionName(hit) : null;
         const base = q.show ?? { cam: [q.at[0], q.at[1], 2.6] as [number, number, number], wide: true };
         stage.show({ ...base,
@@ -455,7 +545,7 @@ function run(lesson: Lesson, host: LessonHost, resume = false): void {
         return;
       }
       tap = { ll: [lat, lon], km };
-      answers[k] = km <= (q.tolKm ?? 500);
+      setAnswer(k, km <= (q.tolKm ?? 500));
       stage.show({
         cam: [q.at[0], q.at[1], 2.6],
         lines: km > 30 ? [{ pts: [[lat, lon], q.at], c: '#f1f3f5', dur: 1 }] : [],
@@ -476,10 +566,10 @@ function run(lesson: Lesson, host: LessonHost, resume = false): void {
     g.captureTaps = false; g.ev.onGlobeTap = undefined;
     if (astro) astro.onPick = null;
     if (i < steps.length) {
-      if (i > 0) saveJournal(recordLessonStep(journal(), lesson.id, i, steps.length + quiz.length));
+      if (!isMistakeSession && i > 0) saveJournal(recordLessonStep(journal(), lesson.id, i, steps.length + quiz.length));
       showStep(steps[i]);
     } else if (i < steps.length + quiz.length) {
-      saveJournal(recordLessonStep(journal(), lesson.id, i, steps.length + quiz.length));
+      if (!isMistakeSession) saveJournal(recordLessonStep(journal(), lesson.id, i, steps.length + quiz.length));
       const q = quiz[i - steps.length];
       quizScene(q);
       listen(i - steps.length);
@@ -491,6 +581,10 @@ function run(lesson: Lesson, host: LessonHost, resume = false): void {
   const finish = () => {
     astro?.hide();
     stage.show({ cam: [g.lat, g.lon, Math.max(g.h, 3)] });
+    if (isMistakeSession) {
+      if (answers.filter(Boolean).length >= Math.max(1, quiz.length - 1)) confetti(40);
+      return;
+    }
     save('lessonsDone', [...done().add(lesson.id)]);
     let score = 0, total = 0;
     const missed: (readonly [string, string])[] = [];
@@ -571,7 +665,80 @@ export function openLessons(host: LessonHost, sub: Subject = 'geo'): void {
   const seen = done(), jMap = journal(), cat = CATALOGS[sub];
   const list = h('div', { class: 'tour-list lesson-list', 'data-testid': 'lesson-list' });
   const journalBox = h('div', { class: 'lesson-journal-wrap' });
+  const mistakeBox = h('div', { class: 'lesson-mistake-wrap' });
   const note = h('p', { class: 'muted small' });
+  let notebookOpen = false;
+
+  const renderMistakes = () => {
+    const all = listMistakes(mistakes(), { status: 'all', filterFn: id => subjectOf(id) === sub });
+    const todo = all.filter(e => !e.mastered);
+    const mastered = all.filter(e => e.mastered);
+    mistakeBox.replaceChildren(
+      h('section', { class: 'mistake-book-bar', 'data-testid': 'mistake-book-bar' },
+        h('div', { class: 'mistake-book-head' },
+          h('div', { class: 'mistake-book-info' },
+            h('p', { class: 'mistake-kicker', html: icon('book', 14) },
+              h('strong', {}, t('mistake.title')),
+              all.length > 0 ? h('span', { class: 'muted small', 'data-testid': 'mistake-stats' },
+                t('mistake.stats', { todo: todo.length, mastered: mastered.length, total: all.length })) : null),
+            all.length === 0 ? h('p', { class: 'muted small', 'data-testid': 'mistake-empty' }, t('mistake.empty')) : null),
+          all.length > 0 ? h('div', { class: 'mistake-actions' },
+            h('button', {
+              class: 'cta pill-sm',
+              'data-testid': 'mistake-practice-btn',
+              onclick: () => {
+                closeModal('lessons');
+                startMistakeReview(host, sub, todo.length > 0 ? todo : all);
+              },
+            }, todo.length > 0 ? t('mistake.practiceBtn', { n: todo.length }) : t('mistake.practiceAllBtn', { n: all.length })),
+            h('button', {
+              class: 'pill pill-sm',
+              'data-testid': 'mistake-toggle-btn',
+              onclick: () => {
+                notebookOpen = !notebookOpen;
+                renderMistakes();
+              },
+            }, notebookOpen ? t('mistake.hideBtn') : t('mistake.viewBtn', { n: all.length }))) : null),
+        notebookOpen && all.length > 0 ? h('div', { class: 'mistake-list', 'data-testid': 'mistake-list' },
+          ...all.map(e => {
+            const ansSummary = L(e.rightText);
+            const srcLesson = lessonById(e.lessonId);
+            const lessonName = srcLesson ? L(srcLesson.title) : e.lessonId;
+            return h('article', { class: 'mistake-card' + (e.mastered ? ' mastered' : ''), 'data-testid': 'mistake-item' },
+              h('div', { class: 'mistake-card-top' },
+                h('span', { class: 'mistake-lesson-tag' }, lessonName + (e.tag ? ' · ' + L(e.tag) : '')),
+                h('span', { class: 'mistake-status-badge' + (e.mastered ? ' ok' : '') },
+                  e.mastered ? t('mistake.badgeMastered', { n: e.wrongCount }) : t('mistake.badgeTodo', { n: e.wrongCount }))),
+              h('p', { class: 'mistake-q' }, L(e.q)),
+              ansSummary ? h('p', { class: 'mistake-ans', 'data-testid': 'mistake-right-ans' }, t('mistake.rightAnswer', { a: ansSummary })) : null,
+              h('p', { class: 'mistake-why' }, t('mistake.explanation', { w: L(e.why) })),
+              h('div', { class: 'mistake-card-actions' },
+                h('button', {
+                  class: 'pill pill-sm',
+                  'data-testid': 'mistake-practice-one',
+                  onclick: () => {
+                    closeModal('lessons');
+                    startMistakeReview(host, sub, [e]);
+                  },
+                }, t('mistake.practiceOne')),
+                srcLesson ? h('button', {
+                  class: 'pill pill-sm',
+                  'data-testid': 'mistake-open-lesson',
+                  onclick: () => {
+                    closeModal('lessons');
+                    startLesson(e.lessonId, host);
+                  },
+                }, t('mistake.openLesson')) : null,
+                h('button', {
+                  class: 'pill pill-sm',
+                  'data-testid': 'mistake-remove',
+                  onclick: () => {
+                    saveMistakes(removeMistake(mistakes(), e.key));
+                    renderMistakes();
+                  },
+                }, t('mistake.remove'))));
+          })) : null));
+  };
 
   const renderJournal = (v: string) => {
     const cont = pickContinueLesson(jMap, id => subjectOf(id) === sub && !!lessonById(id));
@@ -636,6 +803,7 @@ export function openLessons(host: LessonHost, sub: Subject = 'geo'): void {
   const fill = (v: string) => {
     note.textContent = L(cat.views[v].note);
     renderJournal(v);
+    renderMistakes();
     const groups = cat.course(v).map(gr => h('section', { class: 'lesson-group' },
       h('h3', { class: 'lesson-grade' }, h('span', {}, L(gr.name)), h('small', {}, `${gr.lessons.filter(x => seen.has(x.id)).length}/${gr.lessons.length}`)),
       ...gr.lessons.map(x => {
@@ -660,6 +828,7 @@ export function openLessons(host: LessonHost, sub: Subject = 'geo'): void {
   fill(view(sub));
   openModal('lessons', t(sub === 'astro' ? 'astroLessons' : sub === 'ssbs' ? 'ssbsLessons' : 'lessons'), h('div', { class: 'lesson-pickwrap' }, h('p', { class: 'muted' }, t(sub === 'astro' ? 'astroIntro' : sub === 'ssbs' ? 'ssbsIntro' : 'lessonsIntro')),
     journalBox,
+    mistakeBox,
     h('div', { class: 'lesson-track' }, sel.el, note), list));
 }
 

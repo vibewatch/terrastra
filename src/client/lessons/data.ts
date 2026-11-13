@@ -15,14 +15,20 @@ import { CHINA_D } from './l-china4.ts';
 import { SENIOR_A } from './l-senior1.ts';
 import { SENIOR_B } from './l-senior2.ts';
 import { HOME } from './l-home.ts';
+import { EXTRA_GRADE_LESSONS, createGradeBankLessons, ALL_EXTRA_QUIZ } from './l-grade-banks.ts';
 import { ASTRO_LESSONS, ASTRO_VIEWS, astroCourse, type AstroView } from './astro/data.ts';
 import { SSBS_LESSONS, SSBS_VIEWS, ssbsCourse } from './ssbs/index.ts';
 import { ssbsOn } from '../lib/ssbs.ts';
-import type { Grade, Lesson, Pair, Strand, Track } from './kit.ts';
+import type { Grade, Lesson, Pair, Quiz, Strand, Track } from './kit.ts';
 
 export type { Lesson, Quiz, Step, Track } from './kit.ts';
 
-const ALL: Lesson[] = [...EARTH_A, ...EARTH_B, ...MAPS, ...LAND, ...PHYSICAL, ...CLIMATE_L, ...HUMAN, ...REGIONS_L, ...WORLD, ...CHINA, ...CHINA_B, ...CHINA_C, ...CHINA_D, ...HOME, ...SENIOR_A, ...SENIOR_B];
+const BASE_LESSONS: Lesson[] = [
+  ...EARTH_A, ...EARTH_B, ...MAPS, ...LAND, ...PHYSICAL, ...CLIMATE_L, ...HUMAN, ...REGIONS_L, ...WORLD,
+  ...CHINA, ...CHINA_B, ...CHINA_C, ...CHINA_D, ...HOME, ...SENIOR_A, ...SENIOR_B, ...EXTRA_GRADE_LESSONS,
+];
+const GRADE_BANK_LESSONS: Lesson[] = createGradeBankLessons(BASE_LESSONS);
+const ALL: Lesson[] = [...BASE_LESSONS, ...GRADE_BANK_LESSONS];
 const STRAND_ORDER: Strand[] = ['maps', 'physical', 'climate', 'human', 'world', 'china'];
 /** Senior high school lessons (the Chinese senior course); they come after the middle-school ones in a theme. */
 const isSenior = (l: Lesson) => l.grade === 'h1' || l.grade === 'h2';
@@ -84,14 +90,36 @@ export function course(view: View): { name: Pair; lessons: Lesson[] }[] {
 }
 /** The PEP textbook's chapter order for the China volumes; lessons not listed keep their place in `ALL`, after these. */
 const PEP_ORDER = [
-  'china-place', 'china-people', 'steps', 'china-climate', 'china-water', 'yangtze', 'yellow-river', 'china-economy',
-  'china-regions', 'china-north', 'northeast', 'loess', 'beijing', 'china-south', 'yrd', 'hk-macau', 'taiwan',
-  'china-west', 'xinjiang', 'sanjiangyuan', 'china-world', 'home',
+  'china-place', 'china-people', 'steps', 'china-climate', 'china-water', 'yangtze', 'yellow-river', 'china-hazards', 'china-economy', 'exam-g8a',
+  'china-regions', 'china-north', 'northeast', 'loess', 'beijing', 'china-south', 'yrd', 'hk-macau', 'prd', 'taiwan',
+  'china-west', 'xinjiang', 'sanjiangyuan', 'china-world', 'home', 'exam-g8b',
 ];
 const pep = (l: Lesson) => { const i = PEP_ORDER.indexOf(l.id); return i < 0 ? PEP_ORDER.length : i; };
 /** The Chinese course keeps the textbook's own order. */
 const CN_ORDER: Lesson[] = ALL.filter(l => l.grade).map((l, i) => ({ l, i }))
   .sort((a, b) => pep(a.l) - pep(b.l) || a.i - b.i).map(x => x.l);
+
+/** Look up a canonical Quiz object by lesson ID and English prompt so mistake reviews preserve figures and globe focus. */
+export function findCanonicalQuiz(lessonId: string, qEn: string): Quiz | undefined {
+  const direct = lessonById(lessonId);
+  const fromDirect = direct?.quiz.find(q => q.q[0] === qEn);
+  if (fromDirect) return fromDirect;
+  for (const l of LESSONS) {
+    const found = l.quiz.find(q => q.q[0] === qEn);
+    if (found) return found;
+  }
+  for (const l of ASTRO_LESSONS) {
+    const found = l.quiz.find(q => q.q[0] === qEn);
+    if (found) return found;
+  }
+  if (ssbsOn()) {
+    for (const l of SSBS_LESSONS) {
+      const found = l.quiz.find(q => q.q[0] === qEn);
+      if (found) return found;
+    }
+  }
+  return ALL_EXTRA_QUIZ.find(q => q.q[0] === qEn);
+}
 
 /** The lesson after `id` in a curriculum (of the lesson's own subject). */
 export function nextLesson(id: string, view: string): Lesson | undefined {

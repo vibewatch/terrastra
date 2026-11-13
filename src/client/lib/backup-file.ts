@@ -1,6 +1,6 @@
 /** The progress backup file format (pure: no DOM, no store). */
 import { countOn, emptyProgress, isProgress, mergeProgress, type Progress } from '../../shared/lib/progress.ts';
-import { isLessonJournal, mergeLessonJournal, type LessonJournal } from '../../shared/lib/journal.ts';
+import { isLessonJournal, isMistakeBook, mergeLessonJournal, mergeMistakeBook, type LessonJournal, type MistakeBook } from '../../shared/lib/journal.ts';
 import { encodeView, type Bookmark } from './viewlink.ts';
 
 const KIND = 'terrastra-progress';
@@ -10,6 +10,7 @@ export interface BackupExtras {
   lessonsDone?: string[];
   toursDone?: string[];
   lessonJournal?: LessonJournal;
+  mistakeBook?: MistakeBook;
   bookmarks?: Bookmark[];
 }
 
@@ -21,6 +22,7 @@ export interface Backup {
   lessonsDone?: string[];
   toursDone?: string[];
   lessonJournal?: LessonJournal;
+  mistakeBook?: MistakeBook;
   bookmarks?: Bookmark[];
 }
 
@@ -63,6 +65,9 @@ export function backupOf(p: Progress, at = Date.now(), extras?: BackupExtras): B
   if (extras?.lessonJournal && Object.keys(extras.lessonJournal).length > 0 && isLessonJournal(extras.lessonJournal)) {
     out.lessonJournal = extras.lessonJournal;
   }
+  if (extras?.mistakeBook && Object.keys(extras.mistakeBook).length > 0 && isMistakeBook(extras.mistakeBook)) {
+    out.mistakeBook = extras.mistakeBook;
+  }
   if (extras?.bookmarks?.length) {
     const valid = mergeBookmarks([], extras.bookmarks);
     if (valid.length > 0) out.bookmarks = valid;
@@ -75,6 +80,7 @@ export function readBackupFull(text: string): {
   lessonsDone: string[];
   toursDone: string[];
   lessonJournal: LessonJournal;
+  mistakeBook: MistakeBook;
   bookmarks: Bookmark[];
 } | null {
   try {
@@ -87,12 +93,14 @@ export function readBackupFull(text: string): {
       ? [...new Set(x.toursDone.filter((id): id is string => typeof id === 'string' && id.length > 0 && id.length <= 64))].slice(0, 500)
       : [];
     const lessonJournal = isLessonJournal(x.lessonJournal) ? mergeLessonJournal({}, x.lessonJournal) : {};
+    const mistakeBook = isMistakeBook(x.mistakeBook) ? mergeMistakeBook({}, x.mistakeBook) : {};
     const bookmarks = Array.isArray(x.bookmarks) ? mergeBookmarks([], x.bookmarks.filter(isBookmark)) : [];
     return {
       progress: mergeProgress(emptyProgress(), x.progress),
       lessonsDone,
       toursDone,
       lessonJournal,
+      mistakeBook,
       bookmarks,
     };
   } catch { return null; }

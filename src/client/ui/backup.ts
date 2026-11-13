@@ -4,7 +4,7 @@ import { t } from '../lib/i18n.ts';
 import { load, save } from '../lib/storage.ts';
 import { store, canReplaceProgress, replaceProgress } from '../store.ts';
 import { mergeProgress } from '../../shared/lib/progress.ts';
-import { mergeLessonJournal, type LessonJournal } from '../../shared/lib/journal.ts';
+import { mergeLessonJournal, mergeMistakeBook, type LessonJournal, type MistakeBook } from '../../shared/lib/journal.ts';
 import { bookmarks, type Bookmark } from '../lib/viewlink.ts';
 import { backupOf, mergeBookmarks, readBackupFull, summary } from '../lib/backup-file.ts';
 
@@ -13,6 +13,7 @@ export function exportProgress(): void {
     lessonsDone: load<string[]>('lessonsDone', []),
     toursDone: load<string[]>('toursDone', []),
     lessonJournal: load<LessonJournal>('lessonJournal', {}),
+    mistakeBook: load<MistakeBook>('mistakeBook', {}),
     bookmarks: bookmarks(),
   });
   const blob = new Blob([JSON.stringify(payload, null, 1)], { type: 'application/json' });
@@ -54,6 +55,10 @@ export function importProgress(): void {
           if (Object.keys(parsed.lessonJournal).length > 0) {
             const curJournal = load<LessonJournal>('lessonJournal', {});
             save('lessonJournal', mergeLessonJournal(curJournal, parsed.lessonJournal));
+          }
+          if (Object.keys(parsed.mistakeBook).length > 0) {
+            const curMistakes = load<MistakeBook>('mistakeBook', {});
+            save('mistakeBook', mergeMistakeBook(curMistakes, parsed.mistakeBook));
           }
           if (parsed.bookmarks.length > 0) {
             const curBm = load<Bookmark[]>('bookmarks', []);

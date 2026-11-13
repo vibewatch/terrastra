@@ -151,12 +151,13 @@ function quizSetup(host: GameHost): void {
     } }, t('start'))));
 }
 
-function runQuiz(host: GameHost, names: string[], set: QuizSet, level: QuizLevel): void {
+function runQuiz(host: GameHost, names: string[], set: QuizSet, level: QuizLevel, customQs?: ReturnType<typeof generateQuiz>): void {
   const per = names.length === 1 ? 10 : 5;
-  const qs = generateQuiz(CATALOGUE, set, level, per * names.length, lang(), a2 => countryName(a2));
+  const qs = customQs && customQs.length > 0 ? customQs : generateQuiz(CATALOGUE, set, level, per * names.length, lang(), a2 => countryName(a2));
   let players: PlayerScore[] = names.map(n => ({ name: n, score: 0, streak: 0, bestStreak: 0 }));
   let i = 0;
   const bySet: Record<string, number> = {};
+  const missedQs: typeof qs = [];
   const ask = () => {
     if (i >= qs.length) return finish();
     const q = qs[i], pi = i % players.length, pl = players[pi];
@@ -166,6 +167,7 @@ function runQuiz(host: GameHost, names: string[], set: QuizSet, level: QuizLevel
       const ok = k === q.answer;
       players[pi] = applyAnswer(pl, ok);
       if (ok) bySet[q.set] = (bySet[q.set] ?? 0) + 1;
+      else missedQs.push(q);
       opts.querySelectorAll('button').forEach((b, j) => { b.setAttribute('disabled', ''); if (j === q.answer) b.classList.add('right'); else if (j === k) b.classList.add('wrong'); });
       fb.textContent = ok ? '✅ ' + t('correct') + (players[pi].streak >= 3 ? ` 🔥×${players[pi].streak}` : '') : '❌ ' + t('wrong', { a: q.options[q.answer] });
       ok ? sfx.good() : sfx.bad();
@@ -193,9 +195,19 @@ function runQuiz(host: GameHost, names: string[], set: QuizSet, level: QuizLevel
     openModal('quiz-results', t('results'), h('div', { class: 'results', 'data-testid': 'quiz-results' },
       h('div', { class: 'podium' }, ...ranked.slice(0, 3).map((p, k) => h('div', { class: 'step s' + (k + 1) }, h('span', {}, medals[k]), h('strong', {}, p.name), h('span', {}, String(p.score))))),
       h('table', { class: 'rank' }, h('thead', {}, h('tr', {}, h('th', {}, '#'), h('th', {}, t('players')), h('th', {}, t('score')), h('th', {}, '🔥'))),
-        h('tbody', {}, ...ranked.map((p, k) => h('tr', {}, h('td', {}, String(k + 1)), h('td', {}, p.name), h('td', {}, `${p.score} / ${qs.length / players.length}`), h('td', {}, String(p.bestStreak)))))),
+        h('tbody', {}, ...ranked.map((p, k) => h('tr', {}, h('td', {}, String(k + 1)), h('td', {}, p.name), h('td', {}, `${p.score} / ${Math.ceil(qs.length / players.length)}`), h('td', {}, String(p.bestStreak)))))),
+      missedQs.length > 0 ? h('div', { class: 'quiz-missed-box', 'data-testid': 'quiz-missed-box' },
+        h('strong', {}, t('quiz.missedTitle', { n: missedQs.length })),
+        h('ul', { class: 'quiz-missed-list' }, ...missedQs.map(mq =>
+          h('li', {}, `${tr(mq.prompt, lang())} → `, h('strong', {}, mq.options[mq.answer]))))) : null,
       h('p', { class: 'muted', 'data-testid': 'quiz-summary' }, t('quizLifetimeAcc', { pct: lifePct, c: fmtNum(qTot.correct), n: fmtNum(qTot.answered) })),
-      h('button', { class: 'cta', onclick: () => { closeModal('quiz-results'); runQuiz(host, names, set, level); } }, t('playAgain'))));
+      h('div', { class: 'row' },
+        missedQs.length > 0 ? h('button', {
+          class: 'pill',
+          'data-testid': 'quiz-retry-missed',
+          onclick: () => { closeModal('quiz-results'); runQuiz(host, [names[0]], set, level, missedQs); },
+        }, t('quiz.retryMissed', { n: missedQs.length })) : null,
+        h('button', { class: 'cta', onclick: () => { closeModal('quiz-results'); runQuiz(host, names, set, level); } }, t('playAgain')))));
   };
   void players;
   ask();
