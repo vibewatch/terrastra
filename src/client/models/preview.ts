@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { currentQuality } from '../globe/quality.ts';
-import type { CatalogueItem } from '../../shared/data/types.ts';
+import type { CatalogueItem, ModelRecipe } from '../../shared/data/types.ts';
 import { buildModel, modelReady, whenModelReady } from './library.ts';
 import { outdoorEnvironment } from './environment.ts';
 import { h } from '../ui/dom.ts';
@@ -8,7 +8,6 @@ import { h } from '../ui/dom.ts';
 interface ActivePreview {
   canvas: HTMLCanvasElement;
   ctx: CanvasRenderingContext2D | null;
-  item: CatalogueItem;
   group: THREE.Group;
   yaw: number;
   pitch: number;
@@ -103,9 +102,9 @@ function contactShadow(): THREE.Mesh {
   return m;
 }
 
-function buildPreviewScene(item: CatalogueItem): THREE.Group {
+function buildPreviewScene(recipe: ModelRecipe): THREE.Group {
   const wrap = new THREE.Group();
-  const model = buildModel(item.model);
+  const model = buildModel(recipe);
   // Normalise so the longest side is ~1 unit, base on y=0, centred on the turntable axis
   const box = new THREE.Box3().setFromObject(model);
   const size = new THREE.Vector3();
@@ -133,9 +132,12 @@ function placeholderGroup(): THREE.Group {
   return g;
 }
 
-const isLowFx = () => typeof document !== 'undefined' && document.body.classList.contains('lowfx');
+const isLowFx = () =>
+  typeof document !== 'undefined' &&
+  (document.body.classList.contains('lowfx') ||
+    (typeof location !== 'undefined' && new URLSearchParams(location.search).has('lowfx')));
 
-function renderOne(p: ActivePreview): void {
+function renderOne(p: ActivePreview): boolean {
   p.group.rotation.y = p.yaw;
   p.group.rotation.x = p.pitch;
   const w = p.canvas.width || 220;
@@ -154,7 +156,9 @@ function renderOne(p: ActivePreview): void {
     renderer.render(sharedScene, sharedCamera);
     p.ctx.clearRect(0, 0, w, hPx);
     p.ctx.drawImage(renderer.domElement, 0, 0, w, hPx);
+    return true;
   }
+  return false;
 }
 
 let lastTime = performance.now();
@@ -209,8 +213,7 @@ export function createModelPreview(item: CatalogueItem, opts: { width?: number; 
   const preview: ActivePreview = {
     canvas,
     ctx,
-    item,
-    group: modelReady(item.model) ? buildPreviewScene(item) : placeholderGroup(),
+    group: modelReady(item.model) ? buildPreviewScene(item.model) : placeholderGroup(),
     yaw: 0.45,
     pitch: 0.08,
     dragging: false,
@@ -240,7 +243,7 @@ export function createModelPreview(item: CatalogueItem, opts: { width?: number; 
   canvas.addEventListener('pointercancel', stopDrag);
 
   renderOne(preview);
-  if (!modelReady(item.model)) void whenModelReady(item.model, true).then(() => { preview.group = buildPreviewScene(item); renderOne(preview); }, () => {});
+  if (!modelReady(item.model)) void whenModelReady(item.model, true).then(() => { preview.group = buildPreviewScene(item.model); renderOne(preview); }, () => {});
   if (!isLowFx()) {
     activePreviews.add(preview);
     if (hiddenCheck !== null) { window.clearTimeout(hiddenCheck); hiddenCheck = null; }
@@ -255,4 +258,74 @@ export function createModelPreview(item: CatalogueItem, opts: { width?: number; 
     h('span', { class: 'model-stage-badge' }, item.emoji),
     h('span', { class: 'model-stage-hint' }, '3D · 360°'),
   );
+}
+
+/** Mounts a 3D turntable canvas inside an encyclopedia item page `.hero` container. */
+export function mountHeroPreview(hero: HTMLElement, recipe: ModelRecipe): void {
+  const w = Math.min(400, Math.max(240, (hero.clientWidth || 380) - 32));
+  const hPx = Math.min(244, Math.max(188, (hero.clientHeight || 260) - 32));
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const canvas = h('canvas', {
+    class: 'hero-canvas',
+    'data-testid': 'hero-3d-canvas',
+    'aria-hidden': 'true',
+    width: String(Math.round(w * dpr)),
+    height: String(Math.round(hPx * dpr)),
+  }) as HTMLCanvasElement;
+  canvas.style.width = `${w}px`;
+  canvas.style.height = `${hPx}px`;
+
+  const ctx = canvas.getContext('2d');
+  const preview: ActivePreview = {
+    canvas,
+    ctx,
+    group: placeholderGroup(),
+    yaw: 0.45,
+    pitch: 0.08,
+    dragging: false,
+    clock: 0,
+  };
+
+  let lastX = 0;
+  let lastY = 0;
+  canvas.addEventListener('pointerdown', e => {
+    preview.dragging = true;
+    lastX = e.clientX;
+    lastY = e.clientY;
+    canvas.setPointerCapture(e.pointerId);
+  });
+  canvas.addEventListener('pointermove', e => {
+    if (!preview.dragging) return;
+    const dx = e.clientX - lastX;
+    const dy = e.clientY - lastY;
+    lastX = e.clientX;
+    lastY = e.clientY;
+    preview.yaw += dx * 0.014;
+    preview.pitch = Math.max(-0.25, Math.min(0.45, preview.pitch + dy * 0.008));
+    renderOne(preview);
+  });
+  const stopDrag = () => { preview.dragging = false; };
+  canvas.addEventListener('pointerup', stopDrag);
+  canvas.addEventListener('pointercancel', stopDrag);
+
+  const activate = () => {
+    preview.group = buildPreviewScene(recipe);
+    if (!canvas.isConnected) hero.appendChild(canvas);
+    if (!renderOne(preview)) {
+      canvas.remove();
+      return;
+    }
+    hero.classList.add('has-3d');
+    if (!isLowFx()) {
+      activePreviews.add(preview);
+      if (hiddenCheck !== null) { window.clearTimeout(hiddenCheck); hiddenCheck = null; }
+      if (!rafId) {
+        lastTime = performance.now();
+        rafId = requestAnimationFrame(tick);
+      }
+    }
+  };
+
+  if (modelReady(recipe)) activate();
+  else void whenModelReady(recipe, true).then(activate, () => {});
 }

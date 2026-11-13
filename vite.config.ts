@@ -11,6 +11,10 @@ export default defineConfig({
     // three.js changes rarely: keep it in its own long-cached chunk, separate from app code.
     // Lesson packs are grouped by curriculum so no single lazy bundle exceeds the size budget.
     rolldownOptions: {
+      input: {
+        main: 'index.html',
+        encyclopedia: 'src/client/models/encyclopedia.ts',
+      },
       output: {
         codeSplitting: {
           groups: [

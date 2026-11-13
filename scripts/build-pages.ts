@@ -1,5 +1,5 @@
 /** Generates crawlable static pages (encyclopedia, about, privacy, 404, sitemap) into dist/. */
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, writeFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BY_TYPE, CATALOGUE } from '../src/shared/data/catalogue.ts';
@@ -21,6 +21,10 @@ const withBase = (html: string) => html.replace(/\b(href|src)="\/(?!\/)/g, `$1="
 if (!existsSync(out)) mkdirSync(out, { recursive: true });
 const appIndex = join(out, 'index.html');
 if (existsSync(appIndex)) writeFileSync(appIndex, withContentPolicy(readFileSync(appIndex, 'utf8')));
+const assetsDir = join(out, 'assets');
+const MODEL_SCRIPT = existsSync(assetsDir)
+  ? readdirSync(assetsDir).find(f => /^encyclopedia-[^/]+\.js$/.test(f))
+  : undefined;
 
 const esc = (s: string) => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 type Bi = { en: string; zh?: string };
@@ -124,9 +128,13 @@ h2::before{content:counter(sec,decimal-leading-zero);color:var(--sig)}h2::after{
 .ring.r2{inset:20px;border:1px dashed rgba(125,211,252,.4);animation:spin 48s linear infinite}
 .ring.r3{inset:-30px;border:0;background:repeating-conic-gradient(rgba(125,211,252,.5) 0 .8deg,transparent .8deg 10deg);-webkit-mask:radial-gradient(circle,transparent calc(50% - 7px),#000 calc(50% - 7px) 50%,transparent 50%);mask:radial-gradient(circle,transparent calc(50% - 7px),#000 calc(50% - 7px) 50%,transparent 50%);animation:spin 120s linear infinite reverse}
 .ring.r4{inset:-12px;border:0;background:conic-gradient(from 300deg,var(--sig) 0 22deg,transparent 22deg 180deg,var(--sig) 180deg 202deg,transparent 202deg);-webkit-mask:radial-gradient(circle,transparent calc(50% - 2px),#000 calc(50% - 2px) 50%,transparent 50%);mask:radial-gradient(circle,transparent calc(50% - 2px),#000 calc(50% - 2px) 50%,transparent 50%);opacity:.85;animation:spin 18s linear infinite}
-.glyph{color:var(--hi);filter:drop-shadow(0 0 12px rgba(125,211,252,.55))}.glyph svg{stroke-width:1.1}
-.hc{position:absolute;font:500 .66rem var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}.hc b{color:var(--sig);font-weight:500}
+.glyph{color:var(--hi);filter:drop-shadow(0 0 12px rgba(125,211,252,.55));transition:opacity .25s,transform .25s}.glyph svg{stroke-width:1.1}
+.hero.has-3d .glyph{opacity:0;transform:scale(.82);pointer-events:none}
+.hero.has-3d .reticle{opacity:.42;transition:opacity .25s;pointer-events:none}
+.hero-canvas{position:absolute;left:50%;top:calc(50% - 6px);transform:translate(-50%,-50%);z-index:2;cursor:grab;touch-action:none}.hero-canvas:active{cursor:grabbing}
+.hc{position:absolute;z-index:3;font:500 .66rem var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}.hc b{color:var(--sig);font-weight:500}
 .hc.tl{top:16px;left:22px}.hc.tr{top:16px;right:22px}.hc.bl{bottom:16px;left:22px;color:var(--hi)}.hc.br{bottom:16px;right:22px}
+.hc.bc{bottom:10px;left:50%;transform:translateX(-50%);padding:2px 10px;background:rgba(2,8,16,.84);border:1px solid rgba(255,181,71,.38);border-radius:999px;opacity:0;transition:opacity .25s;pointer-events:none;color:var(--sig);white-space:nowrap}.hero.has-3d .hc.bc{opacity:.92}
 .chip{display:inline-flex;align-items:center;gap:7px;font:500 .7rem var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--sig);padding:4px 10px;border:1px solid var(--sig-line);background:var(--sig-fill)}
 .meta{display:flex;flex-wrap:wrap;gap:12px;align-items:center;color:var(--muted);font-size:.86rem;margin:0 0 14px}
 .alt{margin:8px 0 0;font:500 .9rem var(--disp);letter-spacing:.08em;color:var(--dim)}.lead{font-size:1.1rem;line-height:1.8;color:var(--text-2);margin:24px 0 0;max-width:68ch}
@@ -174,7 +182,7 @@ const MARK = '<span class="mark" aria-hidden="true"></span>';
 const BRAND = T('Terrastra', '寰星');
 const pad = (n: number, w = 2) => String(n).padStart(w, '0');
 
-function page(path: string, title: string, desc: string, body: string, opts: { jsonld?: object; current?: string; script?: string } = {}): void {
+function page(path: string, title: string, desc: string, body: string, opts: { jsonld?: object; current?: string; script?: string; moduleScript?: string } = {}): void {
   const cur = (k: string) => (opts.current === k ? ' aria-current="page"' : '');
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title><meta name="description" content="${esc(desc)}"><link rel="canonical" href="${SITE}${path}"><meta name="theme-color" content="#02060c">
@@ -188,7 +196,7 @@ function page(path: string, title: string, desc: string, body: string, opts: { j
 <main><div class="wrap">${body}</div></main>
 <footer><div class="wrap"><span class="fbrand">${MARK}${bi(T('Terrastra — an original 3D planet toy for curious kids.', '寰星——为好奇的孩子打造的原创 3D 星球玩具。'))}</span>
 <nav aria-label="Site">${FOOT.map(([href, ic, label, key]) => `<a href="${href}"${cur(key)}>${icon(ic, 14)}${bi(label)}</a>`).join('')}</nav></div></footer>
-${opts.script ? `<script>${opts.script}</script>` : ''}</body></html>`;
+${opts.script ? `<script>${opts.script}</script>` : ''}${opts.moduleScript ? `<script type="module" src="${opts.moduleScript}"></script>` : ''}</body></html>`;
   const file = join(out, path, 'index.html');
   mkdirSync(dirname(file), { recursive: true });
   writeFileSync(file, withContentPolicy(withBase(html)));
@@ -249,9 +257,9 @@ for (const [si, s] of SECTIONS.entries()) {
     page(path, `${it.name.en} — Terrastra`, it.desc.en,
       `<nav class="crumbs"><a href="/encyclopedia/">${bi(T('Encyclopedia', '百科'))}</a><span>/</span><a href="/${s.dir}/">${bi(s.title)}</a><span>/</span>${code}</nav>
 <div class="item"><article>
-<div class="hero" aria-hidden="true"><div class="reticle"><span class="ring r3"></span><span class="ring r4"></span><span class="ring"></span><span class="ring r2"></span><span class="glyph">${icon(s.icon, 72)}</span></div>
+<div class="hero" aria-hidden="true" data-model="${esc(JSON.stringify(it.model))}"><div class="reticle"><span class="ring r3"></span><span class="ring r4"></span><span class="ring"></span><span class="ring r2"></span><span class="glyph">${icon(s.icon, 72)}</span></div>
 <span class="hc tl"><b>●</b> ${bi(T('Target', '目标'))} ${code}</span><span class="hc tr">${bi(s.one)}</span>
-<span class="hc bl">${it.route ? bi(T('Route', '航线')) : coord(it.lat, it.lon)}</span><span class="hc br">${wh.en ? bi(wh) : ''}</span></div>
+<span class="hc bl">${it.route ? bi(T('Route', '航线')) : coord(it.lat, it.lon)}</span><span class="hc bc">${bi(T('3D · Drag to rotate', '3D · 拖动旋转'))}</span><span class="hc br">${wh.en ? bi(wh) : ''}</span></div>
 <p class="meta"><span class="chip">${bi(s.one)}</span>${wh.en ? bi(wh) : ''}</p>
 <h1>${bi(it.name)}</h1><p class="alt"><span class="zh">${esc(it.name.en)}</span>${it.name.zh ? `<span class="en" lang="zh-CN">${esc(it.name.zh)}</span>` : ''}</p>
 ${bi(it.desc, 'p', 'lead')}${stats(it)}
@@ -264,7 +272,7 @@ ${w[1] ? `<a class="card" href="${wikiUrl('zh', w[1])}" rel="noopener" lang="zh-
 ${it.route ? '' : `<div class="panel"><h3>${bi(T('Location', '位置'))}</h3><p class="mono" style="margin:0">${coord(it.lat, it.lon)}</p></div>`}
 ${near.length ? `<div class="panel"><h3>${bi(T('Nearby', '附近'))}</h3><ul class="near">${near.map(({ o, d }) => { const os = SECTION_OF.get(o.key)!; return `<li><a href="/${os.dir}/${o.slug}/">${icon(os.icon, 16)}${bi(o.name)}<i>${num(Math.round(d))} km</i></a></li>`; }).join('')}</ul></div>` : ''}
 </aside></div>`,
-      { current: s.dir, jsonld: { '@context': 'https://schema.org', '@type': it.type === 'landmark' ? 'LandmarksOrHistoricalBuildings' : 'Thing', name: it.name.en, alternateName: it.name.zh, description: it.desc.en,
+      { current: s.dir, moduleScript: MODEL_SCRIPT ? `/assets/${MODEL_SCRIPT}` : undefined, jsonld: { '@context': 'https://schema.org', '@type': it.type === 'landmark' ? 'LandmarksOrHistoricalBuildings' : 'Thing', name: it.name.en, alternateName: it.name.zh, description: it.desc.en,
         ...(w ? { sameAs: [wikiUrl('en', w[0])] } : {}),
         ...(it.type === 'landmark' ? { geo: { '@type': 'GeoCoordinates', latitude: it.lat, longitude: it.lon } } : {}) } });
   });

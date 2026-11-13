@@ -247,6 +247,8 @@ test('static build works below a sub-path', async ({ page }) => {
   // an item page under the category, then back into the app at the base path
   await page.locator('main a[href^="/terrastra/animals/"]').first().click();
   await expect(page.locator('h1')).toBeVisible();
+  await expect(page.locator('.hero.has-3d')).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTestId('hero-3d-canvas')).toBeVisible();
   const app = page.locator('a[href^="/terrastra/?"], a[href^="/terrastra/#"]').first();
   if (await app.count()) await expect(app).toHaveAttribute('href', /^\/terrastra\//);
   expect(bad).toEqual([]);

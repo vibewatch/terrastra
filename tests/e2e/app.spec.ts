@@ -490,6 +490,8 @@ test('encyclopedia static pages link back to the globe', async ({ page }) => {
   await page.locator('#q').fill('eiffel');
   await page.getByRole('link', { name: /Eiffel Tower/ }).first().click();
   await expect(page.locator('h1 .en')).toHaveText('Eiffel Tower');
+  await expect(page.locator('.hero.has-3d')).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTestId('hero-3d-canvas')).toBeVisible();
   await page.locator('[data-set=zh]').click();
   await expect(page.locator('h1 .zh')).toBeVisible();
   await expect(page.locator('h1 .en')).toBeHidden();
