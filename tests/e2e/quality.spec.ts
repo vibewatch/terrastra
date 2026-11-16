@@ -475,3 +475,58 @@ test('models draw without WebGL errors on the high tier (real-time shadows on)',
   await page.waitForTimeout(3000);
   expect(await page.evaluate(() => (window as any).__glErr)).toBe(0);
 });
+
+test('ride camera stays continuous through a waypoint turn and a route reversal', async ({ page }) => {
+  await openApp(page);
+  // a route animal with the sharpest turn between two segments
+  const pick = await page.evaluate(() => {
+    const g = (window as any).__pp.globe;
+    const keys = [...g.placed.keys(), ...g.pending.keys()];
+    let best: { key: string; seg: number; turn: number } | null = null;
+    for (const k of keys) {
+      const it = g.placed.get(k)?.item ?? g.pending.get(k);
+      const pts: [number, number][] | undefined = it?.route?.pts;
+      if (!pts || pts.length < 3 || k === 'sp_iss') continue;
+      for (let i = 1; i < pts.length - 1; i++) {
+        const h1 = Math.atan2(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+        const h2 = Math.atan2(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]);
+        const turn = Math.abs(((h2 - h1 + 3 * Math.PI) % (2 * Math.PI)) - Math.PI);
+        if (!best || turn > best.turn) best = { key: k, seg: i - 1, turn };
+      }
+    }
+    return best;
+  });
+  expect(pick).toBeTruthy();
+  expect(pick!.turn).toBeGreaterThan(0.5);
+  await page.evaluate(k => { location.hash = k; }, pick!.key);
+  await page.getByTestId('ride').click();
+  await expect(page.getByTestId('ride-bar')).toBeVisible();
+
+  // Step the model and ride camera in simulated 60 fps frames (a software GPU renders too few real frames to
+  // sample) while the model crosses a waypoint and, separately, the end of its route.
+  const sample = (where: 'turn' | 'end') => page.evaluate(([key, seg, where]) => {
+    const g = (window as any).__pp.globe, p = g.placed.get(key);
+    p.seg = where === 'end' ? p.pts.length - 2 : seg; p.t = 0.9;
+    const dirs: number[][] = [];
+    for (let i = 0; i < 240; i++) {
+      g.updateItems(16); g.placeRideCamera(16);
+      const d = g.camera.getWorldDirection(g.camera.position.clone());
+      dirs.push([d.x, d.y, d.z]);
+    }
+    let maxDeg = 0;
+    for (let i = 1; i < dirs.length; i++) {
+      const [a, b] = [dirs[i - 1], dirs[i]];
+      maxDeg = Math.max(maxDeg, Math.acos(Math.min(1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2])) * 180 / Math.PI);
+    }
+    return { maxDeg, frames: dirs.length, crossed: where === 'end' ? p.seg < 2 : p.seg > seg };
+  }, [pick!.key, pick!.seg, where] as const);
+
+  for (const where of ['turn', 'end'] as const) {
+    const r = await sample(where);
+    console.log(where, pick, r);
+    expect(r.crossed).toBe(true);
+    // a snap shows up as one frame turning by the full waypoint angle (tens of degrees)
+    expect(r.maxDeg).toBeLessThan(5);
+  }
+  await page.getByTestId('ride-exit').click();
+});

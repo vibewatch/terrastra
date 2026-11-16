@@ -422,7 +422,7 @@ export class Globe {
   lat = 25; lon = 40; h = DEFAULT_H;
   private vLat = 0; private vLon = 0;
   private fly: { from: [number, number, number]; to: [number, number, number]; t: number; dur: number } | null = null;
-  ride: { key: string; yaw: number; dist: number; first: boolean } | null = null;
+  ride: { key: string; yaw: number; dist: number; first: boolean; fwd: THREE.Vector3 | null } | null = null;
   settings: Settings = { ...DEFAULT_SETTINGS };
   lang: Lang = 'en';
   gameMode = false;
@@ -1386,7 +1386,7 @@ export class Globe {
   startRide(key: string): boolean {
     const p = this.ensurePlaced(key);
     if (!p?.item.route) return false;
-    this.ride = { key, yaw: 0, dist: 2, first: false };
+    this.ride = { key, yaw: 0, dist: 2, first: false, fwd: null };
     this.select(null);
     this.dirty = true;
     return true;
@@ -1454,29 +1454,8 @@ export class Globe {
     }
     this.lon = ((this.lon + 540) % 360) - 180;
 
-    if (this.ride) {
-      const p = this.placed.get(this.ride.key)!;
-      const pos = p.obj.position.clone();
-      const N = pos.clone().normalize();
-      const fwd = p.heading.clone().normalize();
-      const right = new THREE.Vector3().crossVectors(fwd, N).normalize();
-      const s = this.modelScale(p.item);
-      const yawed = fwd.clone().multiplyScalar(Math.cos(this.ride.yaw)).add(right.clone().multiplyScalar(Math.sin(this.ride.yaw)));
-      if (this.ride.first) {
-        this.camera.position.copy(pos).add(N.clone().multiplyScalar(s * 0.5)).add(yawed.clone().multiplyScalar(s * 0.5));
-        this.camera.up.copy(N);
-        this.camera.lookAt(this.camera.position.clone().add(yawed).add(N.clone().multiplyScalar(-0.05)));
-      } else {
-        const d = s * 6 * this.ride.dist;
-        this.camera.position.copy(pos).add(yawed.clone().multiplyScalar(-d)).add(N.clone().multiplyScalar(d * 0.45));
-        this.camera.up.copy(N);
-        this.camera.lookAt(pos.clone().add(N.clone().multiplyScalar(s * 0.5)));
-      }
-      this.camera.near = 0.0005;
-      this.camera.updateProjectionMatrix();
-      this.camera.updateMatrixWorld();
-      return;
-    }
+    // The ride camera follows the model, so it is placed after the models move (placeRideCamera).
+    if (this.ride) return;
     this.camera.near = Math.max(0.0008, this.h * 0.05);
     this.applyShift(dt);
     this.camera.updateProjectionMatrix();
@@ -1486,6 +1465,48 @@ export class Globe {
     this.camera.position.copy(T).addScaledVector(T, this.h);
     this.camera.up.copy(north);
     this.camera.lookAt(T);
+    this.camera.updateMatrixWorld();
+  }
+
+  /**
+   * Ride camera. Routes are polylines, so the model's heading turns sharply at each waypoint (and flips 180°
+   * at the end of a there-and-back route). The camera eases toward the new heading instead of snapping,
+   * otherwise it swings around the model in a single frame.
+   */
+  private placeRideCamera(dt: number): void {
+    const ride = this.ride, p = ride && this.placed.get(ride.key);
+    if (!ride || !p) return;
+    const pos = p.obj.position;
+    const N = pos.clone().normalize();
+    const tangent = (v: THREE.Vector3) => v.addScaledVector(N, -v.dot(N)).normalize();
+    const target = tangent(p.heading.clone());
+    if (ride.fwd) tangent(ride.fwd);
+    const fwdOk = !!ride.fwd && ride.fwd.lengthSq() > 0.5, targetOk = target.lengthSq() > 0.5;
+    if (!fwdOk && !targetOk) return;
+    if (!fwdOk) ride.fwd = target.clone();
+    else if (targetOk) {
+      // signed angle from the current to the target heading, around the local up
+      const ang = Math.atan2(new THREE.Vector3().crossVectors(ride.fwd!, target).dot(N), ride.fwd!.dot(target));
+      // ease in, but never swing faster than 90°/s (a route reversal becomes a two-second turn)
+      const step = Math.sign(ang) * Math.min(Math.abs(ang) * (1 - Math.exp(-dt / 450)), (Math.PI / 2) * dt / 1000);
+      ride.fwd!.applyAxisAngle(N, step).normalize();
+    }
+    const fwd = ride.fwd!;
+    const right = new THREE.Vector3().crossVectors(fwd, N).normalize();
+    const s = this.modelScale(p.item);
+    const yawed = fwd.clone().multiplyScalar(Math.cos(ride.yaw)).add(right.multiplyScalar(Math.sin(ride.yaw)));
+    if (ride.first) {
+      this.camera.position.copy(pos).addScaledVector(N, s * 0.5).addScaledVector(yawed, s * 0.5);
+      this.camera.up.copy(N);
+      this.camera.lookAt(this.camera.position.clone().add(yawed).addScaledVector(N, -0.05));
+    } else {
+      const d = s * 6 * ride.dist;
+      this.camera.position.copy(pos).addScaledVector(yawed, -d).addScaledVector(N, d * 0.45);
+      this.camera.up.copy(N);
+      this.camera.lookAt(pos.clone().addScaledVector(N, s * 0.5));
+    }
+    this.camera.near = 0.0005;
+    this.camera.updateProjectionMatrix();
     this.camera.updateMatrixWorld();
   }
 
@@ -1788,7 +1809,7 @@ export class Globe {
     // Classroom "pause motion": the world clock stops; the camera still flies.
     const dt = motion.still ? 0 : real;
     this.clock += dt;
-    const animate = (!this.lowfx && !motion.still) || now - this.lastLabel > 1000;
+    const animate = (!this.lowfx && !motion.still) || !!this.ride || now - this.lastLabel > 1000;
     this.updateCamera(real);
     for (const f of this.frameHooks) f(real);
     // Re-scan the queue when the view changed (or every ¼ s for moving vehicles / freshly loaded packs).
@@ -1797,6 +1818,7 @@ export class Globe {
     const itemDt = Math.max(0, Math.min(5000, this.clock - this.lastItemsClock));
     this.lastItemsClock = this.clock;
     this.updateItems(itemDt);
+    this.placeRideCamera(real);
     this.updateSun();
     this.styleBorders();
     if (this.layers) {
