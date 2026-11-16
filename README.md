@@ -26,7 +26,7 @@ npm run dev:server     # API on :8787 (watch mode)
 npm run dev            # Vite on :5173, proxies /api → :8787
 ```
 
-The game works fully without an account; progress is stored in `localStorage` and IndexedDB. Signing in only adds cloud sync, a nickname and the guestbook. Outside production, requesting a magic link returns `devLink`, and the account panel shows it as a clickable "dev sign-in" link.
+The game works fully without an account; progress is stored in `localStorage` and IndexedDB. Signing in only adds cloud sync, a nickname and the guestbook. With `npm run dev:server` (which sets `NODE_ENV=development`) or `DEV_LOGIN=1`, requesting a magic link returns `devLink`, and the account panel shows it as a clickable "dev sign-in" link.
 
 ## Geographic data
 Zoom in on the globe or flat map to load first-level administrative boundaries and names, including China's provincial-level divisions and their capitals. Hover or tap a region for its name and, where available, its capital. The public-domain [Natural Earth 1:10m admin-1 data](https://www.naturalearthdata.com/downloads/10m-cultural-vectors/10m-admin-1-states-provinces/) is simplified for display and loaded only when needed; some small countries and unnamed features are absent, and boundaries may not reflect the latest changes. It is not authoritative or suitable for surveying.
@@ -54,8 +54,8 @@ Set these in `.env` (template: [`.env.example`](.env.example)) or export them.
 |---|---|---|
 | `PORT` | `8787` | HTTP port |
 | `DB_PATH` | `data/terrastra.db` | SQLite file |
-| `NODE_ENV` | — | `production` enables secure cookies and disables dev login |
-| `DEV_LOGIN` | — | `1` returns magic links in the API response, even in production (testing only!) |
+| `NODE_ENV` | — | `production` enables secure cookies; `development` (set by `npm run dev:server`) enables dev login |
+| `DEV_LOGIN` | — | `1` returns magic links in the API response, even in production (testing only!). Also on when `NODE_ENV=development`; off otherwise, including when `NODE_ENV` is unset |
 | `BASE_URL` | `http://localhost:$PORT` in development; required in production | public origin used in magic links and the CSRF origin check; HTTPS is required in production unless insecure cookies are explicitly enabled for staging |
 | `INSECURE_COOKIES` | — | `1` drops the `Secure` cookie flag in production (plain-HTTP staging) |
 | `MAIL_FROM` | — | sender address for sign-in mail; required with either transport below |

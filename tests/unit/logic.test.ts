@@ -4,7 +4,7 @@ import { mulberry32 } from '../../src/shared/lib/rng.ts';
 import { DIFFS, scoreFor, effectiveKm, verdict, pickRounds, updateRecord, ROUNDS, summarizePlaceItRun } from '../../src/shared/games/placeit.ts';
 import { generateQuiz, applyAnswer, ranking, LEVEL_OPTIONS, QUIZ_SETS } from '../../src/shared/games/quiz.ts';
 import { buildPool, dayIndex, puzzleFor, evaluate, applyGuess, finishStats, hintsUnlocked, shareText, EMPTY_STATS, type DailyState } from '../../src/shared/games/daily.ts';
-import { emptyProgress, mergeProgress, isProgress, isOn, countOn, fitsSyncRequest, MAX_SYNC_REQUEST_BYTES } from '../../src/shared/lib/progress.ts';
+import { emptyProgress, mergeProgress, isProgress, isOn, countOn, fitsSyncRequest, fitProgress, MAX_SYNC_REQUEST_BYTES } from '../../src/shared/lib/progress.ts';
 import { newlyEarned } from '../../src/shared/lib/stickers.ts';
 import { CATALOGUE, BY_KEY, BY_SLUG, LANDMARKS } from '../../src/shared/data/catalogue.ts';
 import { EN_KEYS, ZH_KEYS, hasKey, t } from '../../src/client/lib/i18n.ts';
@@ -987,3 +987,37 @@ describe('static i18n key coverage, geodesic lab, quake tectonics & explorer fie
 
 
 
+
+describe('fitProgress', () => {
+  const keys = (prefix: string, n: number, t0: number) => Object.fromEntries(Array.from({ length: n }, (_, i) => [`${prefix}_${String(i).padStart(5, '0')}`.padEnd(60, 'x'), t0 + i]));
+  it('leaves a record that already fits untouched', () => {
+    const p = emptyProgress(); p.dex = { an_lion: 1 }; p.seen = { eiffel: 2 };
+    expect(fitProgress(p)).toEqual(p);
+  });
+  it('trims expendable maps, oldest first, and never drops collections', () => {
+    const p = emptyProgress();
+    p.dex = keys('dex', 500, 1); p.stickers = { s1: 1 }; p.found = keys('found', 300, 1);
+    p.likes = { ...keys('likeoff', 200, 10), ...Object.fromEntries(Object.entries(keys('likeon', 200, 10)).map(([k, v]) => [k, v])) };
+    for (const k of Object.keys(p.likes)) if (k.startsWith('likeoff')) p.likes[k] = -p.likes[k];
+    p.seen = keys('seen', 4000, 100);
+    expect(fitsSyncRequest(p)).toBe(false);
+    const f = fitProgress(p);
+    expect(isProgress(f)).toBe(true);
+    expect(fitsSyncRequest(f)).toBe(true);
+    expect(f.dex).toEqual(p.dex); expect(f.found).toEqual(p.found); expect(f.stickers).toEqual(p.stickers);
+    // switched-off likes go before anything else, then the oldest passport stamps
+    expect(Object.values(f.likes).some(v => v <= 0)).toBe(false);
+    expect(Object.keys(f.likes).filter(k => k.startsWith('likeon')).length).toBe(200);
+    const kept = Object.values(f.seen);
+    expect(kept.length).toBeLessThan(4000);
+    expect(Math.min(...kept)).toBeGreaterThan(100); // the oldest went first
+    expect(fitProgress(p)).toEqual(f); // deterministic
+  });
+  it('caps a map with more keys than allowed, keeping the first earned', () => {
+    const p = emptyProgress(); p.seen = Object.fromEntries(Array.from({ length: 5003 }, (_, i) => ['k' + i, i + 1]));
+    const f = fitProgress(p);
+    expect(Object.keys(f.seen).length).toBe(5000);
+    expect(f.seen.k0).toBe(1);
+    expect(f.seen.k5002).toBeUndefined();
+  });
+});

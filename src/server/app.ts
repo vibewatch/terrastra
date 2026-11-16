@@ -4,7 +4,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { transaction, type DB } from './db.ts';
 import { limiter } from './rate-limit.ts';
-import { mergeProgress, isProgress, emptyProgress, fitsSyncRequest, MAX_SYNC_REQUEST_BYTES, type Progress } from '../shared/lib/progress.ts';
+import { clientKey } from './client-key.ts';
+import { mergeProgress, isProgress, emptyProgress, fitsSyncRequest, MAX_SYNC_REQUEST_BYTES, type Progress, fitProgress } from '../shared/lib/progress.ts';
 import { HANDLE_RE } from '../shared/lib/profile.ts';
 import { BY_KEY } from '../shared/data/catalogue.ts';
 
@@ -104,8 +105,14 @@ export function createApp(o: AppOptions): express.Express {
   });
 
   const authLimit = limiter(5, 10 * 60_000, 10_000, { db, scope: 'auth' });
+  // a coarser bucket per IPv6 /48, so rotating through one allocation's /64s is still capped
+  const authWideLimit = limiter(25, 10 * 60_000, 10_000, { db, scope: 'auth-wide' });
+  // per recipient, whoever asks: stops one inbox being flooded with sign-in mail from many addresses
+  const mailLimit = limiter(5, 60 * 60_000, 10_000, { db, scope: 'auth-mail' });
   const postLimit = limiter(5, 60_000, 10_000, { db, scope: 'post' });
   const reportLimit = limiter(10, 60 * 60_000, 10_000, { db, scope: 'report' });
+  // reactions are anonymous, so cap them per IP: a cookie-dropping script could otherwise inflate counts without limit
+  const reactLimit = limiter(60, 60_000, 10_000);
 
   app.get('/api/health', (_req, res) => { res.json({ ok: true }); });
 
@@ -113,7 +120,10 @@ export function createApp(o: AppOptions): express.Express {
     if (!o.sendMail && !o.devLogin) return res.status(503).json({ error: 'Email sign-in is not available right now' });
     const email = String(req.body?.email ?? '').trim().toLowerCase();
     if (!EMAIL_RE.test(email) || email.length > 254) return res.status(400).json({ error: 'Please enter a valid email' });
-    if (!authLimit(String(req.ip)) || !authLimit(req.ip + ':' + email)) return res.status(429).json({ error: 'Too many requests, try again later' });
+    const client = clientKey(req.ip);
+    if (!authLimit(client.host) || (client.wide && !authWideLimit(client.wide)) || !authLimit(client.host + ':' + email) || !mailLimit(email)) {
+      return res.status(429).json({ error: 'Too many requests, try again later' });
+    }
     const token = randomBytes(24).toString('base64url');
     // housekeeping, at most a few times an hour per visitor thanks to the limit above
     db.prepare('DELETE FROM login_tokens WHERE expires < ?').run(Date.now());
@@ -145,6 +155,9 @@ export function createApp(o: AppOptions): express.Express {
       return id;
     });
     if (!sid) return res.redirect(302, '/#auth-error');
+    // signing in replaces any earlier session in this browser; revoke it so it can't be replayed
+    const previous = cookies(req).pp_sid;
+    if (previous) db.prepare('DELETE FROM sessions WHERE hash = ?').run(sha(previous));
     res.cookie('pp_sid', sid, cookieOpts(SESSION_TTL));
     res.redirect(302, '/#signed-in');
   });
@@ -176,7 +189,13 @@ export function createApp(o: AppOptions): express.Express {
     if (isBlocked(handle)) return res.status(400).json({ error: 'Please choose a kinder nickname' });
     const taken = db.prepare('SELECT id FROM users WHERE handle = ? AND id != ?').get(handle, u.id);
     if (taken) return res.status(409).json({ error: 'That nickname is taken' });
-    db.prepare('UPDATE users SET handle = ? WHERE id = ?').run(handle, u.id);
+    try {
+      db.prepare('UPDATE users SET handle = ? WHERE id = ?').run(handle, u.id);
+    } catch (e) {
+      // a concurrent claim can win between the check above and this update
+      if (/UNIQUE constraint failed/i.test((e as Error).message)) return res.status(409).json({ error: 'That nickname is taken' });
+      throw e;
+    }
     res.json({ user: { ...u, handle } });
   });
 
@@ -192,7 +211,7 @@ export function createApp(o: AppOptions): express.Express {
     if (!isProgress(incoming)) return res.status(400).json({ error: 'Invalid progress' });
     const merged = transaction(db, () => {
       const row = db.prepare('SELECT json FROM progress WHERE user_id = ?').get(u.id) as { json: string } | undefined;
-      const result = mergeProgress(row ? JSON.parse(row.json) as Progress : emptyProgress(), incoming);
+      const result = fitProgress(mergeProgress(row ? JSON.parse(row.json) as Progress : emptyProgress(), incoming));
       if (!isProgress(result) || !fitsSyncRequest(result)) return null;
       db.prepare('INSERT INTO progress (user_id, json, updated_at) VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET json = excluded.json, updated_at = excluded.updated_at')
         .run(u.id, JSON.stringify(result), Date.now());
@@ -216,6 +235,7 @@ export function createApp(o: AppOptions): express.Express {
   app.post('/api/reactions', (req, res) => {
     const { key, kind, on } = req.body ?? {};
     if (typeof key !== 'string' || !BY_KEY.has(key) || (kind !== 'like' && kind !== 'visited') || typeof on !== 'boolean') return res.status(400).json({ error: 'Bad reaction' });
+    if (!reactLimit(clientKey(req.ip).host)) return res.status(429).json({ error: 'Too many requests, try again later' });
     const v = visitor(req, res);
     if (on) db.prepare('INSERT OR IGNORE INTO reactions (visitor, item, kind, created_at) VALUES (?, ?, ?, ?)').run(v, key, kind, Date.now());
     else db.prepare('DELETE FROM reactions WHERE visitor = ? AND item = ? AND kind = ?').run(v, key, kind);
@@ -240,17 +260,21 @@ export function createApp(o: AppOptions): express.Express {
   app.post('/api/guestbook/:id/report', (req, res) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id)) return res.status(400).json({ error: 'Bad id' });
-    if (!reportLimit(String(req.ip))) return res.status(429).json({ error: 'Too many requests, try again later' });
+    if (!reportLimit(clientKey(req.ip).host)) return res.status(429).json({ error: 'Too many requests, try again later' });
     const user = currentUser(req);
     if (!user && !req.ip) return res.status(503).json({ error: 'Reporting is temporarily unavailable' });
     const v = visitor(req, res);
-    const identity = user ? `account:${user.id}` : `address:${createHmac('sha256', reportKey).update(`${id}:${req.ip}`).digest('hex')}`;
+    // Every identity this request carries is recorded, and a report counts only if none of them has reported before:
+    // cookies are free to clear and accounts cost one email each, so the network address (IPv6 by /64) is always included.
+    const identities = [v];
+    if (req.ip) identities.push(`address:${createHmac('sha256', reportKey).update(`${id}:${clientKey(req.ip).host}`).digest('hex')}`);
+    if (user) identities.push(`account:${user.id}`);
     transaction(db, () => {
       if (!db.prepare('SELECT 1 FROM guestbook WHERE id = ?').get(id)) return;
-      if (db.prepare('SELECT 1 FROM guestbook_reports WHERE entry_id = ? AND visitor IN (?, ?)').get(id, v, identity)) return;
+      const seen = db.prepare(`SELECT 1 FROM guestbook_reports WHERE entry_id = ? AND visitor IN (${identities.map(() => '?').join(', ')})`);
+      if (seen.get(id, ...identities)) return;
       const insert = db.prepare('INSERT INTO guestbook_reports (entry_id, visitor) VALUES (?, ?)');
-      insert.run(id, v);
-      insert.run(id, identity);
+      for (const identity of identities) insert.run(id, identity);
       db.prepare('UPDATE guestbook SET reports = reports + 1, hidden = CASE WHEN reports + 1 >= 3 THEN 1 ELSE hidden END WHERE id = ?').run(id);
     });
     res.json({ ok: true });
