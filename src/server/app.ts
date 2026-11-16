@@ -100,9 +100,17 @@ export function createApp(o: AppOptions): express.Express {
       // behind a proxy that rewrites Host, the configured public origin is the one browsers send
       if (origin !== requestOrigin && origin !== baseOrigin) return res.status(403).json({ error: 'Bad origin' });
     }
+    // the sign-in confirmation page posts a plain HTML form; it must come from this origin (browsers always send Origin
+    // on POST), so another site cannot sign a visitor into an account it controls
+    if (req.method === 'POST' && req.path === '/auth/verify') {
+      if (!origin) return res.status(403).json({ error: 'Bad origin' });
+      if (!req.is('application/x-www-form-urlencoded')) return res.status(415).json({ error: 'Form required' });
+      return next();
+    }
     if (req.method !== 'DELETE' && !req.is('application/json')) return res.status(415).json({ error: 'JSON required' });
     next();
   });
+  app.use('/api/auth/verify', express.urlencoded({ extended: false, limit: '2kb' }));
 
   const authLimit = limiter(5, 10 * 60_000, 10_000, { db, scope: 'auth' });
   // a coarser bucket per IPv6 /48, so rotating through one allocation's /64s is still capped
@@ -142,8 +150,18 @@ export function createApp(o: AppOptions): express.Express {
     res.json(o.devLogin ? { ok: true, devLink: link } : { ok: true });
   });
 
+  // Opening the link only shows a confirmation: mail scanners that prefetch links cannot use up the token, and a
+  // link requested by someone else is not followed silently. Signing in happens on the POST below.
   app.get('/api/auth/verify', (req, res) => {
     const token = String(req.query.token ?? '');
+    const row = db.prepare('SELECT email FROM login_tokens WHERE hash = ? AND used = 0 AND expires > ?').get(sha(token), Date.now()) as { email: string } | undefined;
+    if (!row) return res.redirect(302, '/#auth-error');
+    res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'");
+    res.type('html').send(confirmPage(token, maskEmail(row.email)));
+  });
+
+  app.post('/api/auth/verify', (req, res) => {
+    const token = String(req.body?.token ?? '');
     const sid = transaction(db, () => {
       const row = db.prepare('UPDATE login_tokens SET used = 1 WHERE hash = ? AND used = 0 AND expires > ? RETURNING email')
         .get(sha(token), Date.now()) as { email: string } | undefined;
@@ -154,12 +172,12 @@ export function createApp(o: AppOptions): express.Express {
       db.prepare('INSERT INTO sessions (hash, user_id, expires) VALUES (?, ?, ?)').run(sha(id), user.id, Date.now() + SESSION_TTL);
       return id;
     });
-    if (!sid) return res.redirect(302, '/#auth-error');
+    if (!sid) return res.redirect(303, '/#auth-error');
     // signing in replaces any earlier session in this browser; revoke it so it can't be replayed
     const previous = cookies(req).pp_sid;
     if (previous) db.prepare('DELETE FROM sessions WHERE hash = ?').run(sha(previous));
     res.cookie('pp_sid', sid, cookieOpts(SESSION_TTL));
-    res.redirect(302, '/#signed-in');
+    res.redirect(303, '/#signed-in');
   });
 
   app.post('/api/auth/logout', (req, res) => {
@@ -298,4 +316,27 @@ export function createApp(o: AppOptions): express.Express {
     app.use((_req, res) => { res.status(404).type('html').send(existsSync(notFound) ? readFileSync(notFound, 'utf8') : 'Not found'); });
   }
   return app;
+}
+
+const esc = (v: string) => v.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
+
+/** k•••@example.com: enough to recognise your own address, not enough to read someone else's. */
+export function maskEmail(email: string): string {
+  const at = email.lastIndexOf('@');
+  return at <= 0 ? '•••' : email[0] + '•••' + email.slice(at);
+}
+
+/** A self-contained, script-free page (bilingual) with one button that posts the token back. */
+function confirmPage(token: string, masked: string): string {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex"><title>Sign in · Terrastra</title>
+<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0b1626;color:#e6edf6;font:16px/1.5 system-ui,sans-serif}
+main{max-width:22rem;padding:2rem;text-align:center}h1{font-size:1.4rem;margin:0 0 .5rem}p{margin:.5rem 0;color:#a9b8cc}
+strong{color:#ffd24a}button{margin-top:1rem;font:inherit;font-weight:600;padding:.75rem 1.5rem;border:0;border-radius:.6rem;background:#ffb020;color:#1b1300;cursor:pointer}
+button:focus-visible{outline:3px solid #fff;outline-offset:2px}small{display:block;margin-top:1.25rem;color:#7d8da3}</style></head>
+<body><main><h1>Sign in to Terrastra</h1><p lang="zh">登录寰星</p>
+<p>as <strong>${esc(masked)}</strong></p>
+<form method="post" action="/api/auth/verify"><input type="hidden" name="token" value="${esc(token)}">
+<button type="submit" autofocus>Sign in · 登录</button></form>
+<small>If you didn't ask to sign in, just close this page. 如果不是你要登录，关掉这个页面就好。</small></main></body></html>`;
 }

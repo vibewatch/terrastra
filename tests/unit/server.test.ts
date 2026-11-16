@@ -30,6 +30,19 @@ async function call(method: string, path: string, body?: unknown, extra: Record<
   return { status: res.status, json, location: res.headers.get('location') };
 }
 
+/** Presses "Sign in" on the confirmation page: a same-origin form POST of the link's token, through the cookie jar. */
+async function confirmLink(devLink: string, server = base, useJar = true) {
+  const token = new URL(devLink).searchParams.get('token')!;
+  const res = await fetch(server + '/api/auth/verify', {
+    method: 'POST', redirect: 'manual',
+    headers: { 'content-type': 'application/x-www-form-urlencoded', origin: server, ...(useJar ? { cookie: [...jar].map(([k, v]) => `${k}=${v}`).join('; ') } : {}) },
+    body: new URLSearchParams({ token }).toString(),
+  });
+  const cookies = res.headers.getSetCookie();
+  if (useJar) for (const c of cookies) { const [kv] = c.split(';'); const [k, v] = kv.split('='); if (v) jar.set(k, v); else jar.delete(k); }
+  return { status: res.status, location: res.headers.get('location'), sid: cookies.find(c => c.startsWith('pp_sid='))?.split(';')[0] };
+}
+
 describe('auth', () => {
   it('rejects bad email, non-JSON and cross-origin writes', async () => {
     expect((await call('POST', '/api/auth/request', { email: 'nope' })).status).toBe(400);
@@ -72,9 +85,25 @@ describe('auth', () => {
     const r = await call('POST', '/api/auth/request', { email: 'Kid@Example.com' });
     expect(r.status).toBe(200);
     const path = new URL(r.json.devLink).pathname + new URL(r.json.devLink).search;
-    const v = await call('GET', path);
-    expect(v.status).toBe(302); expect(v.location).toBe('/#signed-in');
+    // opening the link (or a mail scanner prefetching it) only shows a confirmation and does not use the token up
+    for (let i = 0; i < 2; i++) {
+      const page = await fetch(base + path, { redirect: 'manual' });
+      expect(page.status).toBe(200);
+      expect(page.headers.get('content-type')).toMatch(/text\/html/);
+      expect(page.headers.get('content-security-policy')).toContain("form-action 'self'");
+      expect(page.headers.getSetCookie().some(c => c.startsWith('pp_sid='))).toBe(false);
+      expect(await page.text()).toContain('k•••@example.com');
+    }
+    // another site cannot press the button for you
+    const token = new URL(r.json.devLink).searchParams.get('token')!;
+    const form = (origin?: string) => fetch(base + '/api/auth/verify', { method: 'POST', redirect: 'manual',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', ...(origin ? { origin } : {}) }, body: 'token=' + token });
+    expect((await form('https://evil.example')).status).toBe(403);
+    expect((await form()).status).toBe(403);
+    const v = await confirmLink(r.json.devLink);
+    expect(v.status).toBe(303); expect(v.location).toBe('/#signed-in');
     expect((await call('GET', '/api/me')).json.user.email).toBe('kid@example.com');
+    expect((await confirmLink(r.json.devLink)).location).toBe('/#auth-error');
     const again = await fetch(base + path, { redirect: 'manual' });
     expect(again.headers.get('location')).toBe('/#auth-error');
     expect((await fetch(base + '/api/auth/verify?token=garbage', { redirect: 'manual' })).headers.get('location')).toBe('/#auth-error');
@@ -82,7 +111,7 @@ describe('auth', () => {
   it('signing in again revokes the browser\'s previous session', async () => {
     const oldSid = jar.get('pp_sid')!;
     const r = await call('POST', '/api/auth/request', { email: 'kid@example.com' });
-    await call('GET', new URL(r.json.devLink).pathname + new URL(r.json.devLink).search);
+    await confirmLink(r.json.devLink);
     expect(jar.get('pp_sid')).not.toBe(oldSid);
     expect((await call('GET', '/api/me')).json.user.email).toBe('kid@example.com');
     const stale = await fetch(base + '/api/me', { headers: { cookie: `pp_sid=${oldSid}` } });
@@ -184,9 +213,7 @@ describe('profile, progress, reactions, guestbook', () => {
     const entry = Number(db.prepare('INSERT INTO guestbook (body) VALUES (?)').run('Hi from a kid').lastInsertRowid);
     const signIn = async (email: string) => {
       const r = await fetch(base + '/api/auth/request', { method: 'POST', headers: { 'content-type': 'application/json', 'x-forwarded-for': '198.51.100.7' }, body: JSON.stringify({ email }) });
-      const link = new URL((await r.json()).devLink);
-      const v = await fetch(base + link.pathname + link.search, { redirect: 'manual' });
-      return v.headers.getSetCookie().find(c => c.startsWith('pp_sid='))!.split(';')[0];
+      return (await confirmLink((await r.json()).devLink, base, false)).sid!;
     };
     const report = (cookie: string | undefined, ip: string) => fetch(base + `/api/guestbook/${entry}/report`, {
       method: 'POST', headers: { 'content-type': 'application/json', 'x-forwarded-for': ip, ...(cookie ? { cookie } : {}) }, body: '{}',
@@ -495,8 +522,8 @@ describe('sign-in mail', async () => {
       const { devLink } = await res.json() as { devLink: string };
       const link = new URL(devLink);
       expect(link.pathname).toBe('/api/auth/verify');
-      const verify = await fetch(base + link.pathname + link.search, { redirect: 'manual' });
-      expect(verify.headers.get('location')).toBe('/#signed-in');
+      const verify = await confirmLink(devLink, base, false);
+      expect(verify.location).toBe('/#signed-in');
     } finally {
       await new Promise<void>(resolve => s.close(() => resolve()));
       db.close();

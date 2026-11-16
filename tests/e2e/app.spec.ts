@@ -417,6 +417,7 @@ test('account: signing out on a shared device can clear it, and the account keep
     await page.getByTestId('send-link').click();
     const link = await page.getByTestId('dev-link').getAttribute('href');
     await page.goto(link!.replace(/^https?:\/\/[^/]+/, ''));
+    await page.getByRole('button', { name: /Sign in/ }).click();
     await expect.poll(() => page.evaluate(() => fetch('/api/me').then(r => r.json()).then(j => j.user?.email))).toBe('shared.device@example.com');
   };
   const localDex = () => page.evaluate(() => Object.keys(JSON.parse(localStorage.getItem('pp.progress') ?? '{}').dex ?? {}));
@@ -445,6 +446,9 @@ test('account: magic link sign-in, nickname, sync, guestbook', async ({ page }) 
   const link = await page.getByTestId('dev-link').getAttribute('href');
   expect(link).toContain('/api/auth/verify?token=');
   await page.goto(link!.replace(/^https?:\/\/[^/]+/, ''));
+  // the link opens a confirmation page (mail scanners cannot use it up); signing in is one button
+  await expect(page.locator('strong')).toHaveText('k•••@example.com');
+  await page.getByRole('button', { name: /Sign in/ }).click();
   // the redirect lands on #signed-in, which the app handles once and clears
   await expect.poll(() => page.evaluate(() => location.hash)).toBe('');
   await expect.poll(() => page.evaluate(() => fetch('/api/me').then(r => r.json()).then(j => j.user?.email))).toBe('kid.explorer@example.com');
