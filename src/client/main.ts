@@ -1,4 +1,5 @@
 import { classroom, onClassroom, apply as applyClassroom } from './lib/classroom.ts';
+import { installDiagnostics } from './lib/diagnostics.ts';
 import { parseView, type Bookmark } from './lib/viewlink.ts';
 import { ssbsOn } from './lib/ssbs.ts';
 import './styles.css';
@@ -106,6 +107,10 @@ async function boot(): Promise<void> {
 
   // Background music follows the level the user is looking at.
   const sceneMode = new SceneModeController(() => music.setLevel(sceneMode.musicLevel));
+  installDiagnostics({
+    scene: () => sceneMode.inSky ? 'sky' : sceneMode.inSolar ? 'solar' : sceneMode.inMap ? 'map' : sceneMode.gaming ? 'game' : 'globe',
+    onBurst: () => toast('⚠️ ' + t('diagRepeated'), 9000),
+  });
   const isLessoning = () => document.body.classList.contains('lessoning');
 
   const globeEl = h('div', { id: 'globe' });
@@ -260,6 +265,7 @@ async function boot(): Promise<void> {
   const leaveSolar = (lat: number, lon: number, then?: () => void) => {
     if (!sceneMode.leaveSolar()) return;
     if (!sceneMode.inSky) radio?.suspend(false);
+    const hashAtLeave = location.hash;
     fade(() => {
       solar?.leave();
       rail.set('earth');
@@ -268,7 +274,8 @@ async function boot(): Promise<void> {
       globe.paused = false;
       globe.lat = lat; globe.lon = lon; globe.h = MAX_H;
       globe.flyTo(lat, lon, DEFAULT_H, 1400);
-      history.replaceState(null, '', location.pathname + location.search);
+      // only clear the Solar route we left: a Back/Forward during the fade has already set a newer one
+      if (location.hash === hashAtLeave) history.replaceState(null, '', location.pathname + location.search);
       then?.();
     });
   };
@@ -336,11 +343,13 @@ async function boot(): Promise<void> {
     if (!store.settings.states || zoom < threshold) { if (!adminPending) adminFailed = false; return; }
     requestAdmin();
   }
+  // the navigation token of a map load still in flight, so a second press of the map button cancels it
+  let mapLoadSeq = -1;
   const openMap = async (attempt = 1) => {
     if (sceneMode.inMap || sceneMode.gaming || sceneMode.inSolar || sceneMode.inSky) return;
-    const seq = sceneMode.beginNav();
+    const seq = mapLoadSeq = sceneMode.beginNav();
     let m: typeof import('./map/flatmap.ts');
-    try { m = await withBusy(loadMap()); } catch (e) {
+    try { m = await withBusy(loadMap()).finally(() => { if (mapLoadSeq === seq) mapLoadSeq = -1; }); } catch (e) {
       console.error(e);
       if (sceneMode.isCurrentNav(seq)) showLoadError(t('flatMap'), n => void openMap(n), 'map', attempt);
       return;
@@ -542,7 +551,11 @@ async function boot(): Promise<void> {
       if (!sceneMode.inSolar) return false;
       solar?.zoom(inward); return true;
     },
-    toggleMap: () => { if (sceneMode.inMap) closeMap(); else void openMap(); },
+    toggleMap: () => {
+      if (sceneMode.inMap) closeMap();
+      else if (mapLoadSeq !== -1 && sceneMode.isCurrentNav(mapLoadSeq)) { sceneMode.beginNav(); mapLoadSeq = -1; } // pressed again while loading: cancel
+      else void openMap();
+    },
     toggleMeter: () => solar?.toggleMeter(),
     toGlobe: () => closeMap(false),
     goToPlace: place => {
@@ -612,6 +625,8 @@ async function boot(): Promise<void> {
   // ---- routing ----
   let sky: import('./sky/theatre.ts').Theatre | null = null;
   const route = () => {
+    // every hash change is a new navigation: a Solar/Sky load still in flight must not open over it
+    sceneMode.beginNav();
     let hsh: string;
     try { hsh = decodeURIComponent(location.hash.slice(1)).trim(); } catch { hsh = '\u0000'; }
     // A saved view: route + versioned globe camera. A broken camera falls back to the route alone.

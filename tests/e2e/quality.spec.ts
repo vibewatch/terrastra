@@ -359,6 +359,40 @@ test('narration: user-started, highlights the sentence being read, stoppable, te
   await expect(page.getByTestId('info-desc')).not.toBeEmpty();
 });
 
+test('a progress change keeps the card: narration plays on, details stay open, focus stays on the button', async ({ page }) => {
+  // a slow stand-in speech engine, so the narration is still running when progress changes
+  await page.addInitScript(() => {
+    let q: any[] = [], timer = 0;
+    const next = () => { const u = q.shift(); if (!u) return; u.onstart?.(); timer = window.setTimeout(() => { u.onend?.(); next(); }, 4000); };
+    (window as any).SpeechSynthesisUtterance = class { text: string; lang = ''; rate = 1; voice = null; onstart: any; onend: any; onerror: any; constructor(t: string) { this.text = t; } };
+    Object.defineProperty(window, 'speechSynthesis', { value: {
+      getVoices: () => [], speak: (u: any) => { q.push(u); if (q.length === 1 && !timer) next(); },
+      cancel: () => { clearTimeout(timer); timer = 0; const old = q; q = []; old.forEach(u => u.onerror?.({ error: 'canceled' })); },
+    } });
+  });
+  await openApp(page);
+  await page.evaluate(() => { location.hash = 'eiffel'; });
+  const listen = page.getByTestId('info-listen');
+  await listen.click();
+  await expect(listen).toHaveAttribute('aria-pressed', 'true');
+  const more = page.locator('.info details.more');
+  await more.locator('summary').click();
+  await expect(more).toHaveAttribute('open', '');
+  const like = page.getByTestId('react-like');
+  await like.focus();
+  await page.keyboard.press('Enter');
+  await expect(like).toHaveAttribute('aria-pressed', 'true');
+  await expect(like).toBeFocused();
+  await expect(listen).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('info-desc').locator('.say.now')).toHaveCount(1);
+  await expect(more).toHaveAttribute('open', '');
+  // and a second change toggles it back without rebuilding the card
+  await page.keyboard.press('Enter');
+  await expect(like).toHaveAttribute('aria-pressed', 'false');
+  await expect(like).toBeFocused();
+  await expect(listen).toHaveAttribute('aria-pressed', 'true');
+});
+
 test('tonight from my city: hand-picked city, peak vs local view, says there is no weather', async ({ page }) => {
   await openApp(page);
   await fromHub(page, 'look', 'menu-tonight');

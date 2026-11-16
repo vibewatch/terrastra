@@ -6,7 +6,8 @@ export interface LimiterStore {
 }
 
 /**
- * Fixed-window limiter with bounded buckets; new keys fail closed while all buckets are active.
+ * Fixed-window limiter with bounded buckets. When every bucket is active, the one closest to expiry is evicted,
+ * so filling the table cannot lock out new clients (callers key IPv6 by prefix so one host cannot fill it cheaply).
  * Uses SQLite when `store` is supplied so multiple server processes share one rate-limit state.
  */
 export function limiter(max: number, windowMs: number, maxBuckets = 10_000, store?: LimiterStore): (key: string) => boolean {
@@ -17,6 +18,7 @@ export function limiter(max: number, windowMs: number, maxBuckets = 10_000, stor
     const setRow = db.prepare('INSERT INTO rate_limits (scope, key, count, reset) VALUES (?, ?, 1, ?) ON CONFLICT(scope, key) DO UPDATE SET count = 1, reset = excluded.reset');
     const countRows = db.prepare('SELECT COUNT(*) AS n FROM rate_limits WHERE scope = ?');
     const purgeExpired = db.prepare('DELETE FROM rate_limits WHERE scope = ? AND reset <= ?');
+    const evictOldest = db.prepare('DELETE FROM rate_limits WHERE scope = ? AND key = (SELECT key FROM rate_limits WHERE scope = ? ORDER BY reset LIMIT 1)');
     return key => transaction(db, () => {
       const now = Date.now();
       const row = getRow.get(scope, key) as { count: number; reset: number } | undefined;
@@ -30,7 +32,7 @@ export function limiter(max: number, windowMs: number, maxBuckets = 10_000, stor
         if (n >= maxBuckets) {
           purgeExpired.run(scope, now);
           const after = countRows.get(scope) as { n: number };
-          if (after.n >= maxBuckets) return false;
+          if (after.n >= maxBuckets) evictOldest.run(scope, scope);
         }
       }
       setRow.run(scope, key, now + windowMs);
@@ -51,9 +53,14 @@ export function limiter(max: number, windowMs: number, maxBuckets = 10_000, stor
           else earliestReset = Math.min(earliestReset, v.reset);
         }
       }
-      if (hits.size >= maxBuckets) return false;
+      if (hits.size >= maxBuckets) {
+        // Map keeps insertion order, and every window is the same length, so the first entry expires soonest
+        const oldest = hits.keys().next().value;
+        if (oldest !== undefined) hits.delete(oldest);
+      }
     }
     const reset = now + windowMs;
+    hits.delete(key); // re-insert so insertion order stays oldest-first
     hits.set(key, { n: 1, reset });
     earliestReset = Math.min(earliestReset, reset);
     return true;

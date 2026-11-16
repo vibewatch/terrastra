@@ -26,6 +26,7 @@ import type { AdminArea } from '../globe/admin.ts';
 import { searchAll, type PlaceHit, type SearchFilter } from '../lib/search.ts';
 import { groupOf } from '../lib/compare.ts';
 import { narrate, narrationSupported, splitSentences, stopNarration, type Narration } from '../lib/narrate.ts';
+import { diagnosticsReport, errorCount } from '../lib/diagnostics.ts';
 import { classroom, setClassroom, setStill, motion, onClassroom } from '../lib/classroom.ts';
 import { renderHub, hubTab, type HubTab } from './hub.ts';
 import { fetchLocalWeather, solarStatusAt } from '../lib/weather.ts';
@@ -141,7 +142,9 @@ export class Shell {
     this.renderMenu();
     const refresh = () => { if (!this.menu.classList.contains('hidden')) this.renderMenu(); if (!this.hub.classList.contains('hidden')) this.renderHub(); };
     onClassroom(refresh);
-    subscribe(() => { if (this.current) this.renderInfo(this.current); refresh(); });
+    // progress changes (a sync, another tab, a tap on Like) only touch the parts of the card that show progress,
+    // so narration, the open "More details", the 3D preview and keyboard focus survive
+    subscribe(() => { if (this.current) this.refreshInfoProgress(); refresh(); });
     onLang(() => { this.relabel(); this.reader?.relang(); });
     document.addEventListener('keydown', e => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
@@ -477,6 +480,12 @@ export class Shell {
         small('backup-export', 'download', t('backupExport'), () => void import('./backup.ts').then(m => m.exportProgress(), () => toast('⚠️ ' + t('loadFail', { s: t('backup') })))),
         small('backup-import', 'upload', t('backupImport'), () => void import('./backup.ts').then(m => m.importProgress(), () => toast('⚠️ ' + t('loadFail', { s: t('backup') }))))),
       ...(sessionOnly() ? [h('p', { class: 'menu-warn', role: 'status' }, t('sessionOnly'))] : []),
+      h('div', { class: 'menu-line' }, h('span', { class: 'sw-emoji', html: icon('bulb', 15) }), h('span', { class: 'grow' }, t('diag') + (errorCount() ? ` · ${errorCount()}` : '')),
+        small('diag-copy', 'download', t('diagCopy'), () => {
+          const report = diagnosticsReport({ quality: this.globe.quality?.tier ?? '', lang: lang(), path: location.pathname });
+          navigator.clipboard?.writeText(report).then(() => toast(t('diagCopied')), () => toast('⚠️ ' + t('diagCopyFail')))
+            ?? toast('⚠️ ' + t('diagCopyFail'));
+        })),
       h('div', { class: 'menu-line' }, h('span', { class: 'sw-emoji', html: icon('reset', 15) }), h('span', { class: 'grow' }, t('reset')),
         small('reset', 'reset', t('resetBtn'), () => { if (confirm(t('resetConfirm'))) { resetSettings(); this.globe.flyTo(25, 40, 2.2); } })),
       h('div', { class: 'menu-line' }, h('span', { class: 'sw-emoji', html: icon('eye', 15) }), h('span', { class: 'grow' }, t('hideUi') + ' · H'),
@@ -516,9 +525,9 @@ export class Shell {
         : (item.tier === 3 ? 1.45 : 1.75);
       this.globe.flyTo(item.lat, item.lon, Math.min(this.globe.h, minZoomH));
     }
-    // Passport stamp; the store update re-renders the open card through the subscription.
+    // Passport stamp first, so the card is built from progress that already includes it.
     if (!(item.key in store.progress.seen)) updateProgress(pp => { pp.seen[item.key] = Date.now(); });
-    else this.renderInfo(item);
+    this.renderInfo(item);
     this.info.classList.remove('hidden');
     if (this.readerOpen) this.reader?.show(item);
   }
@@ -570,11 +579,58 @@ export class Shell {
     if (this.narration) set(true); else toast(t('noSpeech'));
   }
 
-  private renderDexRow(): void {
+  private reactionsEl = h('div', { class: 'reactions' });
+  private reactionsState = '';
+
+  /** Fills the like/visited buttons from the current progress; keeps the shown counts unless `fresh` (a new item). */
+  private renderReactions(it: CatalogueItem, fresh = false): HTMLElement {
+    const p = store.progress;
+    const state = [it.key, lang(), isOn(p.likes, it.key), isOn(p.visited, it.key)].join('|');
+    if (!fresh && state === this.reactionsState) return this.reactionsEl;
+    this.reactionsState = state;
+    const prev = new Map<string, string>();
+    if (!fresh) this.reactionsEl.querySelectorAll<HTMLElement>('[data-count]').forEach(el => prev.set(el.dataset.count!, el.textContent ?? ''));
+    const react = (kind: 'like' | 'visited', ico: IconName) => {
+      const on = isOn(kind === 'like' ? p.likes : p.visited, it.key);
+      const count = h('span', { class: 'count', 'data-count': kind }, prev.get(kind) ?? '');
+      return h('button', { class: 'react' + (on ? ' on' : ''), 'aria-pressed': String(on), 'data-testid': 'react-' + kind, title: t(kind), html: icon(ico, 16),
+        onclick: () => {
+          const now = !on;
+          updateProgress(pp => { const m = kind === 'like' ? pp.likes : pp.visited; m[it.key] = now ? Date.now() : -Date.now(); });
+          if (store.me) void api.react(it.key, kind, now).then(r => this.setCounts(r)).catch(() => {});
+        } }, h('span', { class: 'react-label' }, t(kind)), count);
+    };
+    this.reactionsEl.replaceChildren(react('like', 'heart'), react('visited', 'flag'));
+    return this.reactionsEl;
+  }
+
+  /** Re-renders only the progress-dependent parts of the open card, then puts keyboard focus back where it was. */
+  private refreshInfoProgress(): void {
+    const it = this.current;
+    if (!it) return;
+    const active = document.activeElement as HTMLElement | null;
+    const focusId = active && this.info.contains(active) ? active.dataset.testid : undefined;
+    this.renderDexRow();
+    if (this.reactionsEl.isConnected) this.renderReactions(it);
+    if (!focusId || (document.activeElement && this.info.contains(document.activeElement))) return;
+    const same = this.info.querySelector<HTMLElement>(`[data-testid="${CSS.escape(focusId)}"]`);
+    if (same) { same.focus(); return; }
+    // the button was replaced by a status ("Collected"): keep focus on that row instead of dropping it to the page
+    if (this.dexRow.isConnected) { this.dexRow.tabIndex = -1; this.dexRow.focus(); }
+  }
+
+  /** What the dex row currently shows, so repeated calls (zoom frames, store changes) leave the DOM alone. */
+  private dexRowState = '';
+
+  private renderDexRow(force = false): void {
     const it = this.current;
     this.dexClose = this.globe.zoom >= DEX_ZOOM;
     if (!it) return;
     const p = store.progress;
+    const state = [it.key, lang(), this.dexClose, it.key in p.dex, it.key in p.logs, it.key in p.found].join('|');
+    // replacing the row while a pointer is on its button would make the button impossible to click
+    if (!force && state === this.dexRowState) return;
+    this.dexRowState = state;
     if (it.type === 'animal') {
       const have = it.key in p.dex;
       const close = this.globe.zoom >= DEX_ZOOM;
@@ -613,17 +669,6 @@ export class Shell {
     if (it.status) chips.push([t('status'), t(it.status)]);
     const where = it.route?.kind === 'orbit' ? t('inOrbit') : [countryName(it.country, l), CONTINENT_NAMES[it.continent]?.[l]].filter(Boolean).join(' · ');
     const coordStr = `${Math.abs(it.lat).toFixed(1)}°${it.lat >= 0 ? 'N' : 'S'} · ${Math.abs(it.lon).toFixed(1)}°${it.lon >= 0 ? 'E' : 'W'}`;
-    const p = store.progress;
-    const react = (kind: 'like' | 'visited', ico: IconName) => {
-      const on = isOn(kind === 'like' ? p.likes : p.visited, it.key);
-      const count = h('span', { class: 'count', 'data-count': kind });
-      return h('button', { class: 'react' + (on ? ' on' : ''), 'aria-pressed': String(on), 'data-testid': 'react-' + kind, title: t(kind), html: icon(ico, 16),
-        onclick: () => {
-          const now = !on;
-          updateProgress(pp => { const m = kind === 'like' ? pp.likes : pp.visited; m[it.key] = now ? Date.now() : -Date.now(); });
-          if (store.me) void api.react(it.key, kind, now).then(r => this.setCounts(r)).catch(() => {});
-        } }, h('span', { class: 'react-label' }, t(kind)), count);
-    };
     const key = chips.slice(0, 3), extra = chips.slice(3);
     if (!it.route) {
       extra.push([t('latitude'), coordStr]);
@@ -661,7 +706,7 @@ export class Shell {
       return { aLat, aLon, text };
     })() : null;
     if (antiInfo) extra.push([t('antipode.label'), antiInfo.text]);
-    this.renderDexRow();
+    this.renderDexRow(true);
     stopNarration();
     const descP = h('p', { class: 'desc', 'data-testid': 'info-desc' }, tr(it.desc, l));
     const funLead = (): Node[] => [h('b', {}, t('funFact')), document.createTextNode(' ')];
@@ -707,7 +752,7 @@ export class Shell {
             }, '🧭 ', t('countryExploreAll', { c: countryBtnLabel, n: countryTotal })) : null) : null,
           h('p', { class: 'meta prov', 'data-testid': 'provenance' }, t('modelNote') + ' ' + t(it.route ? (it.route.line === 'demo' ? 'routeDemo' : 'routeNote') : it.type === 'animal' ? 'rangeNote' : ['landmark', 'volcano', 'space', 'discovery'].includes(it.type) ? 'placeNote' : 'repNote'))),
         h('div', { class: 'info-footer' },
-          it.type !== 'vehicle' ? h('div', { class: 'reactions' }, react('like', 'heart'), react('visited', 'flag')) : null,
+          it.type !== 'vehicle' ? this.renderReactions(it, true) : null,
           it.route ? h('button', { class: 'cta cta-sm', 'data-testid': 'ride', html: icon('ride', 16), onclick: () => void this.startRide(it) }, h('span', {}, t('ride'))) : null,
           h('button', { class: 'read-more', 'data-testid': 'read-more', 'aria-expanded': String(this.readerOpen), onclick: () => { sfx.tap(); void this.toggleReader(); } },
             h('span', {}, this.readerOpen ? t('readerClose') : t('readMore')), h('span', { html: icon('book', 14) })))));

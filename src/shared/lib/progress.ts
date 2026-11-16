@@ -106,6 +106,53 @@ const isDaily = (d: unknown): boolean => {
     && Array.isArray(s.dist) && s.dist.length === EMPTY_STATS.dist.length && s.dist.every(num);
 };
 
+/** Stamp maps that can be trimmed to keep a record syncable: toggles and passport stamps, never collections. */
+const EXPENDABLE = ['likes', 'visited', 'seen'] as const;
+
+/** Keeps the `max` entries of a stamp map with the earliest |timestamp| (first earned), ties broken by key. */
+function keepEarliest(m: Stamp, max: number): Stamp {
+  const entries = Object.entries(m);
+  if (entries.length <= max) return m;
+  entries.sort(([ka, va], [kb, vb]) => Math.abs(va) - Math.abs(vb) || (ka < kb ? -1 : ka > kb ? 1 : 0));
+  return Object.fromEntries(entries.slice(0, max));
+}
+
+/** Drops the oldest `share` of the entries in `m` that match `pick` (at least one). Returns false if none match. */
+function dropOldest(m: Stamp, pick: (v: number) => boolean, share: number): boolean {
+  const matching = Object.entries(m).filter(([, v]) => pick(v))
+    .sort(([ka, va], [kb, vb]) => Math.abs(va) - Math.abs(vb) || (ka < kb ? -1 : ka > kb ? 1 : 0));
+  if (!matching.length) return false;
+  for (const [k] of matching.slice(0, Math.max(1, Math.ceil(matching.length * share)))) delete m[k];
+  return true;
+}
+
+/**
+ * Deterministically trims a merged record so it passes `isProgress` and the sync request limit. Merges are unions that
+ * never shrink, so two individually valid uploads can merge into something too large; without this every later
+ * sync would be refused. Only expendable data goes, oldest first: switched-off like/visited toggles, then passport
+ * (`seen`) stamps, then visited and likes. Collections (dex, logs, stickers, found) are never dropped, so a record
+ * whose collections alone are too large is returned still too large and stays refused.
+ */
+export function fitProgress(p: Progress): Progress {
+  // Collection keys are bounded by the catalogue, so only a malformed client can overflow them; that record is left
+  // as it is and still refused, rather than silently dropping something a child earned.
+  const out: Progress = { ...p };
+  for (const k of EXPENDABLE) if (out[k]) out[k] = keepEarliest(out[k], MAX_STAMPS);
+  if (fitsSyncRequest(out)) return out;
+  out.likes = { ...out.likes }; out.visited = { ...out.visited }; out.seen = { ...out.seen };
+  const steps: [Stamp, (v: number) => boolean][] = [
+    [out.likes, v => v <= 0], [out.visited, v => v <= 0],
+    [out.seen, () => true],
+    [out.visited, () => true], [out.likes, () => true],
+  ];
+  for (const [m, pick] of steps) {
+    // drop a tenth at a time so the size check runs a bounded number of times
+    while (!fitsSyncRequest(out)) if (!dropOldest(m, pick, 0.1)) break;
+    if (fitsSyncRequest(out)) break;
+  }
+  return out;
+}
+
 export function isProgress(x: unknown): x is Progress {
   if (!x || typeof x !== 'object') return false;
   const p = x as Progress;

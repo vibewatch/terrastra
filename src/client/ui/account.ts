@@ -4,15 +4,16 @@ import { icon } from './icons.ts';
 import { api } from '../lib/api.ts';
 import { store, setMe, getAccountEpoch, replaceProgress, subscribe, ProgressLimitError } from '../store.ts';
 import { HANDLE_PATTERN } from '../../shared/lib/profile.ts';
-import { mergeProgress } from '../../shared/lib/progress.ts';
+import { emptyProgress, fitProgress, mergeProgress } from '../../shared/lib/progress.ts';
 
 export async function syncNow(quiet = false): Promise<boolean> {
   if (!store.me) return false;
   const epoch = getAccountEpoch();
   try {
-    const { progress } = await api.syncProgress(store.progress);
+    // trimmed the same way the server trims, so an oversized local record still syncs instead of failing forever
+    const { progress } = await api.syncProgress(fitProgress(store.progress));
     if (getAccountEpoch() !== epoch) return false;
-    replaceProgress(mergeProgress(store.progress, progress));
+    replaceProgress(fitProgress(mergeProgress(store.progress, progress)));
     if (!quiet) toast(t('synced'));
     return true;
   } catch (err) {
@@ -40,6 +41,21 @@ export function openAccount(): void {
         } }, email, h('button', { class: 'cta', type: 'submit', 'data-testid': 'send-link' }, t('sendLink'))), out);
       return;
     }
+    const signOut = async (clear: boolean) => {
+      try {
+        // flush anything not yet synced, so clearing this device cannot lose it
+        if (clear && !(await syncNow(true))) { toast(t('offline')); return; }
+        await api.logout();
+        setMe(null);
+        if (clear) replaceProgress(emptyProgress());
+        toast(t(clear ? 'signedOutCleared' : 'signedOut'));
+      } catch (err) { toast((err as Error).message || t('offline')); }
+    };
+    const signOutAsk = h('div', { class: 'acct-signout-ask', role: 'group', 'aria-label': t('signOut'), 'data-testid': 'sign-out-ask', hidden: true },
+      h('p', { class: 'muted' }, t('signOutAsk')),
+      h('div', { class: 'row' },
+        h('button', { class: 'cta', 'data-testid': 'sign-out-clear', onclick: () => void signOut(true) }, t('signOutClear')),
+        h('button', { class: 'pill', 'data-testid': 'sign-out-keep', onclick: () => void signOut(false) }, t('signOutKeep'))));
     const handle = h('input', { value: me.handle ?? '', maxlength: 16, pattern: HANDLE_PATTERN, 'aria-label': t('handle'), title: t('handleRule'), 'data-testid': 'handle' });
     body.replaceChildren(
       h('div', { class: 'acct-who' }, h('span', { class: 'acct-av', html: icon('user', 18) }),
@@ -56,9 +72,14 @@ export function openAccount(): void {
         h('small', { class: 'muted' }, t('handleRule'))),
       h('div', { class: 'acct-actions' },
         h('button', { class: 'cta', 'data-testid': 'sync-now', onclick: () => void syncNow() }, h('span', { html: icon('reset', 15) }), t('syncNow')),
-        h('button', { class: 'pill', 'data-testid': 'sign-out', onclick: async () => {
-          try { await api.logout(); setMe(null); toast(t('signedOut')); } catch (err) { toast((err as Error).message || t('offline')); }
+        h('button', { class: 'pill', 'data-testid': 'sign-out', 'aria-expanded': 'false', onclick: (e: Event) => {
+          // On a shared device the next child's sign-in would merge this child's stamps into their account, so ask.
+          const btn = e.currentTarget as HTMLButtonElement;
+          btn.setAttribute('aria-expanded', 'true');
+          signOutAsk.hidden = false;
+          (signOutAsk.querySelector('button') as HTMLButtonElement | null)?.focus();
         } }, t('signOut'))),
+      signOutAsk,
       h('button', { class: 'link danger acct-delete', 'data-testid': 'delete-account', onclick: async () => {
         if (!confirm(t('deleteConfirm'))) return;
         try { await api.deleteAccount(); setMe(null); closeModal('account'); toast(t('signedOut')); } catch (err) { toast((err as Error).message); }

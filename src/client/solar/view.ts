@@ -442,8 +442,14 @@ export class SolarView {
 
   private request(id: BodyId, w: number, front = false): void {
     if (id === 'earth' && this.earthCanvas) {
-      const h = w / 2;
-      this.onPainted({ id, w, h, ms: 0, color: new Uint8ClampedArray(w * h * 4), height: null, rings: null });
+      // Earth is composed from the globe's painted map on the main thread; skip it when the texture at this size was
+      // already built from the same map (every zoom-out from the globe asks again; a repaint hands over a new canvas)
+      const rt = this.rts.get('earth')!;
+      const current = w >= this.hiTexW() ? rt.hi : rt.lo;
+      if (current && this.earthFrom.get(w) === this.earthCanvas) return;
+      this.earthFrom.set(w, this.earthCanvas);
+      // composeEarth draws the colour itself, so no pixel buffer is needed
+      this.onPainted({ id, w, h: w / 2, ms: 0, color: new Uint8ClampedArray(0), height: null, rings: null });
       return;
     }
     if (this.inflight?.id === id && this.inflight.w === w) return;
@@ -459,6 +465,9 @@ export class SolarView {
     this.inflight = this.queue.shift()!;
     this.ensureWorker().postMessage(this.inflight);
   }
+
+  /** The globe map each composed Earth texture size was built from. */
+  private earthFrom = new Map<number, HTMLCanvasElement>();
 
   private loTexW(): number { return this.quality.tier === 'high' ? 512 : 256; }
   private hiTexW(): number { return this.quality.tier === 'high' ? 2048 : 1024; }
@@ -1086,8 +1095,11 @@ export class SolarView {
     if (primary !== 'solar') this.meterLabel.hidden = true;
     if (primary === 'solar') this.updateLabels();
     this.deep.labels(primary === 'solar' ? null : primary as DeepScale);
-    const pr = this.adapt.sample(frameMs);
-    if (pr !== null) this.renderer.setPixelRatio(pr);
+    // idle frames are throttled on purpose, so their gaps say nothing about GPU load (same guard as the globe)
+    if (busy || !this.quality.idleFps) {
+      const pr = this.adapt.sample(frameMs);
+      if (pr !== null) this.renderer.setPixelRatio(pr);
+    }
     if (now - this.lastTime > 250) { this.lastTime = now; this.ev.onTime?.(this.simMs); }
     if (this.scale !== 'solar') return;
     const rt = this.rts.get(this.focusId)!;

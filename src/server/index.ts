@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { openDb } from './db.ts';
 import { createApp } from './app.ts';
 import { mailerFromEnv, type SendMail } from './mail.ts';
+import { devLoginFrom, isLocalOrigin } from './config.ts';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const portText = process.env.PORT ?? '8787';
@@ -16,8 +17,10 @@ if (prod && configuredBaseUrl && process.env.INSECURE_COOKIES !== '1' && new URL
 }
 if (prod && process.env.INSECURE_COOKIES === '1') console.error('[auth] INSECURE_COOKIES is enabled: use only in isolated HTTP staging.');
 if (prod && process.env.INSECURE_MAIL_API === '1') console.error('[mail] INSECURE_MAIL_API is enabled: use only with an isolated relay.');
-const devLogin = !prod || process.env.DEV_LOGIN === '1';
-if (prod && devLogin) console.error('[auth] DEV_LOGIN is enabled: anyone can sign in as any email address. Use only in isolated testing.');
+const devLogin = devLoginFrom(process.env);
+if (devLogin && (prod || (configuredBaseUrl && !isLocalOrigin(configuredBaseUrl)))) {
+  console.error('[auth] DEV_LOGIN is enabled on a public origin: anyone can sign in as any email address. Use only in isolated testing.');
+}
 const mailer = mailerFromEnv(process.env);
 let sendMail: SendMail | undefined;
 if ('send' in mailer) sendMail = mailer.send;

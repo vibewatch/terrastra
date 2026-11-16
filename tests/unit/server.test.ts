@@ -30,6 +30,19 @@ async function call(method: string, path: string, body?: unknown, extra: Record<
   return { status: res.status, json, location: res.headers.get('location') };
 }
 
+/** Presses "Sign in" on the confirmation page: a same-origin form POST of the link's token, through the cookie jar. */
+async function confirmLink(devLink: string, server = base, useJar = true) {
+  const token = new URL(devLink).searchParams.get('token')!;
+  const res = await fetch(server + '/api/auth/verify', {
+    method: 'POST', redirect: 'manual',
+    headers: { 'content-type': 'application/x-www-form-urlencoded', origin: server, ...(useJar ? { cookie: [...jar].map(([k, v]) => `${k}=${v}`).join('; ') } : {}) },
+    body: new URLSearchParams({ token }).toString(),
+  });
+  const cookies = res.headers.getSetCookie();
+  if (useJar) for (const c of cookies) { const [kv] = c.split(';'); const [k, v] = kv.split('='); if (v) jar.set(k, v); else jar.delete(k); }
+  return { status: res.status, location: res.headers.get('location'), sid: cookies.find(c => c.startsWith('pp_sid='))?.split(';')[0] };
+}
+
 describe('auth', () => {
   it('rejects bad email, non-JSON and cross-origin writes', async () => {
     expect((await call('POST', '/api/auth/request', { email: 'nope' })).status).toBe(400);
@@ -72,12 +85,37 @@ describe('auth', () => {
     const r = await call('POST', '/api/auth/request', { email: 'Kid@Example.com' });
     expect(r.status).toBe(200);
     const path = new URL(r.json.devLink).pathname + new URL(r.json.devLink).search;
-    const v = await call('GET', path);
-    expect(v.status).toBe(302); expect(v.location).toBe('/#signed-in');
+    // opening the link (or a mail scanner prefetching it) only shows a confirmation and does not use the token up
+    for (let i = 0; i < 2; i++) {
+      const page = await fetch(base + path, { redirect: 'manual' });
+      expect(page.status).toBe(200);
+      expect(page.headers.get('content-type')).toMatch(/text\/html/);
+      expect(page.headers.get('content-security-policy')).toContain("form-action 'self'");
+      expect(page.headers.getSetCookie().some(c => c.startsWith('pp_sid='))).toBe(false);
+      expect(await page.text()).toContain('k•••@example.com');
+    }
+    // another site cannot press the button for you
+    const token = new URL(r.json.devLink).searchParams.get('token')!;
+    const form = (origin?: string) => fetch(base + '/api/auth/verify', { method: 'POST', redirect: 'manual',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', ...(origin ? { origin } : {}) }, body: 'token=' + token });
+    expect((await form('https://evil.example')).status).toBe(403);
+    expect((await form()).status).toBe(403);
+    const v = await confirmLink(r.json.devLink);
+    expect(v.status).toBe(303); expect(v.location).toBe('/#signed-in');
     expect((await call('GET', '/api/me')).json.user.email).toBe('kid@example.com');
+    expect((await confirmLink(r.json.devLink)).location).toBe('/#auth-error');
     const again = await fetch(base + path, { redirect: 'manual' });
     expect(again.headers.get('location')).toBe('/#auth-error');
     expect((await fetch(base + '/api/auth/verify?token=garbage', { redirect: 'manual' })).headers.get('location')).toBe('/#auth-error');
+  });
+  it('signing in again revokes the browser\'s previous session', async () => {
+    const oldSid = jar.get('pp_sid')!;
+    const r = await call('POST', '/api/auth/request', { email: 'kid@example.com' });
+    await confirmLink(r.json.devLink);
+    expect(jar.get('pp_sid')).not.toBe(oldSid);
+    expect((await call('GET', '/api/me')).json.user.email).toBe('kid@example.com');
+    const stale = await fetch(base + '/api/me', { headers: { cookie: `pp_sid=${oldSid}` } });
+    expect((await stale.json()).user).toBeNull();
   });
 });
 
@@ -125,6 +163,18 @@ describe('profile, progress, reactions, guestbook', () => {
     expect((await call('PUT', '/api/progress', { progress: second })).status).toBe(413);
     expect((await call('GET', '/api/progress')).json.progress.logs).toEqual(saved.json.progress.logs);
   });
+  it('two valid uploads whose merge is too large are trimmed instead of blocking sync forever', async () => {
+    const seen = (prefix: string, t0: number) => Object.fromEntries(Array.from({ length: 2800 }, (_, i) => [`${prefix}_${i}`.padEnd(60, 'x'), t0 + i]));
+    const a = emptyProgress(); a.dex = { an_lion: 100 }; a.seen = seen('a', 1000);
+    const b = emptyProgress(); b.seen = seen('b', 50_000);
+    expect((await call('PUT', '/api/progress', { progress: a })).status).toBe(200);
+    const merged = await call('PUT', '/api/progress', { progress: b });
+    expect(merged.status).toBe(200);
+    expect(merged.json.progress.dex.an_lion).toBeGreaterThan(0); // the collection survives the trim
+    expect(Object.keys(merged.json.progress.seen).length).toBeLessThan(5600);
+    // and the next sync goes through
+    expect((await call('PUT', '/api/progress', { progress: emptyProgress() })).status).toBe(200);
+  });
   it('reactions are idempotent per visitor and validated', async () => {
     expect((await call('POST', '/api/reactions', { key: 'eiffel', kind: 'like', on: true })).json).toEqual({ like: 1, visited: 0 });
     expect((await call('POST', '/api/reactions', { key: 'eiffel', kind: 'like', on: true })).json).toEqual({ like: 1, visited: 0 });
@@ -158,6 +208,26 @@ describe('profile, progress, reactions, guestbook', () => {
     expect((await call('GET', '/api/guestbook')).json.entries.find((e: any) => e.id === id)).toBeDefined();
     await report(undefined, '203.0.113.2');
     expect((await call('GET', '/api/guestbook')).json.entries.find((e: any) => e.id === id)).toBeUndefined();
+  });
+  it('one person on one address cannot hide an entry by switching between anonymous and several accounts', async () => {
+    const entry = Number(db.prepare('INSERT INTO guestbook (body) VALUES (?)').run('Hi from a kid').lastInsertRowid);
+    const signIn = async (email: string) => {
+      const r = await fetch(base + '/api/auth/request', { method: 'POST', headers: { 'content-type': 'application/json', 'x-forwarded-for': '198.51.100.7' }, body: JSON.stringify({ email }) });
+      return (await confirmLink((await r.json()).devLink, base, false)).sid!;
+    };
+    const report = (cookie: string | undefined, ip: string) => fetch(base + `/api/guestbook/${entry}/report`, {
+      method: 'POST', headers: { 'content-type': 'application/json', 'x-forwarded-for': ip, ...(cookie ? { cookie } : {}) }, body: '{}',
+    });
+    await report(undefined, '198.51.100.7');
+    await report(await signIn('sybil-a@example.com'), '198.51.100.7');
+    await report(await signIn('sybil-b@example.com'), '198.51.100.7');
+    expect(db.prepare('SELECT reports, hidden FROM guestbook WHERE id = ?').get(entry)).toMatchObject({ reports: 1, hidden: 0 });
+    // IPv6 addresses in one /64 are one reporter too
+    await report(undefined, '2001:db8:5:6::1');
+    await report(undefined, '2001:db8:5:6::2');
+    expect(db.prepare('SELECT reports, hidden FROM guestbook WHERE id = ?').get(entry)).toMatchObject({ reports: 2, hidden: 0 });
+    await report(undefined, '192.0.2.44');
+    expect(db.prepare('SELECT reports, hidden FROM guestbook WHERE id = ?').get(entry)).toMatchObject({ reports: 3, hidden: 1 });
   });
   it('rate limits guestbook posts', async () => {
     const codes: number[] = [];
@@ -252,18 +322,20 @@ describe('content policy generation', () => {
 });
 
 describe('rate limiter', () => {
-  it('bounds active buckets and admits new keys when old windows expire', () => {
+  it('bounds active buckets by evicting the oldest, so a full table never locks out new clients', () => {
     let now = 100;
     const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
     try {
       const limit = limiter(1, 1000, 2);
       expect(limit('a')).toBe(true);
+      now += 1;
       expect(limit('b')).toBe(true);
+      expect(limit('b')).toBe(false);
+      expect(limit('c')).toBe(true); // table full: 'a' (oldest) is evicted
+      expect(limit('b')).toBe(false); // 'b' keeps its window
       expect(limit('c')).toBe(false);
-      expect(limit('a')).toBe(false);
       now += 1000;
-      expect(limit('c')).toBe(true);
-      expect(limit('a')).toBe(true);
+      expect(limit('b')).toBe(true);
     } finally { clock.mockRestore(); }
   });
 
@@ -277,11 +349,14 @@ describe('rate limiter', () => {
       expect(workerA('ip-1')).toBe(true);
       expect(workerB('ip-1')).toBe(true);
       expect(workerA('ip-1')).toBe(false);
+      now += 1;
       expect(workerB('ip-2')).toBe(true);
-      expect(workerA('ip-3')).toBe(false);
+      // full: the oldest bucket (ip-1) is evicted rather than refusing the new client
+      expect(workerA('ip-3')).toBe(true);
+      expect(workerB('ip-2')).toBe(true);
+      expect(workerB('ip-2')).toBe(false);
       now += 1000;
-      expect(workerB('ip-3')).toBe(true);
-      expect(workerA('ip-1')).toBe(true);
+      expect(workerA('ip-2')).toBe(true);
     } finally {
       sharedDb.close();
       clock.mockRestore();
@@ -447,11 +522,75 @@ describe('sign-in mail', async () => {
       const { devLink } = await res.json() as { devLink: string };
       const link = new URL(devLink);
       expect(link.pathname).toBe('/api/auth/verify');
-      const verify = await fetch(base + link.pathname + link.search, { redirect: 'manual' });
-      expect(verify.headers.get('location')).toBe('/#signed-in');
+      const verify = await confirmLink(devLink, base, false);
+      expect(verify.location).toBe('/#signed-in');
     } finally {
       await new Promise<void>(resolve => s.close(() => resolve()));
       db.close();
     }
+  });
+});
+
+describe('reaction rate limit', () => {
+  it('caps anonymous reactions per IP even when cookies are dropped', async () => {
+    const db2 = openDb(':memory:');
+    const app = createApp({ db: db2, devLogin: true, baseUrl: 'http://test', secureCookies: false });
+    const srv: Server = await new Promise(r => { const s = app.listen(0, () => r(s)); });
+    const a = srv.address(); const url = `http://127.0.0.1:${typeof a === 'object' && a ? a.port : 0}/api/reactions`;
+    const like = () => fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key: 'eiffel', kind: 'like', on: true }) });
+    let last = 0;
+    for (let i = 0; i < 61; i++) last = (await like()).status;
+    expect(last).toBe(429);
+    const counts = await (await fetch(url + '?key=eiffel')).json();
+    expect(counts.like).toBe(60);
+    srv.close(); db2.close();
+  });
+});
+
+describe('dev login default', () => {
+  it('is off unless explicitly enabled, including when NODE_ENV is unset', async () => {
+    const { devLoginFrom, isLocalOrigin } = await import('../../src/server/config.ts');
+    expect(devLoginFrom({})).toBe(false);
+    expect(devLoginFrom({ NODE_ENV: 'production' })).toBe(false);
+    expect(devLoginFrom({ NODE_ENV: 'test' })).toBe(false);
+    expect(devLoginFrom({ NODE_ENV: 'development' })).toBe(true);
+    expect(devLoginFrom({ NODE_ENV: 'production', DEV_LOGIN: '1' })).toBe(true);
+    expect(isLocalOrigin('http://localhost:8787')).toBe(true);
+    expect(isLocalOrigin('http://127.0.0.1:1')).toBe(true);
+    expect(isLocalOrigin('https://terrastra.example')).toBe(false);
+    expect(isLocalOrigin('not a url')).toBe(false);
+  });
+});
+
+describe('client keys for rate limits', () => {
+  it('groups IPv6 by /64 and /48, folds IPv4-mapped addresses back to IPv4', async () => {
+    const { clientKey } = await import('../../src/server/client-key.ts');
+    expect(clientKey('203.0.113.9')).toEqual({ host: '203.0.113.9', wide: null });
+    expect(clientKey('::ffff:203.0.113.9')).toEqual({ host: '203.0.113.9', wide: null });
+    const a = clientKey('2001:db8:1:2:aaaa::1'), b = clientKey('2001:db8:1:2:bbbb:cccc:dddd:eeee');
+    expect(a.host).toBe('2001:db8:1:2::/64');
+    expect(b.host).toBe(a.host);
+    expect(clientKey('2001:db8:1:3::1').host).not.toBe(a.host);
+    expect(clientKey('2001:db8:1:3::1').wide).toBe('2001:db8:1::/48');
+    expect(clientKey('fe80::1%eth0').host).toBe('fe80:0:0:0::/64');
+    expect(clientKey(undefined).host).toBe('');
+  });
+
+  it('caps sign-in mail per recipient regardless of the requesting address', async () => {
+    const db3 = openDb(':memory:');
+    const app = createApp({ db: db3, devLogin: true, baseUrl: 'http://test', secureCookies: false });
+    const srv: Server = await new Promise(r => { const s = app.listen(0, () => r(s)); });
+    const a = srv.address(); const url = `http://127.0.0.1:${typeof a === 'object' && a ? a.port : 0}/api/auth/request`;
+    try {
+      const statuses: number[] = [];
+      // the per-IP limit is 5 per 10 min, so use several emails from this IP to reach one inbox's cap through the DB
+      for (let i = 0; i < 5; i++) {
+        db3.prepare("DELETE FROM rate_limits WHERE scope = 'auth'").run(); // simulate requests from different IPs
+        statuses.push((await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'inbox@example.com' }) })).status);
+      }
+      db3.prepare("DELETE FROM rate_limits WHERE scope = 'auth'").run();
+      statuses.push((await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'inbox@example.com' }) })).status);
+      expect(statuses).toEqual([200, 200, 200, 200, 200, 429]);
+    } finally { srv.close(); db3.close(); }
   });
 });
