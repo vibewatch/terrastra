@@ -56,7 +56,7 @@ describe('account sync', () => {
     expect(store.progress.seen).toEqual({ lion: 2, eiffel: 1 });
   });
 
-  it('keeps local progress and reports an oversized merge during background sync', async () => {
+  it('trims an oversized passport merge to the earliest stamps instead of refusing to sync', async () => {
     let finish!: (value: { progress: Progress }) => void;
     vi.spyOn(api, 'syncProgress').mockReturnValue(new Promise(resolve => { finish = resolve; }));
     const toast = vi.spyOn(dom, 'toast').mockImplementation(() => {});
@@ -72,9 +72,12 @@ describe('account sync', () => {
     remote.seen = { ...initial, ...Object.fromEntries(Array.from({ length: 2499 }, (_, i) => [`remote-${i}`, 1])) };
     finish({ progress: remote });
 
-    expect(await syncing).toBe(false);
-    expect(Object.keys(store.progress.seen)).toHaveLength(2502);
-    expect(toast).toHaveBeenCalledWith(expect.stringContaining('too large'), 4000);
+    expect(await syncing).toBe(true);
+    // 2500 local + 2499 remote stamps from time 1, then the earliest of the later ones fills the 5000th place
+    expect(Object.keys(store.progress.seen)).toHaveLength(5000);
+    expect(store.progress.seen.later1).toBe(2);
+    expect(store.progress.seen.later2).toBeUndefined();
+    expect(toast).not.toHaveBeenCalledWith(expect.stringContaining('too large'), 4000);
   });
 
   it('does not save a merged document that exceeds the sync request size', async () => {

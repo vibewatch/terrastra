@@ -406,6 +406,34 @@ test('Daily Planet: guesses, hints, share, persisted state', async ({ page }) =>
   await expect(page.getByTestId('daily-result')).toBeVisible();
 });
 
+test('account: signing out on a shared device can clear it, and the account keeps the collection', async ({ page }) => {
+  await openApp(page, '/?lowfx=1&notut#an_lion');
+  await page.getByTestId('zoom-close').click();
+  await page.getByTestId('add-dex').click();
+  await page.keyboard.press('Escape');
+  const signIn = async () => {
+    await fromHub(page, 'me', 'menu-account');
+    await page.getByTestId('email').fill('shared.device@example.com');
+    await page.getByTestId('send-link').click();
+    const link = await page.getByTestId('dev-link').getAttribute('href');
+    await page.goto(link!.replace(/^https?:\/\/[^/]+/, ''));
+    await expect.poll(() => page.evaluate(() => fetch('/api/me').then(r => r.json()).then(j => j.user?.email))).toBe('shared.device@example.com');
+  };
+  const localDex = () => page.evaluate(() => Object.keys(JSON.parse(localStorage.getItem('pp.progress') ?? '{}').dex ?? {}));
+  await signIn();
+  await expect(page.getByTestId('handle')).toBeVisible({ timeout: 90_000 });
+  await page.getByTestId('sign-out').click();
+  await expect(page.getByTestId('sign-out')).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.getByTestId('sign-out-clear')).toBeFocused();
+  await page.getByTestId('sign-out-clear').click();
+  await expect(page.getByTestId('email')).toBeVisible();
+  await expect.poll(localDex).toEqual([]);
+  await page.keyboard.press('Escape');
+  // the next sign-in brings the collection back from the account
+  await signIn();
+  await expect.poll(localDex, { timeout: 30_000 }).toContain('an_lion');
+});
+
 test('account: magic link sign-in, nickname, sync, guestbook', async ({ page }) => {
   await openApp(page, '/?lowfx=1&notut#an_lion');
   await page.getByTestId('zoom-close').click();
@@ -433,6 +461,7 @@ test('account: magic link sign-in, nickname, sync, guestbook', async ({ page }) 
   await shot(page, 'desktop_17_account');
   await page.route('**/api/auth/logout', route => route.fulfill({ status: 503, json: { error: 'Sign-out unavailable' } }));
   await page.getByTestId('sign-out').click();
+  await page.getByTestId('sign-out-keep').click();
   await expect(page.getByTestId('handle')).toBeVisible();
   await expect(page.locator('#toast')).toContainText('Sign-out unavailable');
   await page.unroute('**/api/auth/logout');
@@ -473,6 +502,7 @@ test('account: magic link sign-in, nickname, sync, guestbook', async ({ page }) 
     await page.getByTestId('handle').press('Enter');
     await received;
     await page.getByTestId('sign-out').click();
+    await page.getByTestId('sign-out-keep').click();
     await expect(page.getByTestId('email')).toBeVisible();
     releaseProfile();
     await response;

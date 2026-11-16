@@ -68,6 +68,8 @@ export function importProgress(): void {
         } }, t('backupMergeBtn')),
         h('button', { class: 'pill', onclick: () => closeModal('backup-import') }, t('cancel')))));
   });
+  // a dismissed file picker fires "cancel", not "change": drop the hidden input either way
+  input.addEventListener('cancel', () => input.remove());
   document.body.append(input);
   input.click();
 }
