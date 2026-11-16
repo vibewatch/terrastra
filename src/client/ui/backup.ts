@@ -24,6 +24,9 @@ export function exportProgress(): void {
 }
 
 export function importProgress(): void {
+  // a dismissed picker leaves its hidden input behind: clear it on the next import.
+  // (Not on "cancel": automated and some real browsers fire it before "change".)
+  document.querySelectorAll('input[data-testid="backup-file"]').forEach(el => el.remove());
   const input = h('input', { type: 'file', accept: 'application/json,.json', 'data-testid': 'backup-file', style: 'display:none' });
   input.addEventListener('change', async () => {
     const f = input.files?.[0];
@@ -68,8 +71,6 @@ export function importProgress(): void {
         } }, t('backupMergeBtn')),
         h('button', { class: 'pill', onclick: () => closeModal('backup-import') }, t('cancel')))));
   });
-  // a dismissed file picker fires "cancel", not "change": drop the hidden input either way
-  input.addEventListener('cancel', () => input.remove());
   document.body.append(input);
   input.click();
 }
