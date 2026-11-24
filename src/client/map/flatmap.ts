@@ -4,8 +4,9 @@ import type { CountryInfo } from '../globe/painter.ts';
 import type { Quality } from '../globe/quality.ts';
 import { countryAt } from '../globe/borders.ts';
 import { ADMIN_BORDER_COLOR, ADMIN_MAP_ZOOM, adminName, type AdminData, type AdminLineTile } from '../globe/admin.ts';
-import { NAMED_PARALLELS, fillCountryTag, formatDeg, labelRank, renderLabelPool, type MapLabel } from '../globe/overlay.ts';
+import { NAMED_PARALLELS, fillCountryTag, formatDeg, geoLabelClass, labelRank, renderLabelPool, type MapLabel } from '../globe/overlay.ts';
 import { CATALOGUE } from '../../shared/data/catalogue.ts';
+import { GAZETTEER } from '../../shared/data/gazetteer.ts';
 import { TYPE_META } from '../../shared/data/typemeta.ts';
 import { CITIES, cityName } from '../../shared/data/cities.ts';
 import { CHINA_CAPITALS, CHINA_CAPITAL_NAMES } from '../../shared/data/china-capitals.ts';
@@ -378,12 +379,13 @@ export class FlatMap {
     this.tween(to, 650);
   }
 
-  /** Centres a geographic coordinate on the flat map at at least `minZoom`. */
-  focusAt(lat: number, lon: number, minZoom = 2.6): void {
+  /** Centres a geographic coordinate on the flat map (beside the info card on wide screens) at at least `minZoom`. */
+  focusAt(lat: number, lon: number, minZoom = 2.6, offsetForCard = false): void {
     const to = { ...this.target() };
     to.k = Math.min(this.kMin() * MAX_ZOOM, Math.max(to.k, this.kMin() * minZoom));
+    const off = offsetForCard && this.W > 900 ? 190 : 0;
     to.cy = yOf(this.proj, lat * D);
-    to.lon0 = wrapPi(lon * D);
+    to.lon0 = wrapPi(lon * D - off / (to.k * Math.max(0.15, xScale(this.proj, lat * D))));
     this.clamp(to);
     this.tween(to, 650);
   }
@@ -636,6 +638,11 @@ export class FlatMap {
       const [x, y] = this.toScreen(lat, lon);
       if (this.onScreen(x, y, 20)) out.push({ text, cls, x, y, pri, corner });
     };
+    const fp = !this.quiz && !this.host.globe.gameMode ? this.host.globe.focusedPlace : null;
+    if (fp && this.onMap(fp.lon)) {
+      const fpName = fp.name[l] || fp.name.en;
+      push(fp.emoji ? `${fp.emoji} ${fpName}` : fpName, 'lb-geo lb-geo-focus', fp.lat, fp.lon, 50000);
+    }
     if (grid) this.pushGridLabels(push, l);
     if (this.quiz) {
       for (const c of this.host.countries()) {
@@ -669,6 +676,14 @@ export class FlatMap {
         if (showAdmin && CHINA_CAPITAL_NAMES.has(name)) continue;
         if (pop < minPop && !(cap && z >= 2.6)) continue;
         push(cityName(name, l), cap ? 'lb-city lb-cap' : 'lb-city', la, lo, pop + (cap ? 5 : 0));
+      }
+      if (!this.quiz && !this.host.globe.gameMode) {
+        for (const g of GAZETTEER) {
+          if (fp?.key === g.key) continue;
+          if (g.labelZoom > 0 && z >= g.labelZoom * 0.42 && this.onMap(g.lon)) {
+            push(g.name[l] || g.name.en, geoLabelClass(g.kind), g.lat, g.lon, Math.round(950 - g.labelZoom * 90));
+          }
+        }
       }
       if (z < 5) for (const [, n, la, lo] of OCEANS) push(n[l] ?? n.en, 'lb-ocean', la, lo, 2000);
     }

@@ -216,6 +216,32 @@ a:hover { text-decoration: underline; }
   letter-spacing: .24em;
   text-transform: uppercase;
 }
+.lb-geo {
+  font-size: 9.5px !important;
+  font-weight: 500;
+  letter-spacing: .05em;
+  opacity: .92;
+}
+.lb-geo-water {
+  color: rgba(125, 211, 252, 0.84);
+  font-style: italic;
+}
+.lb-geo-land {
+  color: rgba(253, 230, 138, 0.78);
+}
+.lb-geo-focus {
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(2, 6, 23, 0.86);
+  border: 1px solid rgba(56, 189, 248, 0.78);
+  box-shadow: 0 4px 14px rgba(2, 6, 23, 0.55), 0 0 12px rgba(56, 189, 248, 0.28);
+  color: #f0f9ff !important;
+  font-style: normal;
+  font-size: 11px !important;
+  font-weight: 700;
+  letter-spacing: .03em;
+  opacity: 1;
+}
 .lb-grid { font-family: var(--font-mono) !important; font-size: 9.5px !important; color: rgba(226, 238, 255, 0.62); letter-spacing: .02em; }
 .lb-gridname { font-size: 10px !important; color: rgba(253, 186, 116, 0.85); letter-spacing: .06em; }
 .lb-gridname.g-equator { color: rgba(251, 191, 36, 0.95); }
@@ -435,6 +461,44 @@ a:hover { text-decoration: underline; }
 .info-hero .model-stage { border-radius: 0; display: block; width: 100%; }
 .info-hero .model-preview-canvas { width: 100% !important; height: auto !important; aspect-ratio: 360 / 208; }
 .info-hero .type-chip { position: absolute; left: 14px; top: 14px; }
+.place-hero {
+  height: 152px;
+  align-items: center;
+  overflow: hidden;
+  background:
+    radial-gradient(95% 85% at 50% 62%, rgba(56, 189, 248, 0.16), transparent 72%),
+    linear-gradient(180deg, rgba(15, 23, 42, 0.85), rgba(9, 13, 24, 0.96));
+}
+.place-hero-art {
+  position: relative;
+  width: 112px;
+  height: 112px;
+  display: grid;
+  place-items: center;
+}
+.place-hero-ring {
+  position: absolute;
+  border-radius: 50%;
+  border: 1px dashed rgba(125, 211, 252, 0.28);
+}
+.place-hero-ring.r1 { width: 76px; height: 76px; border-style: solid; border-color: rgba(56, 189, 248, 0.36); }
+.place-hero-ring.r2 { width: 108px; height: 108px; }
+.place-hero-emoji {
+  position: relative;
+  font-size: 40px;
+  line-height: 1;
+  filter: drop-shadow(0 6px 16px rgba(2, 6, 23, 0.65));
+}
+.type-chip.t-geo {
+  background: rgba(14, 116, 144, 0.32);
+  border-color: rgba(56, 189, 248, 0.45);
+  color: #bae6fd;
+}
+.place-alt-name {
+  margin: -4px 0 8px;
+  font-size: .82rem;
+  color: var(--text-3, #94a3b8);
+}
 .info-x { position: absolute; right: 12px; top: 12px; z-index: 4; background: rgba(9, 9, 11, 0.55); backdrop-filter: blur(8px); }
 .hero-btn {
   position: absolute;

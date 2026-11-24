@@ -18,8 +18,10 @@ const HTML_LANG: Record<Lang, string> = { en: 'en', zh: 'zh-CN' };
 
 interface ReaderHooks { close: () => void; pick: (it: CatalogueItem) => void }
 
-/** Anything with a Wikipedia article: catalogue items, and solar-system bodies/features (no type → no nearby list). */
-export type Readable = Pick<CatalogueItem, 'key' | 'name' | 'desc'> & Partial<Pick<CatalogueItem, 'type' | 'slug' | 'lat' | 'lon' | 'route' | 'wiki' | 'funFact'>>;
+/** Anything with a Wikipedia article: catalogue items, geographic places, and solar-system bodies/features. */
+export type Readable = Pick<CatalogueItem, 'key' | 'name' | 'desc'>
+  & Partial<Pick<CatalogueItem, 'type' | 'slug' | 'lat' | 'lon' | 'route' | 'wiki' | 'funFact'>>
+  & { wikiTitles?: readonly [string, string]; showNearby?: boolean };
 
 export class Reader {
   readonly el: HTMLElement;
@@ -56,7 +58,7 @@ export class Reader {
 
   private renderLangs(): void {
     const it = this.item!;
-    const titles = WIKI[it.key];
+    const titles = WIKI[it.key] ?? it.wikiTitles;
     this.seg.replaceChildren(...(['en', 'zh'] as Lang[]).map(l =>
       h('button', { class: l === this.readLang ? 'on' : '', 'aria-pressed': String(l === this.readLang), 'data-testid': 'reader-lang-' + l,
         disabled: l === 'zh' && !titles?.[1], onclick: () => this.show(it, l) }, l === 'en' ? 'EN' : '中文')));
@@ -66,7 +68,7 @@ export class Reader {
 
   private async load(it: Readable, want: Lang): Promise<void> {
     const seq = ++this.seq;
-    const titles = WIKI[it.key];
+    const titles = WIKI[it.key] ?? it.wikiTitles;
     const l: Lang = want === 'zh' && titles?.[1] ? 'zh' : 'en';
     const title = l === 'zh' ? titles![1]! : titles?.[0] ?? it.wiki ?? it.name.en;
     this.ext.setAttribute('href', articleUrl(l, title));
@@ -144,7 +146,7 @@ export class Reader {
   }
 
   private nearby(it: Readable): HTMLElement | null {
-    if (it.route || !it.type || it.lat === undefined || it.lon === undefined) return null;
+    if (it.route || (!it.type && !it.showNearby) || it.lat === undefined || it.lon === undefined) return null;
     const lat = it.lat, lon = it.lon;
     const l = lang();
     const near = CATALOGUE.filter(o => o.key !== it.key && !o.route)

@@ -223,12 +223,40 @@ test('static build works below a sub-path', async ({ page }) => {
   await page.evaluate(() => (window as any).__pp.globe.setH(0.8));
   expect((await adminResponse).ok()).toBe(true);
   await expect.poll(() => page.evaluate(() => (window as any).__pp.globe.adminData?.regions.length ?? 0), { timeout: 60_000 }).toBeGreaterThan(4000);
+  await page.keyboard.press('Escape');
+
+  // Textbook physical-geography gazetteer search (地中海 / 马里亚纳海沟 / 安第斯山脉), place info card & #geo: deep link
+  await page.getByTestId('btn-search').click();
+  await expect(page.getByTestId('search-input')).toBeVisible();
+  await page.getByTestId('search-filter-geo').click();
+  await expect(page.getByTestId('search-place-geo:mediterranean-sea')).toBeVisible();
+  await page.getByTestId('search-filter-all').click();
+  await page.getByTestId('search-input').fill('马里亚纳海沟');
+  await expect(page.getByTestId('search-place-geo:mariana-trench')).toBeVisible();
+  await expect(page.getByTestId('search-item-dc_challenger')).toContainText('马里亚纳海沟');
+  await page.getByTestId('search-input').fill('地中海');
+  await expect(page.getByTestId('search-place-geo:mediterranean-sea')).toBeVisible();
+  await page.getByTestId('search-place-geo:mediterranean-sea').click();
+  await expect(page).toHaveURL(/#geo:mediterranean-sea$/);
+  await expect(page.locator('#info .place-hero')).toBeVisible();
+  await expect(page.getByTestId('info-name')).toHaveText('Mediterranean Sea');
+  await expect(page.getByTestId('place-fact')).toContainText('convergent plate boundary');
+  await expect(page.locator('.lb-geo-focus')).toBeVisible({ timeout: 10_000 });
+  await page.getByTestId('btn-language').click();
+  await expect(page.getByTestId('info-name')).toHaveText('地中海');
+  await expect(page.getByTestId('place-fact')).toContainText('消亡边界');
+  await page.getByTestId('btn-language').click();
+  await page.getByTestId('info-close').click();
+  await expect(page.locator('#info')).toBeHidden();
 
   // deep link into a lazy scene (its chunk comes from the sub-path)
   await page.goto('?lowfx=1&notut#map');
   await ready(page);
   await expect(page.locator('body.flatmap')).toHaveCount(1, { timeout: 60_000 });
   await expect(page.getByTestId('map-distortion')).toBeVisible({ timeout: 30_000 });
+  await page.evaluate(() => { location.hash = 'geo:andes'; });
+  await expect(page.getByTestId('info-name')).toHaveText('Andes Mountains');
+  await expect(page.getByTestId('flatmap').locator('.lb-geo-focus')).toContainText('Andes Mountains');
   await page.goto('?lowfx=1&notut#milkyway');
   await ready(page);
   await expect(page.locator('body.solar')).toHaveCount(1, { timeout: 60_000 });
@@ -244,6 +272,11 @@ test('static build works below a sub-path', async ({ page }) => {
   await page.locator('[data-set=zh]').click();
   await expect(page.locator('html')).toHaveAttribute('data-l', 'zh');
   await page.locator('[data-set=en]').click();
+  // Alias search on static section page (e.g. 马里亚纳海沟 matches Challenger Deep)
+  await page.goto('discover/');
+  await page.locator('#q').fill('马里亚纳海沟');
+  await expect(page.locator('ul.cards a[href="/terrastra/discover/challenger-deep/"]')).toBeVisible();
+  await page.goto('animals/');
   // an item page under the category, then back into the app at the base path
   await page.locator('main a[href^="/terrastra/animals/"]').first().click();
   await expect(page.locator('h1')).toBeVisible();

@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, readdirSync, writeFileSync, existsSync } from 
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BY_TYPE, CATALOGUE } from '../src/shared/data/catalogue.ts';
+import { ALIASES } from '../src/shared/data/aliases.ts';
 import { CONTINENT_NAMES } from '../src/shared/data/iso.ts';
 import { WIKI } from '../src/shared/data/wiki.ts';
 import { haversineKm } from '../src/shared/lib/geo.ts';
@@ -225,7 +226,7 @@ function stats(it: CatalogueItem): string {
   return row.length ? `<dl class="stats">${row.map(([k, v]) => `<div><dt>${bi(k)}</dt><dd>${bi(v)}</dd></div>`).join('')}</dl>` : '';
 }
 
-const searchKey = (it: CatalogueItem) => esc([it.name.en, it.name.zh, where(it).en, where(it).zh].filter(Boolean).join(' ').toLowerCase());
+const searchKey = (it: CatalogueItem) => esc([it.name.en, it.name.zh, where(it).en, where(it).zh, ...(ALIASES[it.key] ?? [])].filter(Boolean).join(' ').toLowerCase());
 const card = (it: CatalogueItem, dir: string, ic: IconName, i: number) => `<li data-q="${searchKey(it)}"><a class="card" href="/${dir}/${it.slug}/">
 <span class="tile" aria-hidden="true">${icon(ic, 22)}</span><span><b>${bi(it.name)}</b><small>${bi(where(it))}</small></span><i class="idx">${pad(i + 1, 3)}</i></a></li>`;
 

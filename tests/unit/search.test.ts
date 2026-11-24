@@ -3,7 +3,8 @@ import { searchAll, type SearchHit } from '../../src/client/lib/search.ts';
 import { spaceIndex } from '../../src/client/solar/space-index.ts';
 import { ALIASES } from '../../src/shared/data/aliases.ts';
 import { CATALOGUE } from '../../src/shared/data/catalogue.ts';
-import { norm } from '../../src/shared/lib/search.ts';
+import { GAZETTEER, GAZETTEER_BY_KEY } from '../../src/shared/data/gazetteer.ts';
+import { matchedAlias, norm } from '../../src/shared/lib/search.ts';
 
 const space = spaceIndex();
 const keyOf = (h: SearchHit) => h.kind === 'item' ? h.item.key : h.hit.key;
@@ -88,5 +89,83 @@ describe('search', () => {
 
     const countryHits = searchAll('France', 'en', space, 'all', places);
     expect(countryHits.some(h => h.kind === 'place' && h.hit.placeKind === 'country' && h.hit.key === 'country:FR' && !h.hit.needsStates)).toBe(true);
+  });
+
+  it('indexes textbook physical-geography gazetteer places in Chinese and English', () => {
+    const geoQueries: [string, string][] = [
+      ['地中海', 'geo:mediterranean-sea'],
+      ['Mediterranean Sea', 'geo:mediterranean-sea'],
+      ['马里亚纳海沟', 'geo:mariana-trench'],
+      ['Mariana Trench', 'geo:mariana-trench'],
+      ['安第斯山脉', 'geo:andes'],
+      ['Andes', 'geo:andes'],
+      ['青藏高原', 'geo:qinghai-tibet-plateau'],
+      ['世界屋脊', 'geo:qinghai-tibet-plateau'],
+      ['马六甲海峡', 'geo:strait-of-malacca'],
+      ['撒哈拉沙漠', 'geo:sahara-desert'],
+      ['亚马孙平原', 'geo:amazon-plain'],
+      ['亚马逊平原', 'geo:amazon-plain'],
+      ['秦岭', 'geo:qinling'],
+      ['长江', 'geo:yangtze-river'],
+      ['黄河', 'geo:yellow-river'],
+      ['塔里木盆地', 'geo:tarim-basin'],
+      ['苏伊士运河', 'geo:suez-canal'],
+      ['东非大裂谷', 'geo:east-african-rift'],
+      ['本初子午线', 'geo:prime-meridian'],
+      ['北回归线', 'geo:tropic-of-cancer'],
+    ];
+    for (const [q, expected] of geoQueries) {
+      const top = searchAll(q, 'zh', space).slice(0, 3).map(keyOf);
+      expect(top, `expected ${expected} in top 3 for "${q}"`).toContain(expected);
+    }
+
+    // Searching 马里亚纳海沟 surfaces BOTH the Mariana Trench gazetteer entry AND Challenger Deep (with matched alias)
+    const mariana = searchAll('马里亚纳海沟', 'zh', space);
+    expect(keyOf(mariana[0])).toBe('geo:mariana-trench');
+    const challenger = mariana.find(h => keyOf(h) === 'dc_challenger');
+    expect(challenger).toBeDefined();
+    expect(challenger?.alias).toBe('马里亚纳海沟');
+  });
+
+  it('validates gazetteer integrity, geo filter, matchedAlias, and deduplicated world cities', () => {
+    const itemAndSpaceKeys = new Set([...CATALOGUE.map(i => i.key), ...space.map(s => s.key)]);
+    const geoKeys = new Set(GAZETTEER.map(g => g.key));
+    expect(geoKeys.size).toBe(GAZETTEER.length);
+    expect(GAZETTEER_BY_KEY.size).toBe(GAZETTEER.length);
+    for (const g of GAZETTEER) {
+      expect(g.key.startsWith('geo:')).toBe(true);
+      expect(itemAndSpaceKeys.has(g.key)).toBe(false);
+      expect(g.lat).toBeGreaterThanOrEqual(-90);
+      expect(g.lat).toBeLessThanOrEqual(90);
+      expect(g.lon).toBeGreaterThanOrEqual(-180);
+      expect(g.lon).toBeLessThanOrEqual(180);
+      expect(g.h).toBeGreaterThan(0);
+      expect(g.name.en.length).toBeGreaterThan(0);
+      expect(g.name.zh.length).toBeGreaterThan(0);
+      expect(g.desc.en.length).toBeGreaterThan(10);
+      expect(g.desc.zh.length).toBeGreaterThan(6);
+    }
+
+    // 'geo' filter returns all gazetteer entries when query is empty, and only physical-geography places when queried
+    const allGeo = searchAll('', 'zh', space, 'geo');
+    expect(allGeo.length).toBe(GAZETTEER.length);
+    expect(allGeo.every(h => h.kind === 'place' && h.hit.isGeo)).toBe(true);
+    const filteredGeo = searchAll('海沟', 'zh', space, 'geo');
+    expect(filteredGeo.length).toBeGreaterThan(0);
+    expect(filteredGeo.every(h => h.kind === 'place' && h.hit.isGeo)).toBe(true);
+
+    // matchedAlias only reports an alias when primary names did not match
+    expect(matchedAlias('挑战者深渊', ['Challenger Deep', '挑战者深渊'], ['马里亚纳海沟'])).toBeUndefined();
+    expect(matchedAlias('马里亚纳海沟', ['Challenger Deep', '挑战者深渊'], ['马里亚纳海沟', 'Mariana Trench'])).toBe('马里亚纳海沟');
+
+    // World cities are indexed without duplicating Chinese provincial capitals
+    const tokyo = searchAll('东京', 'zh', space);
+    expect(tokyo.some(h => h.kind === 'place' && h.hit.placeKind === 'capital' && h.hit.key === 'city:tokyo')).toBe(true);
+    const ny = searchAll('纽约', 'zh', space);
+    expect(ny.some(h => h.kind === 'place' && h.hit.placeKind === 'city' && h.hit.key === 'city:newyork')).toBe(true);
+    const chengdu = searchAll('成都', 'zh', space);
+    const chengduPlaces = chengdu.filter(h => h.kind === 'place' && h.hit.name.zh === '成都');
+    expect(chengduPlaces).toHaveLength(1);
+    expect(chengduPlaces[0]?.kind === 'place' && chengduPlaces[0].hit.placeKind).toBe('capital');
   });
 });

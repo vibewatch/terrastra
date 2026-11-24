@@ -15,6 +15,8 @@ import { paintOffThread } from './globe/paint-offthread.ts';
 import { borderPositions, borderLonLat } from './globe/borders.ts';
 import { ADMIN_GLOBE_ZOOM, ADMIN_MAP_ZOOM, fetchAdminData, type AdminData } from './globe/admin.ts';
 import { CATALOGUE, BY_KEY } from '../shared/data/catalogue.ts';
+import { GAZETTEER_BY_KEY } from '../shared/data/gazetteer.ts';
+import { gazetteerToPlaceHit } from './lib/search.ts';
 import { Shell } from './ui/shell.ts';
 import { h, toast, confetti, closeModal } from './ui/dom.ts';
 import { slerpLatLon } from '../shared/lib/geo.ts';
@@ -474,6 +476,7 @@ async function boot(): Promise<void> {
     const [mlat, mlon] = sceneMode.inMap && flatMap ? flatMap.center() : [globe.lat, globe.lon];
     const cam = { lat: mlat, lon: mlon, h: globe.h };
     if (shell.current) return { route: shell.current.key, cam, label: shell.current.name, at };
+    if (shell.currentPlace?.isGeo) return { route: shell.currentPlace.key, cam, label: shell.currentPlace.name, at };
     const where = `${Math.abs(cam.lat).toFixed(1)}°${cam.lat >= 0 ? 'N' : 'S'} ${Math.abs(cam.lon).toFixed(1)}°${cam.lon >= 0 ? 'E' : 'W'}`;
     return { route: '', cam, label: { en: 'Earth · ' + where, zh: '地球 · ' + where }, at };
   };
@@ -495,11 +498,12 @@ async function boot(): Promise<void> {
         },
       };
     }
+    const activeTitle = () => shell.current ? tr(shell.current.name, lang()) : shell.currentPlace ? tr(shell.currentPlace.name, lang()) : '';
     if (sceneMode.inMap && flatMap) {
       const fm = flatMap;
-      return { capture: async () => fm.capture(), caption: () => ({ title: shell.current ? tr(shell.current.name, lang()) : '', level: t('flatMap').replace(/\s*\(M\)$/, ''), note: t('photoNoteMap') }) };
+      return { capture: async () => fm.capture(), caption: () => ({ title: activeTitle(), level: t('flatMap').replace(/\s*\(M\)$/, ''), note: t('photoNoteMap') }) };
     }
-    return { capture: async () => globe.capture(), caption: () => ({ title: shell.current ? tr(shell.current.name, lang()) : '', level: t('lvEarth'), note: t('photoNoteEarth') }) };
+    return { capture: async () => globe.capture(), caption: () => ({ title: activeTitle(), level: t('lvEarth'), note: t('photoNoteEarth') }) };
   };
   const openPhoto = () => { if (!sceneMode.gaming) photoMod(m => m.openPhotoMode(photoShot())); };
   const openBookmarks = () => bmMod(m => m.openBookmarks({ current: currentView, open: navTo }));
@@ -546,6 +550,7 @@ async function boot(): Promise<void> {
     openIssLive,
     openLiveEarth,
     toEarth: it => { if (!sceneMode.inSolar) return false; leaveSolar(it.lat, it.lon, () => shell.showItem(it)); return true; },
+    toEarthPlace: place => { if (!sceneMode.inSolar) return false; leaveSolar(place.lat, place.lon, () => shell.showPlace(place)); return true; },
     zoom: inward => {
       if (sceneMode.inMap && flatMap) { flatMap.zoomBy(inward ? 1.6 : 1 / 1.6); return true; }
       if (!sceneMode.inSolar) return false;
@@ -561,12 +566,16 @@ async function boot(): Promise<void> {
     goToPlace: place => {
       if (sceneMode.inSky) sky?.close();
       if (sceneMode.inSolar) {
-        leaveSolar(place.lat, place.lon, () => globe.flyTo(place.lat, place.lon, place.h, 1400));
+        leaveSolar(place.lat, place.lon, () => shell.showPlace(place));
         return;
       }
       if (sceneMode.inMap && flatMap) {
         globe.lat = place.lat; globe.lon = place.lon; globe.h = place.h;
-        flatMap.focusAt(place.lat, place.lon, place.placeKind === 'country' ? 2.5 : 4.5);
+        const mapZoom = place.isGeo
+          ? Math.max(1.4, Math.min(5.2, 3.6 / Math.sqrt(Math.max(0.25, place.h))))
+          : place.placeKind === 'country' ? 2.5 : 4.5;
+        flatMap.focusAt(place.lat, place.lon, mapZoom, true);
+        flatMap.markDirty();
         return;
       }
       globe.flyTo(place.lat, place.lon, place.h, 1400);
@@ -664,9 +673,18 @@ async function boot(): Promise<void> {
     else if (hsh === 'auth-error') { history.replaceState(null, '', location.pathname + location.search); toast('⚠️ ' + t('linkExpired')); }
     else {
       const it = BY_KEY.get(hsh);
-      const show = () => { shell.showItem(it!, !cam); if (cam) globe.flyTo(cam.lat, cam.lon, cam.h, 1400); };
-      if (it) { if (sceneMode.inSolar) leaveSolar(it.lat, it.lon, show); else show(); }
-      else { toast('🧭 ' + t('linkUnknown')); history.replaceState(null, '', location.pathname + location.search); }
+      const gz = !it ? GAZETTEER_BY_KEY.get(hsh) : undefined;
+      if (it) {
+        const show = () => { shell.showItem(it, !cam); if (cam) globe.flyTo(cam.lat, cam.lon, cam.h, 1400); };
+        if (sceneMode.inSolar) leaveSolar(it.lat, it.lon, show); else show();
+      } else if (gz) {
+        const place = gazetteerToPlaceHit(gz);
+        const showP = () => { shell.showPlace(place, !cam); if (cam) globe.flyTo(cam.lat, cam.lon, cam.h, 1400); };
+        if (sceneMode.inSolar) leaveSolar(gz.lat, gz.lon, showP); else showP();
+      } else {
+        toast('🧭 ' + t('linkUnknown'));
+        history.replaceState(null, '', location.pathname + location.search);
+      }
     }
   };
   window.addEventListener('hashchange', route);

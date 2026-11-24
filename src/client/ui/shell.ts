@@ -54,6 +54,8 @@ interface ShellHooks {
   openLiveEarth?: () => void;
   /** In space: a picked Earth item first takes you home (true = handled, the shell does nothing more). */
   toEarth?: (it: CatalogueItem) => boolean;
+  /** In space: a picked Earth geographic place first takes you home (true = handled). */
+  toEarthPlace?: (place: PlaceHit) => boolean;
   /** In space the +/−/overview buttons drive the space view (true = handled). */
   zoom?: (inward: boolean) => boolean;
   overview?: () => void;
@@ -95,6 +97,7 @@ export class Shell {
   readonly levelSlot = h('div', { class: 'level-slot' });
   private space = false;
   current: CatalogueItem | null = null;
+  currentPlace: PlaceHit | null = null;
   readonly time: TimeMachine;
 
   constructor(private root: HTMLElement, private globe: Globe, private hooks: ShellHooks) {
@@ -162,7 +165,7 @@ export class Shell {
       if (!this.hub.classList.contains('hidden')) { this.toggleHub(false); return; }
       if (this.globe.ride) { this.exitRide(); return; }
       if (this.readerOpen) { this.toggleReader(false); return; }
-      if (this.current) { this.showItem(null); return; }
+      if (this.current || this.currentPlace) { this.showItem(null); return; }
       if (this.time.open) { this.time.toggle(false); return; }
       this.hooks.escape?.();
     });
@@ -249,43 +252,44 @@ export class Shell {
       // Each result says where it lives (level) and what it is (type).
       listEl.replaceChildren(...hits.slice(0, 400).map(r => {
         if (r.kind === 'item') {
-          return h('button', { class: 'dex-card unlocked', onclick: () => { closeModal(); this.showItem(r.item, true); } },
+          return h('button', { class: 'dex-card unlocked', 'data-testid': 'search-item-' + r.item.key, onclick: () => { closeModal(); this.showItem(r.item, true); } },
             h('span', { class: 'dex-emoji' }, r.item.emoji),
             h('strong', {}, tr(r.item.name, l)),
-            h('small', {}, [t('lvEarth'), typeName(r.item.type), countryName(r.item.country, l)].filter(Boolean).join(' · ')));
+            h('small', {}, [r.alias, t('lvEarth'), typeName(r.item.type), countryName(r.item.country, l)].filter(Boolean).join(' · ')));
         }
         if (r.kind === 'place') {
           return h('button', {
             class: 'dex-card unlocked',
+            'data-testid': 'search-place-' + r.hit.key,
             onclick: () => {
               closeModal();
-              this.showItem(null);
-              if (r.hit.needsStates && !store.settings.states) updateSettings({ states: true });
-              if (this.hooks.goToPlace) this.hooks.goToPlace(r.hit);
-              else this.globe.flyTo(r.hit.lat, r.hit.lon, r.hit.h, 1400);
+              this.showPlace(r.hit, true);
             },
           },
             h('span', { class: 'dex-emoji' }, r.hit.emoji),
             h('strong', {}, tr(r.hit.name, l)),
-            h('small', {}, [t('lvEarth'), tr(r.hit.sub, l)].filter(Boolean).join(' · ')));
+            h('small', {}, [r.alias, t('pk_' + r.hit.placeKind), tr(r.hit.sub, l)].filter(Boolean).join(' · ')));
         }
+        const spaceSub = r.hit.kind === 'scaleIs' ? t('scaleIs') : tr(r.hit.level, l) + ' · ' + t(r.hit.kind);
         return h('button', { class: 'dex-card unlocked', onclick: () => { closeModal(); location.hash = '#' + r.hit.hash; } },
           h('span', { class: 'dex-emoji' }, r.hit.emoji),
           h('strong', {}, tr(r.hit.name, l)),
-          h('small', {}, r.hit.kind === 'scaleIs' ? t('scaleIs') : tr(r.hit.level, l) + ' · ' + t(r.hit.kind)));
+          h('small', {}, r.alias ? r.alias + ' · ' + spaceSub : spaceSub));
       }));
     };
     const input = h('input', {
       type: 'search',
       class: 'input',
+      'data-testid': 'search-input',
       value: initialQuery,
       placeholder: t('searchPlaceholder'),
       oninput: () => { query = input.value; renderList(); },
     });
     const filterBar = h('div', { class: 'seg-row' },
-      ...(['all', 'space', ...TYPE_ORDER.filter(ty => BY_TYPE[ty].length)] as const).map(f =>
+      ...(['all', 'geo', 'space', ...TYPE_ORDER.filter(ty => BY_TYPE[ty].length)] as const).map(f =>
         h('button', {
           class: 'pill' + (filter === f ? ' active' : ''),
+          'data-testid': 'search-filter-' + f,
           'aria-pressed': String(filter === f),
           onclick: e => {
             filter = f;
@@ -298,7 +302,7 @@ export class Shell {
             cur.setAttribute('aria-pressed', 'true');
             renderList();
           },
-        }, f === 'all' ? t('filterAll') : f === 'space' ? t('filterSpace') : typeName(f))
+        }, f === 'all' ? t('filterAll') : f === 'geo' ? t('filterGeo') : f === 'space' ? t('filterSpace') : typeName(f))
       )
     );
     renderList();
@@ -320,6 +324,7 @@ export class Shell {
     if (!this.menu.classList.contains('hidden')) this.renderMenu();
     this.time.refresh();
     if (this.current) this.renderInfo(this.current);
+    else if (this.currentPlace) this.renderPlaceInfo(this.currentPlace);
   }
 
   private dexClose: boolean | null = null;
@@ -502,10 +507,30 @@ export class Shell {
   }
 
   // ---------- info card ----------
+  private placeToReadable(place: PlaceHit): import('./reader.ts').Readable {
+    const desc = place.desc ?? {
+      en: `${place.name.en} — ${t('pk_' + place.placeKind, undefined, 'en')} in ${place.sub.en}.`,
+      zh: `${place.name.zh}——位于${place.sub.zh}的${t('pk_' + place.placeKind, undefined, 'zh')}。`,
+    };
+    return {
+      key: place.key,
+      name: place.name,
+      desc,
+      funFact: place.fact,
+      lat: place.lat,
+      lon: place.lon,
+      wikiTitles: place.wiki ?? [place.name.en, place.name.zh],
+      showNearby: true,
+    };
+  }
+
   showItem(item: CatalogueItem | null, fly = true): void {
     if (item && this.hooks.toEarth?.(item)) return;
     const prev = this.current;
+    const prevPlace = this.currentPlace;
     this.current = item;
+    this.currentPlace = null;
+    this.globe.focusPlace(null);
     this.globe.select(item?.key ?? null);
     this.hooks.onSelect?.(item);
     if (!item) {
@@ -514,7 +539,10 @@ export class Shell {
       stopNarration();
       this.toggleReader(false);
       this.info.classList.add('hidden');
-      if (prev && decodeURIComponent(location.hash.slice(1)) === prev.key) history.replaceState(null, '', location.pathname + location.search);
+      const curHash = decodeURIComponent(location.hash.slice(1)).split('@')[0];
+      if ((prev && curHash === prev.key) || (prevPlace && curHash === prevPlace.key)) {
+        history.replaceState(null, '', location.pathname + location.search);
+      }
       return;
     }
     sfx.pop();
@@ -532,9 +560,41 @@ export class Shell {
     if (this.readerOpen) this.reader?.show(item);
   }
 
+  showPlace(place: PlaceHit | null, fly = true): void {
+    if (!place) { this.showItem(null); return; }
+    if (place.needsStates && !store.settings.states) updateSettings({ states: true });
+    if (this.hooks.toEarthPlace?.(place)) return;
+    const prev = this.current;
+    const prevPlace = this.currentPlace;
+    this.current = null;
+    this.currentPlace = place;
+    this.issRowCleanup?.();
+    this.issRowCleanup = null;
+    this.globe.select(null);
+    this.hooks.onSelect?.(null);
+    this.globe.focusPlace({ key: place.key, emoji: place.emoji, name: place.name, lat: place.lat, lon: place.lon });
+    sfx.pop();
+    if (place.isGeo) {
+      history.replaceState(null, '', '#' + place.key);
+    } else {
+      const curHash = decodeURIComponent(location.hash.slice(1)).split('@')[0];
+      if ((prev && curHash === prev.key) || (prevPlace && curHash === prevPlace.key)) {
+        history.replaceState(null, '', location.pathname + location.search);
+      }
+    }
+    if (fly) {
+      if (this.hooks.goToPlace) this.hooks.goToPlace(place);
+      else this.globe.flyTo(place.lat, place.lon, place.h, 1400);
+    }
+    this.renderPlaceInfo(place);
+    this.info.classList.remove('hidden');
+    if (this.readerOpen) this.reader?.show(this.placeToReadable(place));
+  }
+
   /** Expands the info card sideways into the Wikipedia reader (lazy-loaded) or folds it back. */
   async toggleReader(open = !this.readerOpen): Promise<void> {
-    if (open === this.readerOpen || (open && (!this.current || classroom()))) return;
+    const initialTarget = this.current ?? (this.currentPlace ? this.placeToReadable(this.currentPlace) : null);
+    if (open === this.readerOpen || (open && (!initialTarget || classroom()))) return;
     this.readerOpen = open;
     this.info.classList.toggle('expanded', open);
     const btn = this.infoMain.querySelector('.read-more');
@@ -546,16 +606,17 @@ export class Shell {
       try { ({ Reader } = await import('./reader.ts')); } catch { toast(t('loadFail', { s: t('readMore') })); void this.toggleReader(false); return; }
       this.reader ??= new Reader({ close: () => void this.toggleReader(false), pick: it => this.showItem(it) });
     }
-    if (!this.readerOpen || !this.current) return;
+    const target = this.current ?? (this.currentPlace ? this.placeToReadable(this.currentPlace) : null);
+    if (!this.readerOpen || !target) return;
     if (!this.reader.el.isConnected) this.info.append(this.reader.el);
-    this.reader.show(this.current);
+    this.reader.show(target);
   }
 
   private dexRow = h('div', { class: 'dex-row' });
   private narration: Narration | null = null;
 
   /** Reads the name, description and fun fact aloud on request, highlighting each sentence as it is spoken. */
-  private toggleNarration(it: CatalogueItem, btn: HTMLButtonElement, segs: { el: HTMLElement; text: string; lead: Node[] }[]): void {
+  private toggleNarration(it: { name: { en: string; zh?: string } }, btn: HTMLButtonElement, segs: { el: HTMLElement; text: string; lead: Node[] }[]): void {
     if (this.narration) { this.narration.stop(); return; }
     const l = lang();
     const spans: HTMLElement[] = [];
@@ -759,6 +820,115 @@ export class Shell {
     if (HAS_API && it.type !== 'vehicle') void api.reactions(it.key).then(r => this.setCounts(r)).catch(() => {});
   }
 
+  private renderPlaceInfo(place: PlaceHit): void {
+    const l = lang();
+    const kindText = t('pk_' + place.placeKind);
+    const where = tr(place.sub, l);
+    const coordStr = `${Math.abs(place.lat).toFixed(1)}°${place.lat >= 0 ? 'N' : 'S'} · ${Math.abs(place.lon).toFixed(1)}°${place.lon >= 0 ? 'E' : 'W'}`;
+    const [declDeg] = subsolar(this.globe.simTime ?? Date.now());
+    const dl = dayLengthHours(place.lat, declDeg);
+    const noonAlt = Math.round(solarNoonAltitudeDeg(place.lat, declDeg));
+    const dlText = dl.polar === 'day'
+      ? t('sun.polarDayVal', { alt: noonAlt })
+      : dl.polar === 'night'
+        ? t('sun.polarNightVal')
+        : t('sun.daylightVal', {
+            h: Math.floor(dl.hours),
+            m: String(Math.round((dl.hours % 1) * 60) % 60).padStart(2, '0'),
+            alt: noonAlt,
+          });
+    const [aLat, aLon] = antipodeOf(place.lat, place.lon);
+    const nearAnti = nearestCatalogueItem(aLat, aLon, CATALOGUE);
+    const antiCoord = formatCoordPair(aLat, aLon);
+    const antiText = nearAnti
+      ? `${antiCoord} (${t('antipode.near', { name: `${nearAnti.item.emoji} ${tr(nearAnti.item.name, l)}`, km: fmtNum(Math.round(nearAnti.distanceKm)) })})`
+      : antiCoord;
+    const extra: [string, string][] = [
+      [t('latitude'), coordStr],
+      [t('sun.daylightLabel'), dlText],
+      [t('antipode.label'), antiText],
+    ];
+
+    const ctryCode = place.key.startsWith('country:') ? place.key.slice('country:'.length) : '';
+    const ctryTotal = ctryCode ? countryCatalogueCount(ctryCode) : 0;
+
+    const sol = solarStatusAt(place.lat, place.lon, this.globe.simTime ?? Date.now());
+    const weatherSpan = h('span', { class: 'live-weather-val' });
+    const weatherRow = h('div', { class: 'live-weather-row', 'data-testid': 'live-weather', title: t('weather.liveTitle') },
+      h('span', { class: `solar-phase-chip solar-${sol.phase}` }, `${sol.icon} ${t(sol.labelKey)}`),
+      weatherSpan,
+    );
+    if (!classroom()) {
+      void fetchLocalWeather(place.lat, place.lon).then(w => {
+        if (!w || this.currentPlace?.key !== place.key || !weatherRow.isConnected) return;
+        weatherSpan.textContent = `${w.icon} ${w.tempC > 0 ? `+${w.tempC}` : w.tempC}°C · ${t(w.labelKey)} · ${t('weather.wind', { kmh: w.windKmh })}`;
+      });
+    }
+
+    stopNarration();
+    const descObj = place.desc ?? {
+      en: `${place.name.en} — ${t('pk_' + place.placeKind, undefined, 'en')} in ${place.sub.en}.`,
+      zh: `${place.name.zh}——位于${place.sub.zh}的${t('pk_' + place.placeKind, undefined, 'zh')}。`,
+    };
+    const descP = h('p', { class: 'desc', 'data-testid': 'info-desc' }, tr(descObj, l));
+    const factLead = (): Node[] => [h('b', {}, t('geo.keyPoint')), document.createTextNode(' ')];
+    const factP = place.fact ? h('p', { class: 'fun', 'data-testid': 'place-fact' }, ...factLead(), tr(place.fact, l)) : null;
+    const listen: HTMLButtonElement | null = narrationSupported() ? h('button', {
+      class: 'pill pill-sm info-listen',
+      'data-testid': 'info-listen',
+      'aria-pressed': 'false',
+      onclick: () => this.toggleNarration(place, listen!, [
+        { el: descP, text: tr(descObj, l), lead: [] },
+        ...(factP && place.fact ? [{ el: factP, text: tr(place.fact, l), lead: factLead() }] : []),
+      ]),
+    }, h('span', { html: icon('sound', 14) }), t('listen')) : null;
+
+    const altName = l === 'zh' ? place.name.en : place.name.zh;
+    const showAlt = altName && altName !== tr(place.name, l);
+
+    this.infoMain.replaceChildren(
+      h('div', { class: 'info-hero place-hero', 'data-place-kind': place.placeKind },
+        h('div', { class: 'place-hero-art', 'aria-hidden': 'true' },
+          h('span', { class: 'place-hero-ring r1' }),
+          h('span', { class: 'place-hero-ring r2' }),
+          h('span', { class: 'place-hero-emoji' }, place.emoji)),
+        h('span', { class: 'type-chip t-geo' }, kindText),
+        h('span', { class: 'info-serial', 'aria-hidden': 'true' }, coordStr),
+        foldButton(this.info),
+        h('button', { class: 'icon-btn info-x', 'aria-label': t('close'), 'data-testid': 'info-close', html: icon('close', 16), onclick: () => this.showItem(null) }),
+        h('button', {
+          class: 'hero-btn info-zoom-btn',
+          title: t('zoomIn'),
+          html: icon('zoom', 15),
+          onclick: () => {
+            const closerPlace = { ...place, h: Math.max(0.2, place.h * 0.45) };
+            if (this.hooks.goToPlace) this.hooks.goToPlace(closerPlace);
+            else this.globe.flyTo(place.lat, place.lon, closerPlace.h, 900);
+          },
+        }, h('span', {}, t('zoomIn'))),
+      ),
+      h('div', { class: 'info-body' },
+        where ? h('p', { class: 'eyebrow', html: icon('pin', 13) }, h('span', {}, where)) : null,
+        h('h2', { 'data-testid': 'info-name' }, tr(place.name, l)),
+        showAlt ? h('p', { class: 'place-alt-name' }, altName) : null,
+        weatherRow,
+        descP,
+        factP,
+        listen,
+        ctryTotal > 0 ? h('button', {
+          class: 'pill pill-sm',
+          'data-testid': 'info-country-explore',
+          onclick: () => this.openSearch(tr(place.name, l)),
+        }, '🧭 ', t('countryExploreAll', { c: tr(place.name, l), n: ctryTotal })) : null,
+        h('details', { class: 'more' },
+          h('summary', { html: icon('chevron', 14) }, h('span', {}, t('moreDetails'))),
+          h('dl', { class: 'facts' }, ...extra.map(([k, v]) => h('div', {}, h('dt', {}, k), h('dd', {}, v)))),
+          h('p', { class: 'meta prov', 'data-testid': 'provenance' }, t('geo.regionNote'))),
+        h('div', { class: 'info-footer' },
+          h('button', { class: 'read-more', 'data-testid': 'read-more', 'aria-expanded': String(this.readerOpen), onclick: () => { sfx.tap(); void this.toggleReader(); } },
+            h('span', {}, this.readerOpen ? t('readerClose') : t('readMore')), h('span', { html: icon('book', 14) })))));
+  }
+
   private issRowCleanup: (() => void) | null = null;
 
   private formatIssTelemetryText(tel: IssTelemetry): string {
@@ -881,7 +1051,7 @@ export class Shell {
     this.globe.stopRide();
     document.body.classList.remove('riding');
     this.rideBar.classList.add('hidden');
-    if (this.current) this.info.classList.remove('hidden');
+    if (this.current || this.currentPlace) this.info.classList.remove('hidden');
   }
 
   private fullscreen(): void {

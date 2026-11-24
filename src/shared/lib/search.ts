@@ -50,3 +50,24 @@ export function scoreTerms(q: string, terms: Terms): number {
   test(terms.other, 0.55);
   return best;
 }
+
+/**
+ * Returns the best-matching alias when the query matched via `aliases` rather
+ * than the primary display `names` (`q` must already be normalised).
+ */
+export function matchedAlias(q: string, names: readonly string[], aliases?: readonly string[]): string | undefined {
+  if (!q || !aliases?.length) return undefined;
+  for (const raw of names) {
+    const t = norm(raw);
+    if (t && t.includes(q)) return undefined;
+  }
+  let bestScore = 0;
+  let bestRaw: string | undefined;
+  for (const raw of aliases) {
+    const t = norm(raw);
+    if (!t) continue;
+    const s = t === q ? 100 : t.startsWith(q) ? 75 : t.includes(q) ? 50 : 0;
+    if (s > bestScore) { bestScore = s; bestRaw = raw; }
+  }
+  return bestRaw;
+}

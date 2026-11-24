@@ -1,4 +1,5 @@
 import { CATALOGUE } from '../../shared/data/catalogue.ts';
+import { type GeoKind } from '../../shared/data/gazetteer.ts';
 import { CONTINENT_NAMES } from '../../shared/data/iso.ts';
 import type { Lang } from '../../shared/data/types.ts';
 import type { CountryInfo } from './painter.ts';
@@ -70,7 +71,14 @@ export function fillCountryTag(tag: HTMLElement, c: CountryInfo, l: Lang): void 
   }
 }
 
+const WATER_KINDS = new Set<GeoKind>(['ocean', 'sea', 'trench', 'strait', 'canal', 'river', 'lake']);
+
+export function geoLabelClass(kind: GeoKind): string {
+  return WATER_KINDS.has(kind) ? 'lb-geo lb-geo-water' : 'lb-geo lb-geo-land';
+}
+
 export function labelRank(lb: MapLabel): number {
+  if (lb.cls.includes('lb-geo-focus')) return 4;
   return lb.cls.includes('lb-provcap') ? 3 : lb.cls.startsWith('lb-country') ? 2 : lb.cls.startsWith('lb-admin') ? 1 : 0;
 }
 
@@ -81,7 +89,8 @@ export function textWidthPx(s: string, perChar: number): number {
 }
 
 export function labelBox(lb: MapLabel): LabelBox {
-  const w = textWidthPx(lb.text, lb.cls.startsWith('lb-country') ? 8 : 6.5), hh = 16;
+  const perChar = lb.cls.includes('lb-geo-focus') ? 8.2 : lb.cls.startsWith('lb-country') ? 8 : 6.5;
+  const w = textWidthPx(lb.text, perChar) + (lb.cls.includes('lb-geo-focus') ? 12 : 0), hh = lb.cls.includes('lb-geo-focus') ? 22 : 16;
   const cx = lb.corner ? lb.x + w / 2 + 2 : lb.x, cy = lb.corner ? lb.y - hh / 2 - 1 : lb.y;
   return [cx - w / 2, cy - hh / 2, cx + w / 2, cy + hh / 2];
 }

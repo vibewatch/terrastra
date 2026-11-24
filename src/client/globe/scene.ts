@@ -11,9 +11,10 @@ import { outdoorEnvironment, orientEnvironment } from '../models/environment.ts'
 import { paintNightLights, type CountryInfo } from './painter.ts';
 import { countryAt, outlinePositions } from './borders.ts';
 import { ADMIN_BORDER_COLOR, ADMIN_GLOBE_ZOOM, ADMIN_LINE_RADIUS, adminName, type AdminArea, type AdminData } from './admin.ts';
-import { NAMED_PARALLELS, countryMapLabel, fillCountryTag, formatDeg, renderLabelPool, type MapLabel } from './overlay.ts';
+import { NAMED_PARALLELS, countryMapLabel, fillCountryTag, formatDeg, geoLabelClass, renderLabelPool, type MapLabel } from './overlay.ts';
 import { CITIES, cityName } from '../../shared/data/cities.ts';
 import { CHINA_CAPITALS, CHINA_CAPITAL_NAMES } from '../../shared/data/china-capitals.ts';
+import { GAZETTEER } from '../../shared/data/gazetteer.ts';
 import { TYPE_META, type LayerKey } from '../../shared/data/typemeta.ts';
 import { subsolar } from '../../shared/lib/sun.ts';
 import { GlobeLayers, RENDER_ORDER, graticuleStep } from './layers.ts';
@@ -33,6 +34,14 @@ const arcMat = (color: string) => arcMats.get(color) ?? arcMats.set(color, new T
 
 export type AuraPreset = 'waves' | 'aurora' | 'ember' | 'dusk' | 'sculpture';
 export type SurfaceMode = 'realistic' | 'minimal' | 'political';
+
+export interface FocusedPlace {
+  key: string;
+  emoji?: string;
+  name: { en: string; zh: string };
+  lat: number;
+  lon: number;
+}
 
 export const AURA_PRESETS: Record<AuraPreset, { label: string; colors: [string, string, string] }> = {
   waves: { label: 'auraWaves', colors: ['#38bdf8', '#1d4ed8', '#7dd3fc'] },
@@ -481,6 +490,8 @@ export class Globe {
   setLayerOverride(o: Partial<Settings> | null): void { this.layerOverride = o; this.effective = null; this.pickedCountry = this.hoverCountry = null; this.dirty = true; }
   private get eff(): Settings { return this.layerOverride ? (this.effective ??= { ...this.settings, ...this.layerOverride }) : this.settings; }
   private radio: StationDots | null = null;
+  /** Actively inspected geographic place (gazetteer feature, country, province, capital or city). */
+  focusedPlace: FocusedPlace | null = null;
   /** The playing radio station (unit vector): the surface ripples spread from it when nothing is selected. */
   beacon: THREE.Vector3 | null = null;
   private audioLevel = 0;
@@ -1335,6 +1346,7 @@ export class Globe {
   }
 
   select(key: string | null): void {
+    if (key) this.focusedPlace = null;
     const prev = this.selected ? this.placed.get(this.selected) : null;
     const next = this.ensurePlaced(key);
     if (prev && next && prev.item.key !== next.item.key) {
@@ -1343,6 +1355,11 @@ export class Globe {
       this.clearFlightArcs();
     }
     this.selected = key;
+    this.dirty = true;
+  }
+
+  focusPlace(place: FocusedPlace | null): void {
+    this.focusedPlace = place;
     this.dirty = true;
   }
 
@@ -1635,6 +1652,14 @@ export class Globe {
       this.selOuterMat.color.copy(this.targetColorA);
       this.selInnerMat.color.copy(this.targetColorC);
       this.earthUniforms.uStationPos.value.copy(sel.obj.position).normalize();
+    } else if (this.focusedPlace && !this.gameMode && !this.ride) {
+      this.orientAt(this.selRing, this.focusedPlace.lat, this.focusedPlace.lon, 1.001);
+      const s = Math.max(0.014, Math.min(0.075, this.h * 0.036)) * (1.05 + Math.sin(this.clock * 0.005) * 0.09);
+      this.selRing.scale.setScalar(s);
+      this.selOuterMat.color.copy(this.targetColorA);
+      this.selInnerMat.color.copy(this.targetColorC);
+      this.selRing.visible = true;
+      this.earthUniforms.uStationPos.value.copy(this.selRing.position).normalize();
     } else if (this.hoveredKey) {
       const hov = this.placed.get(this.hoveredKey);
       if (hov?.obj.visible) this.earthUniforms.uStationPos.value.copy(hov.obj.position).normalize();
@@ -1735,7 +1760,7 @@ export class Globe {
   }
 
   private updateLabels(): void {
-    if (!this.eff.names || this.ride) { for (const s of this.labelPool) s.style.display = 'none'; return; }
+    if ((!this.eff.names && !this.focusedPlace) || this.ride) { for (const s of this.labelPool) s.style.display = 'none'; return; }
     const z = this.zoom;
     const out: MapLabel[] = [];
     const { clientWidth: width, clientHeight: height } = this.renderer.domElement;
@@ -1745,35 +1770,48 @@ export class Globe {
         out.push({ text, cls, x: s.x, y: s.y, pri, corner });
       }
     };
-    if (this.eff.graticule) this.pushGridLabels(push);
-    if (!this.gameMode || z > 0) {
-      for (const c of this.countries) {
-        if (!c.a2 || c.area * z * z < 900) continue;
-        push(this.countryLabel(c), 'lb-country', c.lat, c.lon, 1000 + c.area);
-      }
-      if (!this.gameMode) {
-        const showAdmin = this.adminVisible();
-        if (showAdmin && this.adminData) {
-          const horizon = Math.acos(1 / (1 + this.h)) * 180 / Math.PI + 1;
-          for (const area of this.adminData.regions) {
-            // At close zoom even tiny regions need names, regardless of whether their area can contain the text.
-            if (area.area * z * z >= 80 || (z >= 50 && Math.abs(area.lat - this.lat) <= horizon)) {
-              push(adminName(area, this.lang), 'lb-admin', area.lat, area.lon, 2000 + area.area);
+    if (!this.gameMode && this.focusedPlace) {
+      const fp = this.focusedPlace;
+      const fpName = fp.name[this.lang] || fp.name.en;
+      push(fp.emoji ? `${fp.emoji} ${fpName}` : fpName, 'lb-geo lb-geo-focus', fp.lat, fp.lon, 50000);
+    }
+    if (this.eff.names) {
+      if (this.eff.graticule) this.pushGridLabels(push);
+      if (!this.gameMode || z > 0) {
+        for (const c of this.countries) {
+          if (!c.a2 || c.area * z * z < 900) continue;
+          push(this.countryLabel(c), 'lb-country', c.lat, c.lon, 1000 + c.area);
+        }
+        if (!this.gameMode) {
+          const showAdmin = this.adminVisible();
+          if (showAdmin && this.adminData) {
+            const horizon = Math.acos(1 / (1 + this.h)) * 180 / Math.PI + 1;
+            for (const area of this.adminData.regions) {
+              // At close zoom even tiny regions need names, regardless of whether their area can contain the text.
+              if (area.area * z * z >= 80 || (z >= 50 && Math.abs(area.lat - this.lat) <= horizon)) {
+                push(adminName(area, this.lang), 'lb-admin', area.lat, area.lon, 2000 + area.area);
+              }
+            }
+            for (const city of CHINA_CAPITALS) push(city[this.lang], 'lb-city lb-provcap', city.lat, city.lon, 6000);
+          }
+          const minPop = z < 3 ? Infinity : z < 5 ? 12 : z < 8 ? 4 : z < 15 ? 1.2 : 0;
+          for (const [name, , la, lo, pop, cap] of CITIES) {
+            if (showAdmin && CHINA_CAPITAL_NAMES.has(name)) continue;
+            if (pop < minPop && !(cap && z >= 6)) continue;
+            push(cityName(name, this.lang), cap ? 'lb-city lb-cap' : 'lb-city', la, lo, pop + (cap ? 5 : 0));
+          }
+          for (const g of GAZETTEER) {
+            if (this.focusedPlace?.key === g.key) continue;
+            if (g.labelZoom > 0 && z >= g.labelZoom) {
+              push(g.name[this.lang] || g.name.en, geoLabelClass(g.kind), g.lat, g.lon, Math.round(950 - g.labelZoom * 90));
             }
           }
-          for (const city of CHINA_CAPITALS) push(city[this.lang], 'lb-city lb-provcap', city.lat, city.lon, 6000);
         }
-        const minPop = z < 3 ? Infinity : z < 5 ? 12 : z < 8 ? 4 : z < 15 ? 1.2 : 0;
-        for (const [name, , la, lo, pop, cap] of CITIES) {
-          if (showAdmin && CHINA_CAPITAL_NAMES.has(name)) continue;
-          if (pop < minPop && !(cap && z >= 6)) continue;
-          push(cityName(name, this.lang), cap ? 'lb-city lb-cap' : 'lb-city', la, lo, pop + (cap ? 5 : 0));
-        }
+        if (z < 12) for (const [, n, la, lo] of OCEANS) push(n[this.lang] ?? n.en, 'lb-ocean', la, lo, 2000);
       }
-      if (z < 12) for (const [, n, la, lo] of OCEANS) push(n[this.lang] ?? n.en, 'lb-ocean', la, lo, 2000);
     }
     out.sort((a, b) => b.pri - a.pri);
-    renderLabelPool(this.labelsEl, this.labelPool, out, 140);
+    renderLabelPool(this.labelsEl, this.labelPool, out, 150);
   }
 
   /** Degree labels where the grid crosses the meridian/parallel nearest the view centre, plus named circles. */
