@@ -28,6 +28,28 @@ export interface MapLabel {
   y: number;
   pri: number;
   corner?: boolean;
+  geoKey?: string;
+}
+
+export interface GeoLabelHit {
+  key: string;
+  box: LabelBox;
+  el: HTMLSpanElement;
+}
+
+export function pickGeoLabel(hits: readonly GeoLabelHit[], x: number, y: number, pad = 2): GeoLabelHit | null {
+  let best: GeoLabelHit | null = null;
+  let bestDist = Infinity;
+  for (const h of hits) {
+    const [x0, y0, x1, y1] = h.box;
+    if (x < x0 - pad || x > x1 + pad || y < y0 - pad || y > y1 + pad) continue;
+    const d = Math.hypot(x - (x0 + x1) * 0.5, y - (y0 + y1) * 0.5);
+    if (d < bestDist) {
+      bestDist = d;
+      best = h;
+    }
+  }
+  return best;
 }
 
 export const NAMED_PARALLELS: readonly [string, number][] = [
@@ -99,14 +121,19 @@ export function overlapsBox(boxes: readonly LabelBox[], bx: LabelBox): boolean {
   return boxes.some(b => bx[0] < b[2] && bx[2] > b[0] && bx[1] < b[3] && bx[3] > b[1]);
 }
 
+const GEO_NUDGE_Y = [0, 18, -18] as const;
+
 export function renderLabelPool(
   container: HTMLElement,
   pool: HTMLSpanElement[],
   labels: readonly MapLabel[],
   maxLabels: number,
   beforeLowRank?: (boxes: LabelBox[]) => void,
+  outGeoHits?: GeoLabelHit[],
 ): void {
   const boxes: LabelBox[] = [];
+  if (outGeoHits) outGeoHits.length = 0;
+  const ch = container.clientHeight;
   let used = 0;
   let lowRankDone = !beforeLowRank;
   for (const lb of labels) {
@@ -114,8 +141,23 @@ export function renderLabelPool(
       lowRankDone = true;
       beforeLowRank!(boxes);
     }
-    const bx = labelBox(lb);
-    if (overlapsBox(boxes, bx)) continue;
+    const base = labelBox(lb);
+    let bx: LabelBox | null = null;
+    let dyUsed = 0;
+    if (lb.geoKey && !lb.corner) {
+      for (const dy of GEO_NUDGE_Y) {
+        const cand: LabelBox = dy ? [base[0], base[1] + dy, base[2], base[3] + dy] : base;
+        if (dy && (cand[1] < 4 || (ch > 0 && cand[3] > ch - 4))) continue;
+        if (!overlapsBox(boxes, cand)) {
+          bx = cand;
+          dyUsed = dy;
+          break;
+        }
+      }
+    } else if (!overlapsBox(boxes, base)) {
+      bx = base;
+    }
+    if (!bx) continue;
     boxes.push(bx);
     let el = pool[used];
     if (!el) {
@@ -125,11 +167,20 @@ export function renderLabelPool(
     }
     if (el.textContent !== lb.text) el.textContent = lb.text;
     if (el.className !== lb.cls) el.className = lb.cls;
+    if (lb.geoKey) {
+      el.dataset.geoKey = lb.geoKey;
+      outGeoHits?.push({ key: lb.geoKey, box: bx, el });
+    } else if (el.dataset.geoKey) {
+      delete el.dataset.geoKey;
+    }
     el.style.display = '';
-    el.style.transform = `translate(${lb.x.toFixed(1)}px,${lb.y.toFixed(1)}px) ` + (lb.corner ? 'translate(3px,-100%)' : 'translate(-50%,-50%)');
+    el.style.transform = `translate(${lb.x.toFixed(1)}px,${(lb.y + dyUsed).toFixed(1)}px) ` + (lb.corner ? 'translate(3px,-100%)' : 'translate(-50%,-50%)');
     used++;
     if (used > maxLabels) break;
   }
   if (!lowRankDone) beforeLowRank!(boxes);
-  for (let i = used; i < pool.length; i++) pool[i].style.display = 'none';
+  for (let i = used; i < pool.length; i++) {
+    pool[i].style.display = 'none';
+    if (pool[i].dataset.geoKey) delete pool[i].dataset.geoKey;
+  }
 }

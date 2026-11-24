@@ -33,6 +33,7 @@ import { fetchLocalWeather, solarStatusAt } from '../lib/weather.ts';
 import { onIssTelemetry, propagateIss, type IssTelemetry } from '../lib/iss.ts';
 import { getQuakeFeedStatus, type QuakeEvent } from '../lib/earthquakes.ts';
 import { antipodeOf, altitudePhysics, formatCoordPair, nearestCatalogueItem } from '../../shared/lib/geodesic.ts';
+import { haversineKm } from '../../shared/lib/geo.ts';
 import { subsolar, dayLengthHours, solarNoonAltitudeDeg } from '../../shared/lib/sun.ts';
 import { countryCatalogueCount } from '../globe/overlay.ts';
 
@@ -564,8 +565,6 @@ export class Shell {
     if (!place) { this.showItem(null); return; }
     if (place.needsStates && !store.settings.states) updateSettings({ states: true });
     if (this.hooks.toEarthPlace?.(place)) return;
-    const prev = this.current;
-    const prevPlace = this.currentPlace;
     this.current = null;
     this.currentPlace = place;
     this.issRowCleanup?.();
@@ -574,14 +573,7 @@ export class Shell {
     this.hooks.onSelect?.(null);
     this.globe.focusPlace({ key: place.key, emoji: place.emoji, name: place.name, lat: place.lat, lon: place.lon });
     sfx.pop();
-    if (place.isGeo) {
-      history.replaceState(null, '', '#' + place.key);
-    } else {
-      const curHash = decodeURIComponent(location.hash.slice(1)).split('@')[0];
-      if ((prev && curHash === prev.key) || (prevPlace && curHash === prevPlace.key)) {
-        history.replaceState(null, '', location.pathname + location.search);
-      }
-    }
+    history.replaceState(null, '', '#' + place.key);
     if (fly) {
       if (this.hooks.goToPlace) this.hooks.goToPlace(place);
       else this.globe.flyTo(place.lat, place.lon, place.h, 1400);
@@ -885,6 +877,12 @@ export class Shell {
 
     const altName = l === 'zh' ? place.name.en : place.name.zh;
     const showAlt = altName && altName !== tr(place.name, l);
+    const nearbyModels = CATALOGUE
+      .filter(it => !it.route)
+      .map(it => ({ it, km: haversineKm(place.lat, place.lon, it.lat, it.lon) }))
+      .filter(x => x.km <= 3200)
+      .sort((a, b) => a.km - b.km)
+      .slice(0, 3);
 
     this.infoMain.replaceChildren(
       h('div', { class: 'info-hero place-hero', 'data-place-kind': place.placeKind },
@@ -915,6 +913,14 @@ export class Shell {
         descP,
         factP,
         listen,
+        nearbyModels.length > 0 ? h('div', { class: 'place-nearby', 'data-testid': 'place-nearby' },
+          h('span', { class: 'place-nearby-lbl' }, t('geo.nearbyModels')),
+          h('div', { class: 'place-nearby-list' },
+            ...nearbyModels.map(({ it, km }) => h('button', {
+              class: 'pill pill-sm',
+              'data-testid': 'place-near-' + it.key,
+              onclick: () => { sfx.tap(); this.showItem(it); },
+            }, `${it.emoji} ${tr(it.name, l)} · ${fmtNum(Math.round(km))} km`)))) : null,
         ctryTotal > 0 ? h('button', {
           class: 'pill pill-sm',
           'data-testid': 'info-country-explore',
@@ -923,6 +929,12 @@ export class Shell {
         h('details', { class: 'more' },
           h('summary', { html: icon('chevron', 14) }, h('span', {}, t('moreDetails'))),
           h('dl', { class: 'facts' }, ...extra.map(([k, v]) => h('div', {}, h('dt', {}, k), h('dd', {}, v)))),
+          h('div', { class: 'antipode-actions', 'data-testid': 'info-antipode' },
+            h('button', {
+              class: 'pill pill-sm',
+              'data-testid': 'info-measure-dist',
+              onclick: () => this.hooks.openCompare('dist:' + place.key),
+            }, h('span', { html: icon('compass', 13) }), ' ', t('antipode.measure'))),
           h('p', { class: 'meta prov', 'data-testid': 'provenance' }, t('geo.regionNote'))),
         h('div', { class: 'info-footer' },
           h('button', { class: 'read-more', 'data-testid': 'read-more', 'aria-expanded': String(this.readerOpen), onclick: () => { sfx.tap(); void this.toggleReader(); } },

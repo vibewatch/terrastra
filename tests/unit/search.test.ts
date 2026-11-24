@@ -168,4 +168,30 @@ describe('search', () => {
     expect(chengduPlaces).toHaveLength(1);
     expect(chengduPlaces[0]?.kind === 'place' && chengduPlaces[0].hit.placeKind).toBe('capital');
   });
+
+  it('resolves place deep-link keys and hit-tests rendered geo labels', async () => {
+    const { resolvePlaceByKey } = await import('../../src/client/lib/search.ts');
+    const { pickGeoLabel } = await import('../../src/client/globe/overlay.ts');
+
+    const places = {
+      countries: [{ id: '250', a2: 'FR', name: 'France', continent: 'europe', lat: 46.2, lon: 2.2, area: 64 }],
+      regions: [{ id: 'cn-sc', code: 'CN-SC', country: 'CN', name: 'Sichuan', zh: '四川省', lat: 30.6, lon: 102.7, area: 48 }],
+    } as Parameters<typeof resolvePlaceByKey>[1];
+
+    expect(resolvePlaceByKey('geo:mariana-trench', places)?.name.zh).toBe('马里亚纳海沟');
+    expect(resolvePlaceByKey('city:tokyo', places)?.name.zh).toBe('东京');
+    expect(resolvePlaceByKey('capital:CN-SC', places)?.name.zh).toBe('成都');
+    expect(resolvePlaceByKey('country:FR', places)?.placeKind).toBe('country');
+    expect(resolvePlaceByKey('state:CN-SC', places)).toMatchObject({ placeKind: 'state', needsStates: true });
+    expect(resolvePlaceByKey('geo:does-not-exist', places)).toBeNull();
+    expect(resolvePlaceByKey('unknown:foo', places)).toBeNull();
+
+    const hits = [
+      { key: 'geo:andes', box: [100, 200, 180, 220] as [number, number, number, number] },
+      { key: 'geo:amazon-plain', box: [182, 200, 260, 220] as [number, number, number, number] },
+    ];
+    expect(pickGeoLabel(hits, 140, 210)?.key).toBe('geo:andes');
+    expect(pickGeoLabel(hits, 181, 210)?.key).toBe('geo:amazon-plain');
+    expect(pickGeoLabel(hits, 50, 50)).toBeNull();
+  });
 });

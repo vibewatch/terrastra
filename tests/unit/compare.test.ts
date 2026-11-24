@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { compareGroups, groupOf, ratio, drawn } from '../../src/client/lib/compare.ts';
+import { compareGroups, earthPlaces, groupOf, ratio, drawn } from '../../src/client/lib/compare.ts';
 import { BODY } from '../../src/shared/data/solar.ts';
 import { BY_KEY } from '../../src/shared/data/catalogue.ts';
 
@@ -37,5 +37,16 @@ describe('compare bench', () => {
     expect(ids.filter(id => id !== 'walker').map(id => BY_KEY.get(id)?.type).every(ty => ty === 'animal' || ty === 'vehicle')).toBe(true);
     expect(groupOf('vh_balloon')).toBeUndefined();
     expect(groupOf('vh_ktx')?.id).toBe('fast');
+  });
+
+  it('includes major physical-geography features and resolved place keys in earthPlaces', () => {
+    const places = earthPlaces(['city:tokyo', 'country:FR'], {
+      countries: [{ id: '250', a2: 'FR', name: 'France', continent: 'europe', lat: 46.2, lon: 2.2, area: 64 }] as any,
+    });
+    const keys = new Set(places.map(p => p.key));
+    expect(keys.has('geo:mariana-trench')).toBe(true);
+    expect(keys.has('geo:andes')).toBe(true);
+    expect(keys.has('city:tokyo')).toBe(true);
+    expect(keys.has('country:FR')).toBe(true);
   });
 });

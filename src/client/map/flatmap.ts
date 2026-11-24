@@ -4,9 +4,9 @@ import type { CountryInfo } from '../globe/painter.ts';
 import type { Quality } from '../globe/quality.ts';
 import { countryAt } from '../globe/borders.ts';
 import { ADMIN_BORDER_COLOR, ADMIN_MAP_ZOOM, adminName, type AdminData, type AdminLineTile } from '../globe/admin.ts';
-import { NAMED_PARALLELS, fillCountryTag, formatDeg, geoLabelClass, labelRank, renderLabelPool, type MapLabel } from '../globe/overlay.ts';
+import { NAMED_PARALLELS, fillCountryTag, formatDeg, geoLabelClass, labelRank, pickGeoLabel, renderLabelPool, type GeoLabelHit, type MapLabel } from '../globe/overlay.ts';
 import { CATALOGUE } from '../../shared/data/catalogue.ts';
-import { GAZETTEER } from '../../shared/data/gazetteer.ts';
+import { GAZETTEER, GAZETTEER_BY_KEY, type GazetteerEntry } from '../../shared/data/gazetteer.ts';
 import { TYPE_META } from '../../shared/data/typemeta.ts';
 import { CITIES, cityName } from '../../shared/data/cities.ts';
 import { CHINA_CAPITALS, CHINA_CAPITAL_NAMES } from '../../shared/data/china-capitals.ts';
@@ -39,6 +39,7 @@ export interface MapHost {
   shapes: () => CountryInfo[];
   selected: () => CatalogueItem | null;
   pick: (it: CatalogueItem) => void;
+  pickGeo?: (entry: GazetteerEntry) => void;
   hover: (it: CatalogueItem | null, at: { x: number; y: number } | null) => void;
   onView: (zoom: number, lat: number, lon: number) => void;
   /** Opens the "map projections" lesson. */
@@ -236,6 +237,8 @@ export class FlatMap {
 
   private labelsEl = h('div', { class: 'labels fm-labels', 'aria-hidden': 'true' });
   private labelPool: HTMLSpanElement[] = [];
+  private geoHits: GeoLabelHit[] = [];
+  private hoveredGeoKey: string | null = null;
   private pinsEl = h('div', { class: 'fm-pins' });
   private pins = new Map<string, HTMLButtonElement>();
   private hl = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -289,6 +292,7 @@ export class FlatMap {
     this.borderLine = new THREE.Mesh(empty, lineMat('#f1f5f9', 0.85));
     this.adminCase = new THREE.Group();
     this.adminLine = new THREE.Group();
+    this.adminCase.visible = this.adminLine.visible = false;
     this.adminCaseMat = lineMat('#020617', 0.45);
     this.adminLineMat = lineMat(ADMIN_BORDER_COLOR, 0.78);
     for (const [mesh, order] of [[this.grid, 1], [this.borderCase, 4], [this.borderLine, 5]] as const) {
@@ -631,12 +635,18 @@ export class FlatMap {
     return !(this.proj === 'equalearth' && Math.abs(wrapPi(lon * D - this.v.lon0)) > Math.PI - 1e-6);
   }
 
+  private setHoveredGeo(key: string | null): void {
+    if (this.hoveredGeoKey === key) return;
+    this.hoveredGeoKey = key;
+    for (const h of this.geoHits) h.el.classList.toggle('lb-geo-hover', h.key === key);
+  }
+
   private layoutLabels(names: boolean, grid: boolean, z: number): void {
     const out: MapLabel[] = [];
     const l = lang();
-    const push = (text: string, cls: string, lat: number, lon: number, pri: number, corner = false) => {
+    const push = (text: string, cls: string, lat: number, lon: number, pri: number, corner = false, geoKey?: string) => {
       const [x, y] = this.toScreen(lat, lon);
-      if (this.onScreen(x, y, 20)) out.push({ text, cls, x, y, pri, corner });
+      if (this.onScreen(x, y, 20)) out.push({ text, cls, x, y, pri, corner, geoKey });
     };
     const fp = !this.quiz && !this.host.globe.gameMode ? this.host.globe.focusedPlace : null;
     if (fp && this.onMap(fp.lon)) {
@@ -681,7 +691,8 @@ export class FlatMap {
         for (const g of GAZETTEER) {
           if (fp?.key === g.key) continue;
           if (g.labelZoom > 0 && z >= g.labelZoom * 0.42 && this.onMap(g.lon)) {
-            push(g.name[l] || g.name.en, geoLabelClass(g.kind), g.lat, g.lon, Math.round(950 - g.labelZoom * 90));
+            const cls = geoLabelClass(g.kind) + (this.hoveredGeoKey === g.key ? ' lb-geo-hover' : '');
+            push(g.name[l] || g.name.en, cls, g.lat, g.lon, Math.round(1300 - g.labelZoom * 110), false, g.key);
           }
         }
       }
@@ -697,10 +708,10 @@ export class FlatMap {
       return b.pri - a.pri;
     });
     // country names first, then the pins around them, then every other label in the gaps
-    renderLabelPool(this.labelsEl, this.labelPool, out, 160, boxes => {
+    renderLabelPool(this.labelsEl, this.labelPool, out, 190, boxes => {
       this.layoutPins(z, boxes);
       boxes.push(...this.pinBoxes);
-    });
+    }, this.geoHits);
   }
 
   private pushGridLabels(push: (text: string, cls: string, lat: number, lon: number, pri: number, corner?: boolean) => void, l: 'en' | 'zh'): void {
@@ -970,12 +981,17 @@ export class FlatMap {
 
   private clearHover(): void {
     this.hoverReq = null;
+    this.setHoveredGeo(null);
+    this.canvas.style.cursor = '';
     if (!this.hoverC && !this.cursor) return;
     this.hoverC = null; this.cursor = null;
     this.drawHighlight(); this.updateTag();
   }
 
   private hoverAt(x: number, y: number): void {
+    const gh = !this.quiz && !this.host.globe.gameMode ? pickGeoLabel(this.geoHits, x, y, 2) : null;
+    this.setHoveredGeo(gh?.key ?? null);
+    this.canvas.style.cursor = gh ? 'pointer' : '';
     if (!this.countryUi()) return;
     const ll = this.toLatLon(x, y);
     const c = ll ? countryAt(this.host.shapes(), ll[0], ll[1]) : null;
@@ -986,6 +1002,16 @@ export class FlatMap {
 
   private tapAt(x: number, y: number): void {
     this.host.hover(null, null);
+    if (!this.quiz && !this.host.globe.gameMode && this.host.pickGeo) {
+      const gh = pickGeoLabel(this.geoHits, x, y, 2);
+      const gz = gh ? GAZETTEER_BY_KEY.get(gh.key) : undefined;
+      if (gz) {
+        this.picked = null;
+        this.drawHighlight(); this.updateTag();
+        this.host.pickGeo(gz);
+        return;
+      }
+    }
     if (!this.countryUi()) return;
     const ll = this.toLatLon(x, y);
     const c = ll ? countryAt(this.host.shapes(), ll[0], ll[1]) : null;

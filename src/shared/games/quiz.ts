@@ -3,6 +3,7 @@ import { tr } from '../data/types.ts';
 import { shuffle, pick } from '../lib/rng.ts';
 import { CITIES, cityName } from '../data/cities.ts';
 import { CONTINENT_NAMES } from '../data/iso.ts';
+import { GAZETTEER, GAZETTEER_BY_KEY, type GazetteerEntry, type GeoKind } from '../data/gazetteer.ts';
 
 export type QuizSet = 'mixed' | 'animals' | 'geo' | 'landmarks' | 'secrets';
 export type QuizLevel = 'easy' | 'normal' | 'hard';
@@ -31,6 +32,67 @@ function build(id: string, set: Question['set'], prompt: I18n, correct: string, 
 
 const by = (c: Ctx, type: CatalogueItem['type']) => c.items.filter(i => i.type === type);
 const nm = (c: Ctx, i: CatalogueItem) => tr(i.name, c.lang);
+const gzName = (g: GazetteerEntry, l: Lang) => g.name[l];
+const gzPoolByKinds = (...kinds: GeoKind[]) => GAZETTEER.filter(g => kinds.includes(g.kind));
+
+const WORLD_RECORDS: { key: GazetteerEntry['key']; kinds: readonly GeoKind[]; prompt: I18n }[] = [
+  { key: 'geo:mariana-trench', kinds: ['trench', 'rift'], prompt: { en: 'Which is the deepest oceanic trench on Earth (~11,034 m)?', zh: '地球海洋最深的海沟（最深逾 1.1 万米）是哪一条？' } },
+  { key: 'geo:andes', kinds: ['mountain'], prompt: { en: 'Which is the longest continental mountain range in the world?', zh: '世界上最长的陆上山脉（纵贯南美西岸）是哪座？' } },
+  { key: 'geo:himalayas', kinds: ['mountain'], prompt: { en: 'Which is the highest mountain range on Earth?', zh: '世界平均海拔最高、拥有珠穆朗玛峰的山脉是哪座？' } },
+  { key: 'geo:qinghai-tibet-plateau', kinds: ['plateau'], prompt: { en: 'Which plateau is the highest on Earth, known as the "Roof of the World"?', zh: '被称为“世界屋脊”的世界最高大高原是哪个？' } },
+  { key: 'geo:brazilian-highlands', kinds: ['plateau'], prompt: { en: 'Which plateau covers the largest area in the world?', zh: '世界上面积最大的高原是哪一个？' } },
+  { key: 'geo:amazon-plain', kinds: ['plain'], prompt: { en: 'Which is the largest plain on Earth, carpeted by equatorial rainforest?', zh: '世界上面积最大、分布着茂密热带雨林的平原是哪个？' } },
+  { key: 'geo:sahara-desert', kinds: ['desert'], prompt: { en: 'Which is the largest hot desert in the world?', zh: '世界上面积最大的热带沙漠是哪一个？' } },
+  { key: 'geo:nile-river', kinds: ['river'], prompt: { en: 'Which river is traditionally recognized as the longest in the world (~6,650 km)?', zh: '全长约 6650 千米、自南向北注入地中海的世界第一长河是哪条？' } },
+  { key: 'geo:amazon-river', kinds: ['river'], prompt: { en: 'Which river has the largest water discharge and drainage basin on Earth?', zh: '世界流量最大、流域面积最广的河流是哪一条？' } },
+  { key: 'geo:lake-baikal', kinds: ['lake'], prompt: { en: 'Which is the deepest freshwater lake on Earth (~1,642 m)?', zh: '世界上最深、蓄淡水量最多的淡水湖是哪个？' } },
+  { key: 'geo:caspian-sea', kinds: ['lake'], prompt: { en: 'Which is the largest inland body of water (lake) on Earth by area?', zh: '位于亚欧交界处、世界面积最大的内陆湖泊（咸水湖）是哪个？' } },
+  { key: 'geo:greenland', kinds: ['island'], prompt: { en: 'Which is the largest island on Earth (excluding continents)?', zh: '除大陆外，世界上面积最大的岛屿是哪座？' } },
+  { key: 'geo:arabian-peninsula', kinds: ['peninsula'], prompt: { en: 'Which is the largest peninsula in the world?', zh: '世界上面积最大的半岛是哪一个？' } },
+  { key: 'geo:red-sea', kinds: ['sea'], prompt: { en: 'Which sea has the highest surface salinity in the world?', zh: '世界上盐度最高的海域是哪一片？' } },
+  { key: 'geo:baltic-sea', kinds: ['sea'], prompt: { en: 'Which sea has the lowest salinity in the world?', zh: '世界上盐度最低的海域是哪一片？' } },
+  { key: 'geo:east-african-rift', kinds: ['rift', 'trench', 'mountain'], prompt: { en: 'Which vast tectonic feature is nicknamed "Earth’s great scar"?', zh: '素有“地球表面最大伤疤”之称的陆上最大断裂带是哪里？' } },
+];
+
+const WATERWAY_GATEWAYS: { key: GazetteerEntry['key']; prompt: I18n }[] = [
+  { key: 'geo:strait-of-malacca', prompt: { en: 'Which strait between the Malay Peninsula and Sumatra is the shortest sea link from the Indian to the Pacific Ocean?', zh: '位于马来半岛与苏门答腊岛之间、沟通太平洋与印度洋的咽喉要道是？' } },
+  { key: 'geo:strait-of-gibraltar', prompt: { en: 'Which strait divides Europe from Africa and links the Mediterranean Sea to the Atlantic Ocean?', zh: '作为欧洲与非洲分界线、沟通地中海与大西洋的天然通道是？' } },
+  { key: 'geo:strait-of-hormuz', prompt: { en: 'Which strait links the Persian Gulf to the Arabian Sea and is called the "world’s oil valve"?', zh: '连接波斯湾与阿拉伯海、被称为“世界油阀”的海峡是？' } },
+  { key: 'geo:bering-strait', prompt: { en: 'Which strait divides Asia from North America and links the Pacific and Arctic Oceans?', zh: '既是亚洲与北美洲分界线，又沟通太平洋与北冰洋的海峡是？' } },
+  { key: 'geo:drake-passage', prompt: { en: 'Which is Earth’s widest and deepest strait, separating South America from Antarctica?', zh: '分隔南美洲与南极洲、世界上最宽最深的海峡是？' } },
+  { key: 'geo:suez-canal', prompt: { en: 'Which canal divides Asia from Africa and links the Mediterranean Sea directly to the Red Sea?', zh: '作为亚非两洲分界线、直接沟通地中海与红海的人工运河是？' } },
+  { key: 'geo:panama-canal', prompt: { en: 'Which lock canal divides North and South America and links the Atlantic and Pacific Oceans?', zh: '作为南北美洲分界线、沟通太平洋和大西洋的水闸式运河是？' } },
+  { key: 'geo:grand-canal', prompt: { en: 'Which ancient canal in China is the longest artificial waterway in the world, linking five major river basins?', zh: '贯通海河、黄河、淮河、长江、钱塘江五大水系的世界最长古运河是？' } },
+];
+
+const CHINA_GEO_ITEMS: { key: GazetteerEntry['key']; kinds: readonly GeoKind[]; prompt: I18n }[] = [
+  { key: 'geo:qinling', kinds: ['mountain'], prompt: { en: 'Which east–west mountain range forms China’s primary north–south geographic divide (Jan 0°C isotherm & 800 mm isohyet)?', zh: '与淮河共同构成我国南北方地理分界线（1月 0°C 等温线、800mm 等降水量线经过）的山脉是？' } },
+  { key: 'geo:tarim-basin', kinds: ['basin'], prompt: { en: 'Which is China’s largest inland basin, lying between the Tianshan and Kunlun Mountains?', zh: '位于天山与昆仑山之间、我国面积最大的内陆盆地是？' } },
+  { key: 'geo:qaidam-basin', kinds: ['basin'], prompt: { en: 'Which basin on the Qinghai–Tibet Plateau is China’s highest and nicknamed the "Treasure Bowl"?', zh: '位于青藏高原东北部、海拔最高且素有“聚宝盆”之称的盆地是？' } },
+  { key: 'geo:northeast-china-plain', kinds: ['plain'], prompt: { en: 'Which is China’s largest plain, renowned for its fertile black soil?', zh: '黑土广布、沃野千里，我国面积最大的平原是？' } },
+  { key: 'geo:loess-plateau', kinds: ['plateau'], prompt: { en: 'Which Chinese plateau is famous for deep wind-blown silt deposits and a landscape of thousands of gullies?', zh: '水土流失治理重点区、呈现“千沟万壑、支离破碎”地貌特征的高原是？' } },
+  { key: 'geo:yunnan-guizhou-plateau', kinds: ['plateau'], prompt: { en: 'Which Chinese plateau is renowned for dramatic karst stone forests, caves, and underground rivers?', zh: '石灰岩广布，峰林、溶洞、暗河等喀斯特地貌最典型的高原是？' } },
+  { key: 'geo:poyang-lake', kinds: ['lake'], prompt: { en: 'Which lake in Jiangxi Province is China’s largest freshwater lake?', zh: '位于江西省北部、我国面积最大的淡水湖是？' } },
+  { key: 'geo:qinghai-lake', kinds: ['lake'], prompt: { en: 'Which lake is China’s largest inland saltwater lake?', zh: '我国面积最大的内陆咸水湖是？' } },
+];
+
+const FEATURE_CONTINENTS: [GazetteerEntry['key'], Exclude<CatalogueItem['continent'], 'ocean' | 'antarctica'>][] = [
+  ['geo:andes', 'south-america'],
+  ['geo:rocky-mountains', 'north-america'],
+  ['geo:alps', 'europe'],
+  ['geo:atlas-mountains', 'africa'],
+  ['geo:great-dividing-range', 'oceania'],
+  ['geo:himalayas', 'asia'],
+  ['geo:sahara-desert', 'africa'],
+  ['geo:congo-basin', 'africa'],
+  ['geo:amazon-plain', 'south-america'],
+  ['geo:brazilian-highlands', 'south-america'],
+  ['geo:mississippi-river', 'north-america'],
+  ['geo:danube-river', 'europe'],
+  ['geo:nile-river', 'africa'],
+  ['geo:lake-victoria', 'africa'],
+  ['geo:great-victoria-desert', 'oceania'],
+];
 
 const TEMPLATES: Template[] = [
   { id: 'lm_country', set: 'landmarks', make: c => {
@@ -126,6 +188,43 @@ const TEMPLATES: Template[] = [
     if (peaks.filter(p => p.facts!.heightM === top.facts!.heightM).length > 1) return null;
     return build('geo_peak_highest', 'geo', { en: 'Which of these peaks has the highest elevation above sea level?', zh: '下列哪座山峰的海拔最高？' },
       nm(c, top), peaks.map(p => nm(c, p)), c, top);
+  } },
+  { id: 'geo_world_record', set: 'geo', make: c => {
+    const item = pick(WORLD_RECORDS, c.rnd);
+    const gz = GAZETTEER_BY_KEY.get(item.key);
+    if (!gz) return null;
+    const pool = gzPoolByKinds(...item.kinds).map(g => gzName(g, c.lang));
+    return build('geo_world_record', 'geo', item.prompt, gzName(gz, c.lang), pool, c, { lat: gz.lat, lon: gz.lon });
+  } },
+  { id: 'geo_strait_canal', set: 'geo', make: c => {
+    const item = pick(WATERWAY_GATEWAYS, c.rnd);
+    const gz = GAZETTEER_BY_KEY.get(item.key);
+    if (!gz) return null;
+    const pool = gzPoolByKinds(gz.kind === 'canal' ? 'canal' : 'strait', 'strait', 'canal').map(g => gzName(g, c.lang));
+    return build('geo_strait_canal', 'geo', item.prompt, gzName(gz, c.lang), pool, c, { lat: gz.lat, lon: gz.lon });
+  } },
+  { id: 'geo_china_landform', set: 'geo', make: c => {
+    const item = pick(CHINA_GEO_ITEMS, c.rnd);
+    const gz = GAZETTEER_BY_KEY.get(item.key);
+    if (!gz) return null;
+    const pool = gzPoolByKinds(...item.kinds).map(g => gzName(g, c.lang));
+    return build('geo_china_landform', 'geo', item.prompt, gzName(gz, c.lang), pool, c, { lat: gz.lat, lon: gz.lon });
+  } },
+  { id: 'geo_feature_continent', set: 'geo', make: c => {
+    const [key, cont] = pick(FEATURE_CONTINENTS, c.rnd);
+    const gz = GAZETTEER_BY_KEY.get(key);
+    if (!gz) return null;
+    const conts = ['africa', 'europe', 'asia', 'north-america', 'south-america', 'oceania'] as const;
+    const label = (k: typeof conts[number]) => CONTINENT_NAMES[k][c.lang];
+    return build(
+      'geo_feature_continent',
+      'geo',
+      { en: `On which continent is ${gz.name.en} located?`, zh: `“${gz.name.zh}”位于哪个大洲？` },
+      label(cont),
+      conts.map(label),
+      c,
+      { lat: gz.lat, lon: gz.lon },
+    );
   } },
   { id: 'sec_kind', set: 'secrets', make: c => {
     const ds = by(c, 'discovery'); const it = pick(ds, c.rnd);

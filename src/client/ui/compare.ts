@@ -3,15 +3,17 @@ import { h, openModal } from './dom.ts';
 import { Select } from './select.ts';
 import { icon } from './icons.ts';
 import { t, lang, fmtNum } from '../lib/i18n.ts';
-import { tr, type CatalogueItem } from '../../shared/data/types.ts';
+import { tr } from '../../shared/data/types.ts';
 import { CATALOGUE, BY_KEY } from '../../shared/data/catalogue.ts';
 import { sfx } from '../lib/sfx.ts';
-import { compareGroups, groupOf, ratio, drawn, type Group, type Thing } from '../lib/compare.ts';
+import { compareGroups, earthPlaces, groupOf, ratio, drawn, type Group, type Thing } from '../lib/compare.ts';
+import { resolvePlaceByKey, type SearchPlaces } from '../lib/search.ts';
 import { antipodeOf, formatCoordPair, greatCircleSummary, nearestCatalogueItem } from '../../shared/lib/geodesic.ts';
 
 export interface CompareOptions {
   onShowArc?: (a: [number, number], b: [number, number]) => void;
   onFlyTo?: (lat: number, lon: number) => void;
+  places?: SearchPlaces;
 }
 
 const SVG = 'http://www.w3.org/2000/svg';
@@ -43,11 +45,6 @@ function formatDurationHours(hours: number, l: 'en' | 'zh'): string {
   return l === 'zh' ? `${fmtNum(days)} 天` : `${fmtNum(days)} days`;
 }
 
-function earthPlaces(ensureKeys: string[]): CatalogueItem[] {
-  const list = CATALOGUE.filter(it => !it.route && (it.tier <= 2 || ensureKeys.includes(it.key)));
-  return list;
-}
-
 export function openCompare(start?: string, opts?: CompareOptions): void {
   const groups = compareGroups();
   const isDistStart = start === 'dist' || Boolean(start?.startsWith('dist:'));
@@ -56,7 +53,8 @@ export function openCompare(start?: string, opts?: CompareOptions): void {
   let g: Group = (!isDistStart && start && groupOf(start)) || groups[0];
   let pair: [string, string] = !isDistStart && start && groupOf(start) ? [start, g.pair[0] === start ? g.pair[1] : g.pair[0]] : [...g.pair];
   let scale: 'true' | 'zoom' = 'true';
-  const defaultA = distInitKey && BY_KEY.has(distInitKey) ? distInitKey : 'eiffel';
+  const initValid = Boolean(distInitKey && (BY_KEY.has(distInitKey) || resolvePlaceByKey(distInitKey, opts?.places)));
+  const defaultA = initValid ? distInitKey! : 'eiffel';
   const defaultB = defaultA === 'liberty' ? 'greatwall' : 'liberty';
   let distPair: [string, string] = [defaultA, defaultB];
 
@@ -72,7 +70,7 @@ export function openCompare(start?: string, opts?: CompareOptions): void {
 
   const renderDist = () => {
     const l = lang();
-    const places = earthPlaces(distPair);
+    const places = earthPlaces(distPair, opts?.places);
     const a = places.find(p => p.key === distPair[0]) ?? places[0];
     const b = places.find(p => p.key === distPair[1]) ?? places[1] ?? places[0];
     distPair = [a.key, b.key];

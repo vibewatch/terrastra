@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, readdirSync, writeFileSync, existsSync } from 
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BY_TYPE, CATALOGUE } from '../src/shared/data/catalogue.ts';
+import { GAZETTEER, type GeoKind } from '../src/shared/data/gazetteer.ts';
 import { ALIASES } from '../src/shared/data/aliases.ts';
 import { CONTINENT_NAMES } from '../src/shared/data/iso.ts';
 import { WIKI } from '../src/shared/data/wiki.ts';
@@ -37,6 +38,28 @@ const T = (en: string, zh: string): Bi => ({ en, zh });
 const SECTIONS = TYPE_ORDER.filter(ty => TYPE_META[ty].section && BY_TYPE[ty].length)
   .map(ty => ({ ty, dir: TYPE_META[ty].section, title: TYPE_META[ty].many, one: TYPE_META[ty].one, hint: TYPE_META[ty].hint, items: BY_TYPE[ty], icon: TYPE_ICON[ty] }));
 const SECTION_OF = new Map(SECTIONS.flatMap(s => s.items.map(it => [it.key, s] as const)));
+const GEO_DIR = 'geography';
+const GEO_TITLE = T('Physical Geography', '自然地理');
+const GEO_HINT = T('Seas, trenches, mountain ranges, plateaus, plains, basins, straits and rivers from school geography.', '地理课本常考的大洲大洋、海沟海峡、山脉高原、平原盆地与大河湖泊。');
+const GEO_KIND_LABEL: Record<GeoKind, Bi> = {
+  continent: T('Continent', '大洲'),
+  ocean: T('Ocean', '大洋'),
+  sea: T('Sea / Gulf', '海与海湾'),
+  trench: T('Trench / Ridge', '海沟与洋脊'),
+  strait: T('Strait / Channel', '海峡与水道'),
+  canal: T('Canal', '运河'),
+  mountain: T('Mountain range', '山脉'),
+  plateau: T('Plateau', '高原'),
+  plain: T('Plain', '平原'),
+  basin: T('Basin', '盆地'),
+  desert: T('Desert', '沙漠'),
+  rift: T('Rift valley', '裂谷带'),
+  river: T('Major river', '大河水系'),
+  lake: T('Lake', '湖泊'),
+  peninsula: T('Peninsula', '半岛'),
+  island: T('Island / Archipelago', '岛屿与群岛'),
+  line: T('Geographic line / Pole', '特殊经纬线与极点'),
+};
 
 const regions = { en: new Intl.DisplayNames(['en'], { type: 'region' }), zh: new Intl.DisplayNames(['zh-Hans'], { type: 'region' }) };
 const country = (a2?: string): Bi | null => {
@@ -191,7 +214,7 @@ function page(path: string, title: string, desc: string, body: string, opts: { j
 <link rel="preload" href="/fonts/chakra-petch-600.woff2" as="font" type="font/woff2" crossorigin><link rel="preload" href="/fonts/geist-mono.woff2" as="font" type="font/woff2" crossorigin><script>${LANG_JS}</script>
 <style>${CSS}</style>${opts.jsonld ? `<script type="application/ld+json">${JSON.stringify(opts.jsonld).replace(/</g, '\\u003c')}</script>` : ''}</head>
 <body><header class="top"><div class="wrap"><a class="brand" href="/">${MARK}${bi(BRAND)}</a>
-<nav aria-label="Encyclopedia"><a href="/encyclopedia/"${cur('hub')}>${bi(T('All', '全部'))}</a>${SECTIONS.map(s => `<a href="/${s.dir}/"${cur(s.dir)}>${bi(s.title)}</a>`).join('')}</nav>
+<nav aria-label="Encyclopedia"><a href="/encyclopedia/"${cur('hub')}>${bi(T('All', '全部'))}</a>${SECTIONS.map(s => `<a href="/${s.dir}/"${cur(s.dir)}>${bi(s.title)}</a>`).join('')}<a href="/${GEO_DIR}/"${cur(GEO_DIR)}>${bi(GEO_TITLE)}</a></nav>
 <div class="lang" role="group" aria-label="Language"><button data-set="en">EN</button><button data-set="zh">中文</button></div>
 <a class="btn" href="/">${icon('globe', 16)}${bi(T('Open globe', '打开地球'))}</a></div></header>
 <main><div class="wrap">${body}</div></main>
@@ -232,11 +255,13 @@ const card = (it: CatalogueItem, dir: string, ic: IconName, i: number) => `<li d
 
 const urls: string[] = ['/', '/encyclopedia/', '/about/', '/privacy/'];
 const total = SECTIONS.reduce((n, s) => n + s.items.length, 0);
-page('/encyclopedia/', 'Encyclopedia — Terrastra', `Explore ${total} places, animals and wonders on a friendly 3D globe for kids.`,
+const allTotal = total + GAZETTEER.length;
+page('/encyclopedia/', 'Encyclopedia — Terrastra', `Explore ${allTotal} places, natural geography features, animals and wonders on a friendly 3D globe for kids.`,
   `<p class="eyebrow">${bi(T('Encyclopedia', '百科'))}</p><h1>${bi(T('Explore the planet', '探索地球'))}</h1>
-<p class="sub">${bi(T(`${total} places, animals and wonders — each one has a 3D model waiting on the globe.`, `${total} 个地点、动物和奇观——每一个都在地球上有一个 3D 模型等你发现。`))}</p>
+<p class="sub">${bi(T(`${total} 3D wonders plus ${GAZETTEER.length} physical-geography features waiting on the globe.`, `${total} 个 3D 奇观模型与 ${GAZETTEER.length} 个自然地理单元，都在地球上等你发现。`))}</p>
 <h2>${bi(T('Sections', '分类'))}</h2><ul class="cards hub">${SECTIONS.map((s, i) => `<li><a class="card" href="/${s.dir}/"><span class="tile" aria-hidden="true">${icon(s.icon, 22)}</span>
-<span><b>${bi(s.title)}</b><small>${bi(s.hint)}</small><small class="count"><strong>${s.items.length}</strong>${bi(T('entries', '个条目'))}</small></span><i class="idx">${pad(i + 1)}</i></a></li>`).join('')}</ul>`, { current: 'hub' });
+<span><b>${bi(s.title)}</b><small>${bi(s.hint)}</small><small class="count"><strong>${s.items.length}</strong>${bi(T('entries', '个条目'))}</small></span><i class="idx">${pad(i + 1)}</i></a></li>`).join('')}<li><a class="card" href="/${GEO_DIR}/"><span class="tile" aria-hidden="true">${icon('compass', 22)}</span>
+<span><b>${bi(GEO_TITLE)}</b><small>${bi(GEO_HINT)}</small><small class="count"><strong>${GAZETTEER.length}</strong>${bi(T('entries', '个条目'))}</small></span><i class="idx">${pad(SECTIONS.length + 1)}</i></a></li></ul>`, { current: 'hub' });
 
 for (const [si, s] of SECTIONS.entries()) {
   page(`/${s.dir}/`, `${s.title.en} — Terrastra`, `Explore ${s.items.length} ${s.title.en.toLowerCase()} on a friendly 3D globe for kids.`,
@@ -278,6 +303,61 @@ ${near.length ? `<div class="panel"><h3>${bi(T('Nearby', '附近'))}</h3><ul cla
         ...(it.type === 'landmark' ? { geo: { '@type': 'GeoCoordinates', latitude: it.lat, longitude: it.lon } } : {}) } });
   });
 }
+
+// Physical Geography section (GAZETTEER)
+const geoSecIdx = SECTIONS.length + 1;
+const geoSlug = (key: string) => key.replace(/^geo:/, '');
+const geoSearchKey = (g: (typeof GAZETTEER)[number]) => esc([g.name.en, g.name.zh, g.region.en, g.region.zh, ...(g.aliases ?? [])].filter(Boolean).join(' ').toLowerCase());
+page(`/${GEO_DIR}/`, `${GEO_TITLE.en} — Terrastra`, `Explore ${GAZETTEER.length} seas, trenches, mountain ranges, plateaus, plains, basins, straits and rivers on Terrastra's interactive 3D globe.`,
+  `<nav class="crumbs"><a href="/encyclopedia/">${bi(T('Encyclopedia', '百科'))}</a><span>/</span>${pad(geoSecIdx)}</nav>
+<p class="eyebrow">${GAZETTEER.length} ${bi(T('entries', '个条目'))}</p><h1>${bi(GEO_TITLE)}</h1><p class="sub">${bi(GEO_HINT)}</p>
+<label class="search">${icon('search', 16)}<input id="q" type="search" placeholder="Search · 搜索" aria-label="Search"></label>
+<ul class="cards">${GAZETTEER.map((g, i) => `<li data-q="${geoSearchKey(g)}"><a class="card" href="/${GEO_DIR}/${geoSlug(g.key)}/"><span class="tile" aria-hidden="true">${esc(g.emoji)}</span><span><b>${bi(g.name)}</b><small>${bi(GEO_KIND_LABEL[g.kind])} · ${bi(g.region)}</small></span><i class="idx">${pad(i + 1, 3)}</i></a></li>`).join('')}</ul><p class="empty">${bi(T('Nothing found', '没有找到'))}</p>`,
+  { current: GEO_DIR, script: FILTER_JS });
+urls.push(`/${GEO_DIR}/`);
+GAZETTEER.forEach((g, i) => {
+  const slug = geoSlug(g.key);
+  const path = `/${GEO_DIR}/${slug}/`;
+  urls.push(path);
+  const kindLabel = GEO_KIND_LABEL[g.kind];
+  const w = g.wiki ?? [g.name.en, g.name.zh];
+  const near = CATALOGUE.filter(o => !o.route && SECTION_OF.has(o.key))
+    .map(o => ({ o, d: haversineKm(g.lat, g.lon, o.lat, o.lon) })).sort((a, b) => a.d - b.d).slice(0, 6);
+  const prev = GAZETTEER[(i - 1 + GAZETTEER.length) % GAZETTEER.length];
+  const next = GAZETTEER[(i + 1) % GAZETTEER.length];
+  const code = `${pad(geoSecIdx)}·${pad(i + 1, 3)}`;
+  page(path, `${g.name.en} — Terrastra`, g.desc.en,
+    `<nav class="crumbs"><a href="/encyclopedia/">${bi(T('Encyclopedia', '百科'))}</a><span>/</span><a href="/${GEO_DIR}/">${bi(GEO_TITLE)}</a><span>/</span>${code}</nav>
+<div class="item"><article>
+<div class="hero" aria-hidden="true"><div class="reticle"><span class="ring r3"></span><span class="ring r4"></span><span class="ring"></span><span class="ring r2"></span><span class="glyph" style="font-size:3.6rem;line-height:1">${esc(g.emoji)}</span></div>
+<span class="hc tl"><b>●</b> ${bi(T('Feature', '地理单元'))} ${code}</span><span class="hc tr">${bi(kindLabel)}</span>
+<span class="hc bl">${coord(g.lat, g.lon)}</span><span class="hc br">${bi(g.region)}</span></div>
+<p class="meta"><span class="chip">${bi(kindLabel)}</span>${bi(g.region)}</p>
+<h1>${bi(g.name)}</h1><p class="alt"><span class="zh">${esc(g.name.en)}</span><span class="en" lang="zh-CN">${esc(g.name.zh)}</span></p>
+${bi(g.desc, 'p', 'lead')}
+<dl class="stats"><div><dt>${bi(T('Type', '地理类型'))}</dt><dd>${bi(kindLabel)}</dd></div><div><dt>${bi(T('Region', '所在区域'))}</dt><dd>${bi(g.region)}</dd></div><div><dt>${bi(T('Coordinates', '中心坐标'))}</dt><dd>${esc(coord(g.lat, g.lon))}</dd></div></dl>
+${g.fact ? `<div class="fun"><b>${bi(T('Textbook highlight', '地理考点精要'))}</b>${bi(g.fact, 'span')}</div>` : ''}
+<h2>${bi(T('Read more', '延伸阅读'))}</h2><div class="links"><a class="card" href="${wikiUrl('en', w[0])}" rel="noopener"><span class="tile" aria-hidden="true">W</span><span><b>Wikipedia</b><small>${esc(w[0])}</small></span></a>
+<a class="card" href="${wikiUrl('zh', w[1])}" rel="noopener" lang="zh-CN"><span class="tile" aria-hidden="true">维</span><span><b>维基百科</b><small>${esc(w[1])}</small></span></a></div>
+<nav class="pager"><a class="card" href="/${GEO_DIR}/${geoSlug(prev.key)}/"><small>← ${bi(T('Previous', '上一个'))}</small>${bi(prev.name)}</a><a class="card" href="/${GEO_DIR}/${geoSlug(next.key)}/"><small>${bi(T('Next', '下一个'))} →</small>${bi(next.name)}</a></nav>
+</article><aside class="side">
+<div class="panel"><a class="btn sig" href="/#${g.key}">${icon('globe', 16)}${bi(T('See it on the 3D globe', '在 3D 地球上查看'))}</a></div>
+<div class="panel"><h3>${bi(T('Location', '位置'))}</h3><p class="mono" style="margin:0">${coord(g.lat, g.lon)}</p></div>
+${near.length ? `<div class="panel"><h3>${bi(T('Nearby 3D wonders', '周边 3D 探索点'))}</h3><ul class="near">${near.map(({ o, d }) => { const os = SECTION_OF.get(o.key)!; return `<li><a href="/${os.dir}/${o.slug}/">${icon(os.icon, 16)}${bi(o.name)}<i>${num(Math.round(d))} km</i></a></li>`; }).join('')}</ul></div>` : ''}
+</aside></div>`,
+    {
+      current: GEO_DIR,
+      jsonld: {
+        '@context': 'https://schema.org',
+        '@type': 'Place',
+        name: g.name.en,
+        alternateName: g.name.zh,
+        description: g.desc.en,
+        sameAs: [wikiUrl('en', w[0])],
+        geo: { '@type': 'GeoCoordinates', latitude: g.lat, longitude: g.lon },
+      },
+    });
+});
 
 // About (with the credits, which used to be a separate in-app modal)
 const feat = (ic: IconName, t: Bi, d: Bi) => `<div class="card"><span class="tile" aria-hidden="true">${icon(ic, 22)}</span><span><b>${bi(t)}</b><small>${bi(d)}</small></span></div>`;

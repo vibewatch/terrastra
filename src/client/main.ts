@@ -15,8 +15,7 @@ import { paintOffThread } from './globe/paint-offthread.ts';
 import { borderPositions, borderLonLat } from './globe/borders.ts';
 import { ADMIN_GLOBE_ZOOM, ADMIN_MAP_ZOOM, fetchAdminData, type AdminData } from './globe/admin.ts';
 import { CATALOGUE, BY_KEY } from '../shared/data/catalogue.ts';
-import { GAZETTEER_BY_KEY } from '../shared/data/gazetteer.ts';
-import { gazetteerToPlaceHit } from './lib/search.ts';
+import { gazetteerToPlaceHit, resolvePlaceByKey } from './lib/search.ts';
 import { Shell } from './ui/shell.ts';
 import { h, toast, confetti, closeModal } from './ui/dom.ts';
 import { slerpLatLon } from '../shared/lib/geo.ts';
@@ -120,6 +119,7 @@ async function boot(): Promise<void> {
   let shell!: Shell;
   const globe = new Globe(globeEl, {
     onPick: it => shell.showItem(it),
+    onPickGeo: gz => shell.showPlace(gazetteerToPlaceHit(gz)),
     onHover: (it, scr) => shell?.showHover(it, scr),
     onQuakeHover: (q, scr) => shell?.showQuakeHover(q, scr),
     onQuake: q => {
@@ -366,6 +366,7 @@ async function boot(): Promise<void> {
       shapes: () => shapes,
       selected: () => shell.current,
       pick: it => shell.showItem(it, false),
+      pickGeo: gz => shell.showPlace(gazetteerToPlaceHit(gz)),
       hover: (it, at) => shell.showHover(it, at),
       onView: (z, la, lo) => { shell.setReadout(z, la, lo); requestAdminAt(z, ADMIN_MAP_ZOOM); },
       learn: () => { closeMap(false); startLesson('projections'); },
@@ -476,7 +477,7 @@ async function boot(): Promise<void> {
     const [mlat, mlon] = sceneMode.inMap && flatMap ? flatMap.center() : [globe.lat, globe.lon];
     const cam = { lat: mlat, lon: mlon, h: globe.h };
     if (shell.current) return { route: shell.current.key, cam, label: shell.current.name, at };
-    if (shell.currentPlace?.isGeo) return { route: shell.currentPlace.key, cam, label: shell.currentPlace.name, at };
+    if (shell.currentPlace) return { route: shell.currentPlace.key, cam, label: shell.currentPlace.name, at };
     const where = `${Math.abs(cam.lat).toFixed(1)}°${cam.lat >= 0 ? 'N' : 'S'} ${Math.abs(cam.lon).toFixed(1)}°${cam.lon >= 0 ? 'E' : 'W'}`;
     return { route: '', cam, label: { en: 'Earth · ' + where, zh: '地球 · ' + where }, at };
   };
@@ -516,6 +517,7 @@ async function boot(): Promise<void> {
   }));
   const openGame = (kind: 'daily' | 'placeit' | 'quiz') => { if (!sceneMode.gaming && !sceneMode.inSolar) gamesMod(m => m.startGame(host, kind)); };
   const openCompareBench = (id?: string) => cmpMod(m => m.openCompare(id, {
+    places: { countries, regions: adminData?.regions },
     onShowArc: (a, b) => {
       closeModal('compare');
       if (sceneMode.inMap) closeMap(false);
@@ -587,7 +589,7 @@ async function boot(): Promise<void> {
       flatMap?.setAdminData(data);
       return data.regions;
     },
-    onSelect: it => { if (it && sceneMode.inMap) flatMap?.focus(it); },
+    onSelect: it => { if (sceneMode.inMap) { if (it) flatMap?.focus(it); else flatMap?.markDirty(); } },
     escape: () => { if (!sceneMode.inMap) return false; closeMap(); return true; },
     overview: () => solar?.overview(),
     toHome: () => { if (sceneMode.inSolar) leaveSolar(globe.lat, globe.lon); },
@@ -673,14 +675,30 @@ async function boot(): Promise<void> {
     else if (hsh === 'auth-error') { history.replaceState(null, '', location.pathname + location.search); toast('⚠️ ' + t('linkExpired')); }
     else {
       const it = BY_KEY.get(hsh);
-      const gz = !it ? GAZETTEER_BY_KEY.get(hsh) : undefined;
+      const place = !it ? resolvePlaceByKey(hsh, { countries, regions: adminData?.regions }) : null;
       if (it) {
         const show = () => { shell.showItem(it, !cam); if (cam) globe.flyTo(cam.lat, cam.lon, cam.h, 1400); };
         if (sceneMode.inSolar) leaveSolar(it.lat, it.lon, show); else show();
-      } else if (gz) {
-        const place = gazetteerToPlaceHit(gz);
+      } else if (place) {
         const showP = () => { shell.showPlace(place, !cam); if (cam) globe.flyTo(cam.lat, cam.lon, cam.h, 1400); };
-        if (sceneMode.inSolar) leaveSolar(gz.lat, gz.lon, showP); else showP();
+        if (sceneMode.inSolar) leaveSolar(place.lat, place.lon, showP); else showP();
+      } else if (hsh.startsWith('state:') && !adminData) {
+        void loadAdmin().then(data => {
+          adminData = data;
+          globe.setAdminData(data);
+          flatMap?.setAdminData(data);
+          const st = resolvePlaceByKey(hsh, { countries, regions: data.regions });
+          if (!st) {
+            toast('🧭 ' + t('linkUnknown'));
+            history.replaceState(null, '', location.pathname + location.search);
+            return;
+          }
+          const showP = () => { shell.showPlace(st, !cam); if (cam) globe.flyTo(cam.lat, cam.lon, cam.h, 1400); };
+          if (sceneMode.inSolar) leaveSolar(st.lat, st.lon, showP); else showP();
+        }, () => {
+          toast('🧭 ' + t('linkUnknown'));
+          history.replaceState(null, '', location.pathname + location.search);
+        });
       } else {
         toast('🧭 ' + t('linkUnknown'));
         history.replaceState(null, '', location.pathname + location.search);

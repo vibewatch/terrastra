@@ -5,8 +5,49 @@
  * bench can never set a radius next to a diameter or a height next to a wingspan.
  */
 import { BODIES } from '../../shared/data/solar.ts';
-import { CATALOGUE } from '../../shared/data/catalogue.ts';
+import { BY_KEY, CATALOGUE } from '../../shared/data/catalogue.ts';
+import { GAZETTEER } from '../../shared/data/gazetteer.ts';
 import type { CatalogueItem, I18n } from '../../shared/data/types.ts';
+import { resolvePlaceByKey, type SearchPlaces } from './search.ts';
+
+export interface DistPlace {
+  key: string;
+  emoji: string;
+  name: { en: string; zh?: string };
+  lat: number;
+  lon: number;
+}
+
+export function earthPlaces(ensureKeys: string[], searchPlaces?: SearchPlaces): DistPlace[] {
+  const seen = new Set<string>();
+  const list: DistPlace[] = [];
+  for (const it of CATALOGUE) {
+    if (it.route || (it.tier > 2 && !ensureKeys.includes(it.key))) continue;
+    seen.add(it.key);
+    list.push({ key: it.key, emoji: it.emoji, name: it.name, lat: it.lat, lon: it.lon });
+  }
+  for (const gz of GAZETTEER) {
+    const isMajor = gz.labelZoom === 0 || gz.labelZoom <= 5.2;
+    if (!isMajor && !ensureKeys.includes(gz.key)) continue;
+    seen.add(gz.key);
+    list.push({ key: gz.key, emoji: gz.emoji, name: gz.name, lat: gz.lat, lon: gz.lon });
+  }
+  for (const k of ensureKeys) {
+    if (!k || seen.has(k)) continue;
+    const it = BY_KEY.get(k);
+    if (it) {
+      seen.add(k);
+      list.push({ key: it.key, emoji: it.emoji, name: it.name, lat: it.lat, lon: it.lon });
+      continue;
+    }
+    const pl = resolvePlaceByKey(k, searchPlaces);
+    if (pl) {
+      seen.add(k);
+      list.push({ key: pl.key, emoji: pl.emoji, name: pl.name, lat: pl.lat, lon: pl.lon });
+    }
+  }
+  return list;
+}
 
 export type GroupId = 'bodies' | 'tall' | 'long' | 'fast';
 export interface Thing { id: string; name: I18n; emoji: string; /** in the group's unit: km for bodies, km/h for speed, metres otherwise */ size: number }

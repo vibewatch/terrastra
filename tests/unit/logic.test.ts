@@ -107,6 +107,22 @@ describe('quiz', () => {
     const r = ranking([{ name: 'x', score: 3, streak: 0, bestStreak: 1 }, { name: 'y', score: 3, streak: 0, bestStreak: 3 }, { name: 'z', score: 5, streak: 0, bestStreak: 0 }]);
     expect(r.map(x => x.name)).toEqual(['z', 'y', 'x']);
   });
+  it('generates curriculum physical-geography questions in both languages', () => {
+    const tplIds = new Set<string>();
+    for (let seed = 1; seed <= 12; seed++) {
+      const qs = generateQuiz(CATALOGUE, 'geo', 'hard', 14, 'zh', a => a, mulberry32(seed));
+      for (const q of qs) {
+        tplIds.add(q.id);
+        expect(q.options).toHaveLength(5);
+        expect(new Set(q.options).size).toBe(5);
+        expect(q.prompt.zh?.length ?? 0).toBeGreaterThan(4);
+      }
+    }
+    expect(tplIds.has('geo_world_record')).toBe(true);
+    expect(tplIds.has('geo_strait_canal')).toBe(true);
+    expect(tplIds.has('geo_china_landform')).toBe(true);
+    expect(tplIds.has('geo_feature_continent')).toBe(true);
+  });
 });
 
 describe('daily', () => {

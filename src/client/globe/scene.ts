@@ -11,10 +11,10 @@ import { outdoorEnvironment, orientEnvironment } from '../models/environment.ts'
 import { paintNightLights, type CountryInfo } from './painter.ts';
 import { countryAt, outlinePositions } from './borders.ts';
 import { ADMIN_BORDER_COLOR, ADMIN_GLOBE_ZOOM, ADMIN_LINE_RADIUS, adminName, type AdminArea, type AdminData } from './admin.ts';
-import { NAMED_PARALLELS, countryMapLabel, fillCountryTag, formatDeg, geoLabelClass, renderLabelPool, type MapLabel } from './overlay.ts';
+import { NAMED_PARALLELS, countryMapLabel, fillCountryTag, formatDeg, geoLabelClass, pickGeoLabel, renderLabelPool, type GeoLabelHit, type MapLabel } from './overlay.ts';
 import { CITIES, cityName } from '../../shared/data/cities.ts';
 import { CHINA_CAPITALS, CHINA_CAPITAL_NAMES } from '../../shared/data/china-capitals.ts';
-import { GAZETTEER } from '../../shared/data/gazetteer.ts';
+import { GAZETTEER, GAZETTEER_BY_KEY, type GazetteerEntry } from '../../shared/data/gazetteer.ts';
 import { TYPE_META, type LayerKey } from '../../shared/data/typemeta.ts';
 import { subsolar } from '../../shared/lib/sun.ts';
 import { GlobeLayers, RENDER_ORDER, graticuleStep } from './layers.ts';
@@ -340,6 +340,8 @@ interface GlobeEvents {
   /** Earthquakes layer on: an earthquake epicenter was tapped / hovered. */
   onQuake?: (q: QuakeEvent) => void;
   onQuakeHover?: (q: QuakeEvent | null, screen: { x: number; y: number } | null) => void;
+  /** A visible physical-geography gazetteer label on the globe was tapped. */
+  onPickGeo?: (entry: GazetteerEntry) => void;
 }
 
 export class Globe {
@@ -1030,6 +1032,7 @@ export class Globe {
           if (si !== this.radio.hover) { this.radio.hover = si; this.dirty = true; }
           if (si >= 0) {
             if (this.hoveredKey) { this.hoveredKey = null; this.ev.onHover?.(null, null); }
+            this.setHoveredGeo(null);
             this.hoverCountryAt(null);
             el.style.cursor = 'pointer';
             this.ev.onStationHover?.(si, this.stationScreen(si));
@@ -1045,6 +1048,7 @@ export class Globe {
             const q = this.layers.earthquakes.pick(rx, ry, this.camera, el.clientWidth, el.clientHeight);
             if (q) {
               if (this.hoveredKey) { this.hoveredKey = null; this.ev.onHover?.(null, null); }
+              this.setHoveredGeo(null);
               this.hoverCountryAt(null);
               el.style.cursor = 'pointer';
               const scr = this.project(new THREE.Vector3(...latLonToVec(q.lat, q.lon, 1.003)));
@@ -1053,16 +1057,18 @@ export class Globe {
             }
           }
           this.ev.onQuakeHover?.(null, null);
+          const geoHit = !hit && !this.layerOverride && !this.captureTaps ? pickGeoLabel(this.geoHits, rx, ry, 2) : null;
+          this.setHoveredGeo(geoHit?.key ?? null);
           this.hoverCountryAt(hit ? null : rx, ry);
           const nextKey = hit?.key ?? null;
           if (nextKey !== this.hoveredKey) {
             this.hoveredKey = nextKey;
-            el.style.cursor = hit ? 'pointer' : 'grab';
             this.ev.onHover?.(hit, hit ? this.itemScreen(hit.key) : null);
             this.dirty = true;
           } else if (hit) {
             this.ev.onHover?.(hit, this.itemScreen(hit.key));
           }
+          el.style.cursor = hit || geoHit ? 'pointer' : 'grab';
         }
         return;
       }
@@ -1087,6 +1093,7 @@ export class Globe {
         this.hoveredKey = null;
         this.ev.onHover?.(null, null);
       }
+      this.setHoveredGeo(null);
       if (this.hoverCountry) this.hoverCountryAt(null);
       if (this.ride) { this.ride.yaw -= dx * 0.008; this.dirty = true; return; }
       const k = this.degPerPx();
@@ -1099,12 +1106,13 @@ export class Globe {
     el.addEventListener('pointerleave', () => {
       if (this.radio && this.radio.hover >= 0) { this.radio.hover = -1; this.ev.onStationHover?.(-1, null); }
       this.ev.onQuakeHover?.(null, null);
+      this.setHoveredGeo(null);
       this.hoverCountryAt(null);
       if (this.hoveredKey) {
         this.hoveredKey = null;
-        el.style.cursor = '';
         this.ev.onHover?.(null, null);
       }
+      el.style.cursor = '';
     });
     const up = (e: PointerEvent) => {
       ptrs.delete(e.pointerId);
@@ -1176,6 +1184,16 @@ export class Globe {
     if (!hit && this.eff.earthquakes && this.layers) {
       const q = this.layers.earthquakes.pick(x, y, this.camera, rect.width, rect.height, 22);
       if (q) { this.ev.onQuake?.(q); return; }
+    }
+    if (!hit && !this.layerOverride) {
+      const gh = pickGeoLabel(this.geoHits, x, y, 2);
+      const gz = gh ? GAZETTEER_BY_KEY.get(gh.key) : undefined;
+      if (gz) {
+        this.pickedCountry = null;
+        this.dirty = true;
+        this.ev.onPickGeo?.(gz);
+        return;
+      }
     }
     const ll = !hit && this.countryUi() ? this.screenToLatLon(x, y) : null;
     const c = ll ? countryAt(this.shapes(), ll[0], ll[1]) : null;
@@ -1759,15 +1777,29 @@ export class Globe {
     }
   }
 
+  private geoHits: GeoLabelHit[] = [];
+  private hoveredGeoKey: string | null = null;
+
+  private setHoveredGeo(key: string | null): void {
+    if (this.hoveredGeoKey === key) return;
+    this.hoveredGeoKey = key;
+    for (const h of this.geoHits) h.el.classList.toggle('lb-geo-hover', h.key === key);
+  }
+
   private updateLabels(): void {
-    if ((!this.eff.names && !this.focusedPlace) || this.ride) { for (const s of this.labelPool) s.style.display = 'none'; return; }
+    if ((!this.eff.names && !this.focusedPlace) || this.ride) {
+      this.geoHits.length = 0;
+      this.hoveredGeoKey = null;
+      for (const s of this.labelPool) s.style.display = 'none';
+      return;
+    }
     const z = this.zoom;
     const out: MapLabel[] = [];
     const { clientWidth: width, clientHeight: height } = this.renderer.domElement;
-    const push = (text: string, cls: string, lat: number, lon: number, pri: number, corner = false) => {
+    const push = (text: string, cls: string, lat: number, lon: number, pri: number, corner = false, geoKey?: string) => {
       const s = this.project(new THREE.Vector3(...latLonToVec(lat, lon, 1.002)));
       if (s && s.x >= -160 && s.x <= width + 160 && s.y >= -160 && s.y <= height + 160) {
-        out.push({ text, cls, x: s.x, y: s.y, pri, corner });
+        out.push({ text, cls, x: s.x, y: s.y, pri, corner, geoKey });
       }
     };
     if (!this.gameMode && this.focusedPlace) {
@@ -1803,7 +1835,8 @@ export class Globe {
           for (const g of GAZETTEER) {
             if (this.focusedPlace?.key === g.key) continue;
             if (g.labelZoom > 0 && z >= g.labelZoom) {
-              push(g.name[this.lang] || g.name.en, geoLabelClass(g.kind), g.lat, g.lon, Math.round(950 - g.labelZoom * 90));
+              const cls = geoLabelClass(g.kind) + (this.hoveredGeoKey === g.key ? ' lb-geo-hover' : '');
+              push(g.name[this.lang] || g.name.en, cls, g.lat, g.lon, Math.round(1300 - g.labelZoom * 110), false, g.key);
             }
           }
         }
@@ -1811,7 +1844,7 @@ export class Globe {
       }
     }
     out.sort((a, b) => b.pri - a.pri);
-    renderLabelPool(this.labelsEl, this.labelPool, out, 150);
+    renderLabelPool(this.labelsEl, this.labelPool, out, 150, undefined, this.geoHits);
   }
 
   /** Degree labels where the grid crosses the meridian/parallel nearest the view centre, plus named circles. */

@@ -241,7 +241,13 @@ test('static build works below a sub-path', async ({ page }) => {
   await expect(page.locator('#info .place-hero')).toBeVisible();
   await expect(page.getByTestId('info-name')).toHaveText('Mediterranean Sea');
   await expect(page.getByTestId('place-fact')).toContainText('convergent plate boundary');
+  await expect(page.getByTestId('place-nearby')).toBeVisible();
   await expect(page.locator('.lb-geo-focus')).toBeVisible({ timeout: 10_000 });
+  await page.locator('#info details.more summary').click();
+  await page.getByTestId('info-measure-dist').click();
+  await expect(page.getByTestId('cmp-dist-details')).toBeVisible();
+  await expect(page.getByTestId('cmp-ratio')).toContainText('Mediterranean Sea');
+  await page.keyboard.press('Escape');
   await page.getByTestId('btn-language').click();
   await expect(page.getByTestId('info-name')).toHaveText('地中海');
   await expect(page.getByTestId('place-fact')).toContainText('消亡边界');
@@ -257,6 +263,33 @@ test('static build works below a sub-path', async ({ page }) => {
   await page.evaluate(() => { location.hash = 'geo:andes'; });
   await expect(page.getByTestId('info-name')).toHaveText('Andes Mountains');
   await expect(page.getByTestId('flatmap').locator('.lb-geo-focus')).toContainText('Andes Mountains');
+  await page.getByTestId('info-close').click();
+  await expect(page.locator('#info')).toBeHidden();
+  await expect(page.getByTestId('flatmap').locator('.lb-geo-focus')).toHaveCount(0);
+  let targetGeo: { key: string; cx: number; cy: number } | null = null;
+  await expect.poll(async () => {
+    targetGeo = await page.evaluate(() => {
+      const labels = Array.from(document.querySelectorAll<HTMLElement>('[data-testid="flatmap"] .lb-geo[data-geo-key]'));
+      for (const el of labels) {
+        if (el.style.display === 'none') continue;
+        const r = el.getBoundingClientRect();
+        if (!r.width || !r.height) continue;
+        const cx = r.left + r.width / 2;
+        const cy = r.top + r.height / 2;
+        if (cx < 80 || cx > window.innerWidth - 80 || cy < 90 || cy > window.innerHeight - 130) continue;
+        if (document.elementFromPoint(cx, cy)?.tagName === 'CANVAS') {
+          return { key: el.dataset.geoKey!, cx, cy };
+        }
+      }
+      return null;
+    });
+    return targetGeo;
+  }, { timeout: 10_000 }).not.toBeNull();
+  await page.mouse.click(targetGeo!.cx, targetGeo!.cy);
+  await expect(page.locator('#info .place-hero')).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`#${targetGeo!.key}$`));
+  await page.evaluate(() => { location.hash = 'city:tokyo'; });
+  await expect(page.getByTestId('info-name')).toHaveText('Tokyo');
   await page.goto('?lowfx=1&notut#milkyway');
   await ready(page);
   await expect(page.locator('body.solar')).toHaveCount(1, { timeout: 60_000 });
@@ -276,6 +309,14 @@ test('static build works below a sub-path', async ({ page }) => {
   await page.goto('discover/');
   await page.locator('#q').fill('马里亚纳海沟');
   await expect(page.locator('ul.cards a[href="/terrastra/discover/challenger-deep/"]')).toBeVisible();
+  // Physical Geography encyclopedia section & feature detail page
+  await page.goto('geography/');
+  await expect(page.locator('h1')).toContainText('Physical Geography');
+  await page.locator('#q').fill('马里亚纳海沟');
+  await page.locator('ul.cards a[href="/terrastra/geography/mariana-trench/"]').click();
+  await expect(page.locator('h1')).toContainText('Mariana Trench');
+  await expect(page.locator('.fun')).toBeVisible();
+  await expect(page.locator('a[href="/terrastra/#geo:mariana-trench"]')).toBeVisible();
   await page.goto('animals/');
   // an item page under the category, then back into the app at the base path
   await page.locator('main a[href^="/terrastra/animals/"]').first().click();
