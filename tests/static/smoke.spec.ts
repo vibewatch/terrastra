@@ -295,6 +295,19 @@ test('static build works below a sub-path', async ({ page }) => {
   await expect(page.locator('body.solar')).toHaveCount(1, { timeout: 60_000 });
   await page.goto('?lowfx=1&notut#sky');
   await expect(page.getByTestId('sky')).toBeVisible({ timeout: 60_000 });
+  // Direct hash jump from Sky Theatre to an Earth place closes Sky Theatre cleanly
+  await page.evaluate(() => { location.hash = 'geo:andes'; });
+  await expect(page.getByTestId('sky')).toHaveCount(0);
+  await expect(page.getByTestId('info-name')).toHaveText('Andes Mountains');
+  await page.getByTestId('info-close').click();
+  // Switching language while #hub is open translates #hub immediately
+  await page.locator('#btn-hub').click();
+  await page.getByTestId('hub-tab-learn').click();
+  await expect(page.getByTestId('menu-lessons')).toContainText('Geography class');
+  await page.getByTestId('btn-language').click();
+  await expect(page.getByTestId('menu-lessons')).toContainText('地理课');
+  await page.getByTestId('btn-language').click();
+  await page.keyboard.press('Escape');
 
   // the generated encyclopedia and its way back into the app
   await page.goto('encyclopedia/');
@@ -309,9 +322,11 @@ test('static build works below a sub-path', async ({ page }) => {
   await page.goto('discover/');
   await page.locator('#q').fill('马里亚纳海沟');
   await expect(page.locator('ul.cards a[href="/terrastra/discover/challenger-deep/"]')).toBeVisible();
-  // Physical Geography encyclopedia section & feature detail page
+  // Physical Geography encyclopedia section & feature detail page (including kind-label filtering)
   await page.goto('geography/');
   await expect(page.locator('h1')).toContainText('Physical Geography');
+  await page.locator('#q').fill('plateau');
+  await expect(page.locator('ul.cards a[href="/terrastra/geography/brazilian-highlands/"]')).toBeVisible();
   await page.locator('#q').fill('马里亚纳海沟');
   await page.locator('ul.cards a[href="/terrastra/geography/mariana-trench/"]').click();
   await expect(page.locator('h1')).toContainText('Mariana Trench');

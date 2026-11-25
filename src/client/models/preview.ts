@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { currentQuality } from '../globe/quality.ts';
+import { currentQuality, lowFxFrom } from '../globe/quality.ts';
 import type { CatalogueItem, ModelRecipe } from '../../shared/data/types.ts';
 import { buildModel, modelReady, whenModelReady } from './library.ts';
 import { outdoorEnvironment } from './environment.ts';
@@ -135,7 +135,14 @@ function placeholderGroup(): THREE.Group {
 const isLowFx = () =>
   typeof document !== 'undefined' &&
   (document.body.classList.contains('lowfx') ||
-    (typeof location !== 'undefined' && new URLSearchParams(location.search).has('lowfx')));
+    (typeof location !== 'undefined' &&
+      lowFxFrom(
+        new URLSearchParams(location.search),
+        typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches,
+      )));
+
+const isStill = () =>
+  typeof document !== 'undefined' && document.body.classList.contains('still');
 
 function renderOne(p: ActivePreview): boolean {
   p.group.rotation.y = p.yaw;
@@ -166,6 +173,11 @@ function tick(): void {
   rafId = 0;
   hiddenCheck = null;
   if (isLowFx()) return;
+  if (isStill()) {
+    for (const p of [...activePreviews]) if (!p.canvas.isConnected) activePreviews.delete(p);
+    if (activePreviews.size > 0) hiddenCheck = window.setTimeout(tick, 250);
+    return;
+  }
   const now = performance.now();
   const dt = Math.min(64, now - lastTime);
   lastTime = now;
@@ -236,7 +248,7 @@ export function createModelPreview(item: CatalogueItem, opts: { width?: number; 
     lastY = e.clientY;
     preview.yaw += dx * 0.014;
     preview.pitch = Math.max(-0.25, Math.min(0.45, preview.pitch + dy * 0.008));
-    if (isLowFx()) renderOne(preview);
+    if (isLowFx() || isStill()) renderOne(preview);
   });
   const stopDrag = () => { preview.dragging = false; };
   canvas.addEventListener('pointerup', stopDrag);

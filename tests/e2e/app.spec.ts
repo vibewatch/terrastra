@@ -567,9 +567,18 @@ test('read more expands a Wikipedia reader in the chosen language', async ({ pag
   await expect(page.getByTestId('reader-title')).toHaveText('埃菲尔铁塔');
   await expect(page.getByTestId('reader-article')).toContainText('它建于1889年。');
   expect(seen).toContain('zh.wikipedia.org');
+  await expect(page.getByTestId('reader-wiki-link')).toHaveAttribute('aria-label', /.+/);
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('reader')).toBeHidden();
   await expect(page.getByTestId('info-name')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('info')).toBeHidden();
+  // Physical geography places also link to their /geography/<slug>/ encyclopedia page inside the reader
+  await page.evaluate(() => { location.hash = 'geo:mediterranean-sea'; });
+  await expect(page.getByTestId('info-name')).toHaveText('Mediterranean Sea');
+  await page.getByTestId('read-more').click();
+  await expect(page.locator('.reader a.reader-page')).toHaveAttribute('href', '/geography/mediterranean-sea/');
+  await page.keyboard.press('Escape');
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('info')).toBeHidden();
 });

@@ -461,7 +461,7 @@ async function boot(): Promise<void> {
     const at = Date.now();
     if (sceneMode.inSky) {
       const id = route.split('/')[1];
-      if (!id) return { route: 'sky', label: { en: t('skyEvents'), zh: t('skyEvents') }, at };
+      if (!id) return { route: 'sky', label: { en: t('skyEvents', undefined, 'en'), zh: t('skyEvents', undefined, 'zh') }, at };
       const [{ findEvent }, { eventTitle }] = await Promise.all([import('./sky/panel.ts'), import('./sky/acts.ts')]);
       const ev = findEvent(id);
       if (!ev) return null;
@@ -512,30 +512,42 @@ async function boot(): Promise<void> {
 
   const showCollection = () => collectionMod(([{ openCollection }]) => openCollection(it => shell.showItem(it)));
   const showPassport = () => collectionMod(([, { openPassport }]) => openPassport({
-    here: () => shell.current ? [shell.current.lat, shell.current.lon] : [globe.lat, globe.lon],
+    here: () => shell.current ? [shell.current.lat, shell.current.lon] : shell.currentPlace ? [shell.currentPlace.lat, shell.currentPlace.lon] : [globe.lat, globe.lon],
     travel: (it, from) => { shell.showItem(it); if (Math.abs(from[0] - it.lat) + Math.abs(from[1] - it.lon) > 2) globe.showFlightArc(from, [it.lat, it.lon]); },
   }));
   const openGame = (kind: 'daily' | 'placeit' | 'quiz') => { if (!sceneMode.gaming && !sceneMode.inSolar) gamesMod(m => m.startGame(host, kind)); };
-  const openCompareBench = (id?: string) => cmpMod(m => m.openCompare(id, {
-    places: { countries, regions: adminData?.regions },
-    onShowArc: (a, b) => {
-      closeModal('compare');
-      if (sceneMode.inMap) closeMap(false);
-      const show = () => {
-        const mid = slerpLatLon(a, b, 0.5);
-        globe.showFlightArc(a, b);
-        globe.flyTo(mid[0], mid[1], 2.2, 1400);
-      };
-      if (sceneMode.inSolar) leaveSolar(a[0], a[1], show);
-      else show();
-    },
-    onFlyTo: (lat, lon) => {
-      closeModal('compare');
-      if (sceneMode.inMap) closeMap(false);
-      if (sceneMode.inSolar) leaveSolar(lat, lon, () => globe.flyTo(lat, lon, 1.4, 1400));
-      else globe.flyTo(lat, lon, 1.4, 1400);
-    },
-  }));
+  const openCompareBench = (id?: string) => {
+    const open = () => cmpMod(m => m.openCompare(id, {
+      places: { countries, regions: adminData?.regions },
+      onShowArc: (a, b) => {
+        closeModal('compare');
+        if (sceneMode.inMap) closeMap(false);
+        const show = () => {
+          const mid = slerpLatLon(a, b, 0.5);
+          globe.showFlightArc(a, b);
+          globe.flyTo(mid[0], mid[1], 2.2, 1400);
+        };
+        if (sceneMode.inSolar) leaveSolar(a[0], a[1], show);
+        else show();
+      },
+      onFlyTo: (lat, lon) => {
+        closeModal('compare');
+        if (sceneMode.inMap) closeMap(false);
+        if (sceneMode.inSolar) leaveSolar(lat, lon, () => globe.flyTo(lat, lon, 1.4, 1400));
+        else globe.flyTo(lat, lon, 1.4, 1400);
+      },
+    }));
+    if (id?.startsWith('dist:state:') && !adminData) {
+      void loadAdmin().then(data => {
+        adminData = data;
+        globe.setAdminData(data);
+        flatMap?.setAdminData(data);
+        open();
+      }, () => open());
+      return;
+    }
+    open();
+  };
   shell = new Shell(app, globe, {
     openPhoto,
     openCollection: showCollection,
@@ -637,7 +649,7 @@ async function boot(): Promise<void> {
   let sky: import('./sky/theatre.ts').Theatre | null = null;
   const route = () => {
     // every hash change is a new navigation: a Solar/Sky load still in flight must not open over it
-    sceneMode.beginNav();
+    const seq = sceneMode.beginNav();
     let hsh: string;
     try { hsh = decodeURIComponent(location.hash.slice(1)).trim(); } catch { hsh = '\u0000'; }
     // A saved view: route + versioned globe camera. A broken camera falls back to the route alone.
@@ -658,6 +670,7 @@ async function boot(): Promise<void> {
     }
     const [head, rest = ''] = hsh.split('/');
     if (head === 'sky') { void openSky(rest || undefined); return; }
+    if (sceneMode.inSky) sky?.close();
     if (head === 'map') { history.replaceState(null, '', location.pathname + location.search); void openMap(); return; }
     if (head === 'compare') { history.replaceState(null, '', location.pathname + location.search); openCompareBench(rest || undefined); return; }
     if (head === 'lesson') { if (rest) startLesson(rest); else openLessons(); history.replaceState(null, '', location.pathname + location.search); return; }
@@ -677,25 +690,27 @@ async function boot(): Promise<void> {
       const it = BY_KEY.get(hsh);
       const place = !it ? resolvePlaceByKey(hsh, { countries, regions: adminData?.regions }) : null;
       if (it) {
-        const show = () => { shell.showItem(it, !cam); if (cam) globe.flyTo(cam.lat, cam.lon, cam.h, 1400); };
+        const show = () => { if (cam && sceneMode.inMap) closeMap(false); shell.showItem(it, !cam); if (cam) globe.flyTo(cam.lat, cam.lon, cam.h, 1400); };
         if (sceneMode.inSolar) leaveSolar(it.lat, it.lon, show); else show();
       } else if (place) {
-        const showP = () => { shell.showPlace(place, !cam); if (cam) globe.flyTo(cam.lat, cam.lon, cam.h, 1400); };
+        const showP = () => { if (cam && sceneMode.inMap) closeMap(false); shell.showPlace(place, !cam); if (cam) globe.flyTo(cam.lat, cam.lon, cam.h, 1400); };
         if (sceneMode.inSolar) leaveSolar(place.lat, place.lon, showP); else showP();
       } else if (hsh.startsWith('state:') && !adminData) {
         void loadAdmin().then(data => {
           adminData = data;
           globe.setAdminData(data);
           flatMap?.setAdminData(data);
+          if (!sceneMode.isCurrentNav(seq)) return;
           const st = resolvePlaceByKey(hsh, { countries, regions: data.regions });
           if (!st) {
             toast('🧭 ' + t('linkUnknown'));
             history.replaceState(null, '', location.pathname + location.search);
             return;
           }
-          const showP = () => { shell.showPlace(st, !cam); if (cam) globe.flyTo(cam.lat, cam.lon, cam.h, 1400); };
+          const showP = () => { if (cam && sceneMode.inMap) closeMap(false); shell.showPlace(st, !cam); if (cam) globe.flyTo(cam.lat, cam.lon, cam.h, 1400); };
           if (sceneMode.inSolar) leaveSolar(st.lat, st.lon, showP); else showP();
         }, () => {
+          if (!sceneMode.isCurrentNav(seq)) return;
           toast('🧭 ' + t('linkUnknown'));
           history.replaceState(null, '', location.pathname + location.search);
         });

@@ -998,6 +998,16 @@ describe('static i18n key coverage, geodesic lab, quake tectonics & explorer fie
     expect(eqNoon).toContain('☀️');
     expect(eqMidnight).toContain('🌙');
   });
+
+  it('lowFxFrom honors explicit ?lowfx=0 override while respecting ?lowfx and prefers-reduced-motion', async () => {
+    const { lowFxFrom } = await import('../../src/client/globe/quality.ts');
+    expect(lowFxFrom(new URLSearchParams('q=low&lowfx=0&notut'), true)).toBe(false);
+    expect(lowFxFrom(new URLSearchParams('q=low&lowfx=0&notut'), false)).toBe(false);
+    expect(lowFxFrom(new URLSearchParams('lowfx=1'), false)).toBe(true);
+    expect(lowFxFrom(new URLSearchParams('lowfx'), false)).toBe(true);
+    expect(lowFxFrom(new URLSearchParams(''), true)).toBe(true);
+    expect(lowFxFrom(new URLSearchParams(''), false)).toBe(false);
+  });
 });
 
 

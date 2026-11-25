@@ -93,6 +93,7 @@ export class Shell {
   private tab: HubTab = hubTab();
   private hints = h('div', { class: 'hints hidden', id: 'hints' });
   private rideBar = h('div', { class: 'ride-bar hidden', 'data-testid': 'ride-bar' });
+  private rideState: { it: CatalogueItem; first: boolean } | null = null;
   private tipEl = h('div', { id: 'tip', class: 'globe-tip hidden', 'aria-hidden': 'true' });
   /** Holds the level switcher (Earth, Solar System … Universe), next to the brand on every level. */
   readonly levelSlot = h('div', { class: 'level-slot' });
@@ -172,6 +173,7 @@ export class Shell {
     });
     document.addEventListener('pointerdown', e => {
       const tgt = e.target as Node;
+      if (this.langBtn?.contains(tgt)) return;
       if (!this.menu.classList.contains('hidden') && !this.menu.contains(tgt) && !$('#btn-menu').contains(tgt)) this.toggleMenu(false);
       if (!this.hub.classList.contains('hidden') && !this.hub.contains(tgt) && !$('#btn-hub').contains(tgt)) this.toggleHub(false);
     });
@@ -323,6 +325,8 @@ export class Shell {
     if (this.mapBtn) this.mapBtn.title = t(this.mapBtn.getAttribute('aria-pressed') === 'true' ? 'backToGlobe' : 'flatMap');
     this.globe.lang = lang(); this.globe.markDirty();
     if (!this.menu.classList.contains('hidden')) this.renderMenu();
+    if (!this.hub.classList.contains('hidden')) this.renderHub();
+    if (this.rideState) this.renderRideBar();
     this.time.refresh();
     if (this.current) this.renderInfo(this.current);
     else if (this.currentPlace) this.renderPlaceInfo(this.currentPlace);
@@ -522,6 +526,7 @@ export class Shell {
       lon: place.lon,
       wikiTitles: place.wiki ?? [place.name.en, place.name.zh],
       showNearby: true,
+      pagePath: place.key.startsWith('geo:') ? `geography/${place.key.slice(4)}/` : undefined,
     };
   }
 
@@ -1047,19 +1052,37 @@ export class Shell {
   }
 
   // ---------- ride ----------
+  private renderRideBar(): void {
+    const st = this.rideState;
+    if (!st) return;
+    const viewBtn = h('button', {
+      class: 'pill',
+      'data-testid': 'ride-view',
+      onclick: () => {
+        st.first = !st.first;
+        this.globe.setRideView(st.first);
+        viewBtn.textContent = t(st.first ? 'rideThird' : 'rideFirst');
+      },
+    }, t(st.first ? 'rideThird' : 'rideFirst'));
+    this.rideBar.replaceChildren(
+      h('strong', {}, st.it.emoji + ' ' + tr(st.it.name, lang())),
+      viewBtn,
+      h('button', { class: 'pill danger', 'data-testid': 'ride-exit', onclick: () => this.exitRide() }, t('exitRide')),
+      h('span', { class: 'tip' }, t('rideTip')),
+    );
+  }
   async startRide(it: CatalogueItem, initialFirst = false): Promise<void> {
     this.hooks.toGlobe?.();
     if (!(await this.globe.prepare(it.key)) || !this.globe.startRide(it.key)) return;
     this.info.classList.add('hidden');
     document.body.classList.add('riding');
-    let first = initialFirst;
-    if (first) this.globe.setRideView(true);
-    const viewBtn = h('button', { class: 'pill', 'data-testid': 'ride-view', onclick: () => { first = !first; this.globe.setRideView(first); viewBtn.textContent = t(first ? 'rideThird' : 'rideFirst'); } }, t(first ? 'rideThird' : 'rideFirst'));
-    this.rideBar.replaceChildren(h('strong', {}, it.emoji + ' ' + tr(it.name, lang())), viewBtn,
-      h('button', { class: 'pill danger', 'data-testid': 'ride-exit', onclick: () => this.exitRide() }, t('exitRide')), h('span', { class: 'tip' }, t('rideTip')));
+    this.rideState = { it, first: initialFirst };
+    if (initialFirst) this.globe.setRideView(true);
+    this.renderRideBar();
     this.rideBar.classList.remove('hidden');
   }
   exitRide(): void {
+    this.rideState = null;
     this.globe.stopRide();
     document.body.classList.remove('riding');
     this.rideBar.classList.add('hidden');

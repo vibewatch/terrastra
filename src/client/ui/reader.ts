@@ -21,13 +21,13 @@ interface ReaderHooks { close: () => void; pick: (it: CatalogueItem) => void }
 /** Anything with a Wikipedia article: catalogue items, geographic places, and solar-system bodies/features. */
 export type Readable = Pick<CatalogueItem, 'key' | 'name' | 'desc'>
   & Partial<Pick<CatalogueItem, 'type' | 'slug' | 'lat' | 'lon' | 'route' | 'wiki' | 'funFact'>>
-  & { wikiTitles?: readonly [string, string]; showNearby?: boolean };
+  & { wikiTitles?: readonly [string, string]; showNearby?: boolean; pagePath?: string };
 
 export class Reader {
   readonly el: HTMLElement;
   private scroller = h('div', { class: 'reader-scroll' });
   private seg = h('div', { class: 'reader-lang', role: 'group', 'aria-label': t('language') });
-  private ext = h('a', { class: 'icon-btn', target: '_blank', rel: 'noopener', 'data-testid': 'reader-wiki-link', html: icon('external', 16) });
+  private ext = h('a', { class: 'icon-btn', target: '_blank', rel: 'noopener', 'aria-label': t('readerOpenWiki'), 'data-testid': 'reader-wiki-link', html: icon('external', 16) });
   private item: Readable | null = null;
   private readLang: Lang = lang();
   private shown = '';
@@ -64,6 +64,7 @@ export class Reader {
         disabled: l === 'zh' && !titles?.[1], onclick: () => this.show(it, l) }, l === 'en' ? 'EN' : '中文')));
     this.el.querySelector('.reader-back')?.setAttribute('aria-label', t('readerClose'));
     this.seg.setAttribute('aria-label', t('language'));
+    this.ext.setAttribute('aria-label', t('readerOpenWiki'));
   }
 
   private async load(it: Readable, want: Lang): Promise<void> {
@@ -73,6 +74,7 @@ export class Reader {
     const title = l === 'zh' ? titles![1]! : titles?.[0] ?? it.wiki ?? it.name.en;
     this.ext.setAttribute('href', articleUrl(l, title));
     this.ext.setAttribute('title', t('readerOpenWiki'));
+    this.ext.setAttribute('aria-label', t('readerOpenWiki'));
     this.scroller.replaceChildren(this.skeleton(it));
     this.scroller.scrollTop = 0;
     let art: WikiArticle | null = null;
@@ -107,7 +109,7 @@ export class Reader {
       if (more?.isConnected && i >= firstEnd) more.click();
       this.scroller.querySelector<HTMLElement>(`[data-sec="${i}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     };
-    const section = it.type ? TYPE_META[it.type].section : undefined;
+    const pagePath = it.pagePath ?? (it.type && it.slug ? `${TYPE_META[it.type].section}/${it.slug}/` : undefined);
     return h('article', { class: 'reader-article', lang: HTML_LANG[a.lang], 'data-testid': 'reader-article' },
       a.image ? h('figure', { class: 'reader-figure' + (a.image.height > a.image.width * 0.75 ? ' tall' : ''), style: `--img:url("${a.image.src.replace(/"/g, "%22")}")` },
         h('img', { src: a.image.src, alt: a.title, loading: 'lazy', decoding: 'async', referrerpolicy: 'no-referrer', width: a.image.width, height: a.image.height,
@@ -126,7 +128,7 @@ export class Reader {
         h('p', {}, t('readerLicense', { title: a.title }), ' ',
           h('a', { href: a.url, target: '_blank', rel: 'noopener' }, 'Wikipedia'), ' · ',
           h('a', { href: 'https://creativecommons.org/licenses/by-sa/4.0/', target: '_blank', rel: 'noopener license' }, 'CC BY-SA 4.0')),
-        section ? h('a', { class: 'reader-page', href: url(`${section}/${it.slug}/`) }, h('span', { html: icon('book', 14) }), t('readerPage')) : null));
+        pagePath ? h('a', { class: 'reader-page', href: url(pagePath) }, h('span', { html: icon('book', 14) }), t('readerPage')) : null));
   }
 
   private section(s: WikiSection, i: number): HTMLElement {
@@ -137,11 +139,13 @@ export class Reader {
 
   private fallback(it: Readable, offline: boolean): HTMLElement {
     const l = lang();
+    const pagePath = it.pagePath ?? (it.type && it.slug ? `${TYPE_META[it.type].section}/${it.slug}/` : undefined);
     return h('article', { class: 'reader-article' },
       h('h1', {}, tr(it.name, l)),
       h('p', { class: 'reader-note' }, offline ? t('readerOffline') : t('readerMissing')),
       h('div', { class: 'reader-lead' }, h('p', {}, tr(it.desc, l)), it.funFact ? h('p', {}, tr(it.funFact, l)) : null),
       offline ? h('button', { class: 'pill', 'data-testid': 'reader-retry', onclick: () => { this.shown = ''; this.show(it, this.readLang); } }, t('readerRetry')) : null,
+      pagePath ? h('p', {}, h('a', { class: 'reader-page', href: url(pagePath) }, h('span', { html: icon('book', 14) }), t('readerPage'))) : null,
       this.nearby(it));
   }
 

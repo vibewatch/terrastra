@@ -307,7 +307,8 @@ ${near.length ? `<div class="panel"><h3>${bi(T('Nearby', '附近'))}</h3><ul cla
 // Physical Geography section (GAZETTEER)
 const geoSecIdx = SECTIONS.length + 1;
 const geoSlug = (key: string) => key.replace(/^geo:/, '');
-const geoSearchKey = (g: (typeof GAZETTEER)[number]) => esc([g.name.en, g.name.zh, g.region.en, g.region.zh, ...(g.aliases ?? [])].filter(Boolean).join(' ').toLowerCase());
+const geoSearchKey = (g: (typeof GAZETTEER)[number]) =>
+  esc([g.name.en, g.name.zh, GEO_KIND_LABEL[g.kind].en, GEO_KIND_LABEL[g.kind].zh, g.region.en, g.region.zh, ...(g.aliases ?? [])].filter(Boolean).join(' ').toLowerCase());
 page(`/${GEO_DIR}/`, `${GEO_TITLE.en} — Terrastra`, `Explore ${GAZETTEER.length} seas, trenches, mountain ranges, plateaus, plains, basins, straits and rivers on Terrastra's interactive 3D globe.`,
   `<nav class="crumbs"><a href="/encyclopedia/">${bi(T('Encyclopedia', '百科'))}</a><span>/</span>${pad(geoSecIdx)}</nav>
 <p class="eyebrow">${GAZETTEER.length} ${bi(T('entries', '个条目'))}</p><h1>${bi(GEO_TITLE)}</h1><p class="sub">${bi(GEO_HINT)}</p>
