@@ -235,5 +235,36 @@ describe('grade question banks and mistake notebook', () => {
     expect(afterRemove[k1]).toBeUndefined();
     expect(afterRemove[k2]).toBeDefined();
   });
+
+  it('keeps lightweight catalog-meta.json and free-bundle in 1-for-1 parity with full Geo & Astro curricula', async () => {
+    const { ASTRO_LESSONS, ASTRO_VIEWS: FULL_ASTRO_VIEWS, astroCourse } = await import('../../src/client/lessons/astro/data.ts');
+    const { ALL_ASTRO_META, ALL_GEO_META, META_CATALOGS, loadLessonById } = await import('../../src/client/lessons/catalog.ts');
+    const { freeLessonById } = await import('../../src/client/lessons/free-bundle.ts');
+    const { FREE_LESSON_IDS, isFreeLesson } = await import('../../src/shared/lib/entitlements.ts');
+
+    expect(ALL_GEO_META.map(l => l.id)).toEqual(LESSONS.map(l => l.id));
+    expect(ALL_ASTRO_META.map(l => l.id)).toEqual(ASTRO_LESSONS.map(l => l.id));
+
+    for (const v of Object.keys(VIEWS) as View[]) {
+      expect(META_CATALOGS.geo.course(v).map(g => ({ name: g.name, ids: g.lessons.map(l => l.id) })))
+        .toEqual(course(v).map(g => ({ name: g.name, ids: g.lessons.map(l => l.id) })));
+    }
+    for (const v of Object.keys(FULL_ASTRO_VIEWS) as (keyof typeof FULL_ASTRO_VIEWS)[]) {
+      expect(META_CATALOGS.astro.course(v).map(g => ({ name: g.name, ids: g.lessons.map(l => l.id) })))
+        .toEqual(astroCourse(v).map(g => ({ name: g.name, ids: g.lessons.map(l => l.id) })));
+    }
+
+    for (const id of FREE_LESSON_IDS) {
+      expect(freeLessonById(id)?.id, `free starter ${id}`).toBe(id);
+      expect((await loadLessonById(id))?.id).toBe(id);
+    }
+    for (const l of [...LESSONS, ...ASTRO_LESSONS]) {
+      if (!isFreeLesson(l.id)) {
+        expect(freeLessonById(l.id), `pro lesson ${l.id} must not live in free-bundle`).toBeUndefined();
+      }
+    }
+    expect((await loadLessonById('usa'))?.id).toBe('usa');
+    expect((await loadLessonById('a-planets'))?.id).toBe('a-planets');
+  });
 });
 

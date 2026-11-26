@@ -1,0 +1,2889 @@
+{
+  "geo": [
+    {
+      "id": "shape",
+      "strand": "maps",
+      "grade": "g7a",
+      "tracks": [
+        "us",
+        "ib"
+      ],
+      "unit": [
+        "The Earth and maps",
+        "地球和地图"
+      ],
+      "title": [
+        "The shape and size of the Earth",
+        "地球的形状和大小"
+      ],
+      "blurb": [
+        "A sphere slightly flattened at the poles: how we know, and how big it is.",
+        "地球是两极稍扁的球体：人们是怎么知道的，它有多大。"
+      ],
+      "icon": "globe",
+      "minutes": 8
+    },
+    {
+      "id": "graticule",
+      "strand": "maps",
+      "grade": "g7a",
+      "tracks": [
+        "uk",
+        "us",
+        "ib",
+        "au"
+      ],
+      "unit": [
+        "The Earth and maps",
+        "地球和地图"
+      ],
+      "title": [
+        "Latitude and longitude",
+        "经线和纬线"
+      ],
+      "blurb": [
+        "Parallels and meridians: the grid that gives every place an address.",
+        "纬线和经线：给地球上每个地方一个“地址”。"
+      ],
+      "icon": "grid",
+      "minutes": 9
+    },
+    {
+      "id": "hemispheres",
+      "strand": "maps",
+      "grade": "g7a",
+      "tracks": [
+        "uk",
+        "us",
+        "ib",
+        "au"
+      ],
+      "unit": [
+        "The Earth and maps",
+        "地球和地图"
+      ],
+      "title": [
+        "Hemispheres",
+        "半球的划分"
+      ],
+      "blurb": [
+        "North and south, east and west, and why the east–west line is at 20°W and 160°E.",
+        "南北半球和东西半球，以及为什么东西半球以 20°W 和 160°E 为界。"
+      ],
+      "icon": "compass",
+      "minutes": 8
+    },
+    {
+      "id": "rotation",
+      "strand": "maps",
+      "grade": "g7a",
+      "tracks": [
+        "uk",
+        "us",
+        "ib"
+      ],
+      "unit": [
+        "The Earth and maps",
+        "地球和地图"
+      ],
+      "title": [
+        "The Earth's rotation",
+        "地球的自转"
+      ],
+      "blurb": [
+        "West to east, once a day: day and night, and why clocks differ around the world.",
+        "自西向东，一天一圈：昼夜交替和时间差异。"
+      ],
+      "icon": "reset",
+      "minutes": 9
+    },
+    {
+      "id": "revolution",
+      "strand": "maps",
+      "grade": "g7a",
+      "tracks": [
+        "uk",
+        "us",
+        "ib",
+        "au"
+      ],
+      "unit": [
+        "The Earth and maps",
+        "地球和地图"
+      ],
+      "title": [
+        "Revolution and the seasons",
+        "地球的公转与四季"
+      ],
+      "blurb": [
+        "A year around the Sun on a tilted axis: the overhead Sun wanders between the tropics, and the seasons follow.",
+        "地轴倾斜着绕太阳公转一年：太阳直射点在南北回归线之间来回移动，四季随之更替。"
+      ],
+      "icon": "sun",
+      "minutes": 10
+    },
+    {
+      "id": "zones",
+      "strand": "maps",
+      "grade": "g7a",
+      "tracks": [
+        "us",
+        "ib"
+      ],
+      "unit": [
+        "The Earth and maps",
+        "地球和地图"
+      ],
+      "title": [
+        "The five heat zones",
+        "五带的划分"
+      ],
+      "blurb": [
+        "The tropics and polar circles cut the Earth into five zones by how much sunshine they get.",
+        "回归线和极圈把地球分成五个热量带。"
+      ],
+      "icon": "sun",
+      "minutes": 9
+    },
+    {
+      "id": "maps",
+      "strand": "maps",
+      "grade": "g7a",
+      "tracks": [
+        "uk",
+        "us",
+        "ib",
+        "au"
+      ],
+      "unit": [
+        "The Earth and maps",
+        "地球和地图"
+      ],
+      "title": [
+        "Reading maps",
+        "地图的阅读"
+      ],
+      "blurb": [
+        "Scale, direction and legend: the three things you need to read any map.",
+        "比例尺、方向和图例：读懂任何地图都离不开这三样。"
+      ],
+      "icon": "compass",
+      "minutes": 8
+    },
+    {
+      "id": "contours",
+      "strand": "maps",
+      "grade": "g7a",
+      "tracks": [
+        "uk",
+        "ib",
+        "au"
+      ],
+      "unit": [
+        "The Earth and maps",
+        "地球和地图"
+      ],
+      "title": [
+        "Contour lines and relief maps",
+        "等高线地形图"
+      ],
+      "blurb": [
+        "How a flat map shows hills and valleys: contours, colours and cross-sections.",
+        "平面的地图怎样表示高低起伏：等高线、分层设色和地形剖面图。"
+      ],
+      "icon": "mountain",
+      "minutes": 6
+    },
+    {
+      "id": "projections",
+      "strand": "maps",
+      "tracks": [
+        "us",
+        "uk",
+        "ib"
+      ],
+      "unit": [
+        "The Earth and maps",
+        "地球和地图"
+      ],
+      "title": [
+        "Map projections",
+        "地图投影"
+      ],
+      "blurb": [
+        "Why every flat map stretches something, and why the globe tells the truth.",
+        "为什么平面地图总会变形，为什么地球仪最真实。"
+      ],
+      "icon": "globe",
+      "minutes": 8
+    },
+    {
+      "id": "timezones",
+      "strand": "maps",
+      "tracks": [
+        "us",
+        "uk",
+        "ib",
+        "au"
+      ],
+      "unit": [
+        "The Earth and maps",
+        "地球和地图"
+      ],
+      "title": [
+        "Time zones",
+        "时区和日界线"
+      ],
+      "blurb": [
+        "Why it is noon in Beijing and night in New York, and where each new day begins.",
+        "为什么北京正午时纽约是深夜，新的一天又从哪里开始。"
+      ],
+      "icon": "clock",
+      "minutes": 6
+    },
+    {
+      "id": "home",
+      "strand": "maps",
+      "grade": "g8b",
+      "tracks": [
+        "uk",
+        "us",
+        "ib",
+        "au"
+      ],
+      "unit": [
+        "Local geography",
+        "乡土地理"
+      ],
+      "title": [
+        "Where I live",
+        "我的家乡"
+      ],
+      "blurb": [
+        "Your own place on the globe: its coordinates, time, Sun, climate and neighbours.",
+        "在地球上找到你的家：经纬度、时间、太阳、气候和周边。"
+      ],
+      "icon": "pin",
+      "minutes": 10
+    },
+    {
+      "id": "exam-g7a",
+      "strand": "maps",
+      "grade": "g7a",
+      "tracks": [
+        "uk",
+        "us",
+        "ib",
+        "au"
+      ],
+      "unit": [
+        "Grade 7 Term 1 · Question Bank",
+        "七年级上册 · 综合题库"
+      ],
+      "title": [
+        "Grade 7 Term 1 · Question Bank & Mock Exam",
+        "七年级上册 · 综合题库与期末模拟"
+      ],
+      "blurb": [
+        "Freshly drawn mock exam covering Earth & graticule, rotation & seasons, contour maps, plates, world climates, and human settlements.",
+        "涵盖经纬网、地球运动、等高线地形图、海陆板块、世界气候判读与人口聚落，每次重新组卷并自动收录错题。"
+      ],
+      "icon": "trophy",
+      "minutes": 15,
+      "exam": true
+    },
+    {
+      "id": "h-motion",
+      "strand": "maps",
+      "grade": "h2",
+      "tracks": [
+        "us",
+        "ib"
+      ],
+      "unit": [
+        "Earth's movements",
+        "地球的运动"
+      ],
+      "title": [
+        "Earth's movement: time zones, daylength and solar altitude",
+        "地球的运动：时差、昼夜长短与正午太阳高度"
+      ],
+      "blurb": [
+        "Angular vs linear speed, local solar time and Date Line rules, daylength variations, and noon sun angle H = 90° − |φ − δ|.",
+        "自转角速度与线速度、地方时与日界线计算、昼夜长短变化规律以及正午太阳高度角公式与应用。"
+      ],
+      "icon": "clock",
+      "minutes": 15
+    },
+    {
+      "id": "landforms",
+      "strand": "physical",
+      "grade": "g7a",
+      "tracks": [
+        "uk",
+        "us",
+        "ib",
+        "au"
+      ],
+      "unit": [
+        "Land and sea",
+        "陆地和海洋"
+      ],
+      "title": [
+        "Five basic landforms",
+        "五种基本地形"
+      ],
+      "blurb": [
+        "Plains, plateaus, mountains, hills and basins on land, and shelves, ridges and trenches under the sea: what tells them apart, and where the biggest are.",
+        "陆地上的平原、高原、山地、丘陵、盆地，海底的大陆架、海岭、海沟：怎样区分，最大的在哪里。"
+      ],
+      "icon": "mountain",
+      "minutes": 9
+    },
+    {
+      "id": "continents",
+      "strand": "physical",
+      "grade": "g7a",
+      "tracks": [
+        "uk",
+        "us",
+        "ib",
+        "au"
+      ],
+      "unit": [
+        "Land and sea",
+        "陆地和海洋"
+      ],
+      "title": [
+        "Seven continents, four oceans",
+        "七大洲和四大洋"
+      ],
+      "blurb": [
+        "How much of the Earth is sea, what continents, islands and peninsulas are, where each continent ends, and which straits join the oceans.",
+        "地球上海洋占多少，什么是大陆、岛屿和半岛，各大洲的分界在哪里，哪些海峡连通大洋。"
+      ],
+      "icon": "globe",
+      "minutes": 9
+    },
+    {
+      "id": "plates",
+      "strand": "physical",
+      "grade": "g7a",
+      "tracks": [
+        "uk",
+        "us",
+        "ib",
+        "au"
+      ],
+      "unit": [
+        "Land and sea",
+        "陆地和海洋"
+      ],
+      "title": [
+        "Plates on the move",
+        "板块的运动"
+      ],
+      "blurb": [
+        "Seas become land and land becomes sea. Six great plates drift slowly; where they collide, split or slide, mountains rise, rifts open and the ground shakes.",
+        "沧海桑田，海陆变迁。六大板块缓慢漂移，在碰撞、张裂和错动的地方，山脉隆起、裂谷张开、地震频发。"
+      ],
+      "icon": "plates",
+      "minutes": 9
+    },
+    {
+      "id": "drift",
+      "strand": "physical",
+      "grade": "g7a",
+      "tracks": [
+        "uk",
+        "us",
+        "ib"
+      ],
+      "unit": [
+        "Land and sea",
+        "陆地和海洋"
+      ],
+      "title": [
+        "Changing land and sea",
+        "海陆的变迁"
+      ],
+      "blurb": [
+        "How a jigsaw-shaped coastline and some old fossils showed that continents move.",
+        "从拼图般的海岸线和古老化石出发，看看大陆是怎样漂移的。"
+      ],
+      "icon": "plates",
+      "minutes": 6
+    },
+    {
+      "id": "rocks",
+      "strand": "physical",
+      "tracks": [
+        "uk",
+        "us",
+        "ib"
+      ],
+      "unit": [
+        "Shaping the land",
+        "塑造地表的力量"
+      ],
+      "title": [
+        "Rocks and the rock cycle",
+        "岩石与岩石循环"
+      ],
+      "blurb": [
+        "Three kinds of rock, and how wind, water and ice wear them down and build them up again.",
+        "三大类岩石，以及风、流水和冰怎样把它们磨蚀、又重新塑造。"
+      ],
+      "icon": "mountain",
+      "minutes": 6
+    },
+    {
+      "id": "rivers",
+      "strand": "physical",
+      "tracks": [
+        "uk",
+        "us",
+        "ib",
+        "au"
+      ],
+      "unit": [
+        "Shaping the land",
+        "塑造地表的力量"
+      ],
+      "title": [
+        "Rivers: from source to mouth",
+        "河流：从源头到河口"
+      ],
+      "blurb": [
+        "How rivers carve valleys and waterfalls, then wind across plains and build deltas.",
+        "河流怎样切出峡谷和瀑布，又怎样蜿蜒流过平原、堆积出三角洲。"
+      ],
+      "icon": "sail",
+      "minutes": 6
+    },
+    {
+      "id": "coasts",
+      "strand": "physical",
+      "tracks": [
+        "uk",
+        "ib",
+        "au"
+      ],
+      "unit": [
+        "Shaping the land",
+        "塑造地表的力量"
+      ],
+      "title": [
+        "Coasts",
+        "海岸"
+      ],
+      "blurb": [
+        "Waves carve cliffs, caves, arches and stacks, and build beaches and spits.",
+        "海浪雕琢出海蚀崖、海蚀洞、海蚀拱桥和海蚀柱，也堆积出海滩和沙嘴。"
+      ],
+      "icon": "ship",
+      "minutes": 6
+    },
+    {
+      "id": "glaciers",
+      "strand": "physical",
+      "tracks": [
+        "uk",
+        "us",
+        "ib"
+      ],
+      "unit": [
+        "Shaping the land",
+        "塑造地表的力量"
+      ],
+      "title": [
+        "Glaciers and ice",
+        "冰川"
+      ],
+      "blurb": [
+        "Ice sheets, valley glaciers and the ice ages that reshaped the world.",
+        "冰盖、山岳冰川，以及改变了世界面貌的冰期。"
+      ],
+      "icon": "mountain",
+      "minutes": 5
+    },
+    {
+      "id": "watercycle",
+      "strand": "physical",
+      "tracks": [
+        "us",
+        "uk",
+        "ib",
+        "au"
+      ],
+      "unit": [
+        "Water on Earth",
+        "地球上的水"
+      ],
+      "title": [
+        "The water cycle",
+        "水循环"
+      ],
+      "blurb": [
+        "Where Earth's water is, and how it travels between sea, sky and land.",
+        "地球上的水在哪里，它怎样在海洋、天空和陆地之间循环。"
+      ],
+      "icon": "cloud",
+      "minutes": 5
+    },
+    {
+      "id": "hazards",
+      "strand": "physical",
+      "tracks": [
+        "uk",
+        "us",
+        "ib",
+        "au"
+      ],
+      "unit": [
+        "Natural hazards",
+        "自然灾害"
+      ],
+      "title": [
+        "Natural hazards",
+        "自然灾害"
+      ],
+      "blurb": [
+        "Earthquakes, tsunamis, volcanoes and tropical storms: where they strike and how to be ready.",
+        "地震、海啸、火山和台风：它们发生在哪里，我们怎样防范。"
+      ],
+      "icon": "volcano",
+      "minutes": 6
+    },
+    {
+      "id": "h-history",
+      "strand": "physical",
+      "grade": "h1",
+      "tracks": [
+        "us",
+        "ib"
+      ],
+      "unit": [
+        "The Earth in the universe",
+        "宇宙中的地球"
+      ],
+      "title": [
+        "The history of the Earth",
+        "地球的历史"
+      ],
+      "blurb": [
+        "Read 4.6 billion years in layers of rock: the eons and eras, the rise of life, two great extinctions and the coal ages.",
+        "在一层层岩石里读懂 46 亿年：地质年代、生物的演化、两次生物大灭绝和成煤时期。"
+      ],
+      "icon": "dino",
+      "minutes": 10
+    },
+    {
+      "id": "h-layers",
+      "strand": "physical",
+      "grade": "h1",
+      "tracks": [
+        "us",
+        "ib"
+      ],
+      "unit": [
+        "The Earth in the universe",
+        "宇宙中的地球"
+      ],
+      "title": [
+        "The Earth’s layers",
+        "地球的圈层结构"
+      ],
+      "blurb": [
+        "Use earthquake waves to see inside the Earth: the Moho, the Gutenberg discontinuity, crust, mantle and core, and the spheres outside.",
+        "借助地震波“看清”地球内部：莫霍面、古登堡面，地壳、地幔、地核，以及外部圈层。"
+      ],
+      "icon": "globe",
+      "minutes": 10
+    },
+    {
+      "id": "h-landforms",
+      "strand": "physical",
+      "grade": "h1",
+      "tracks": [
+        "uk",
+        "au"
+      ],
+      "unit": [
+        "Landforms",
+        "地貌"
+      ],
+      "title": [
+        "Common landforms",
+        "常见地貌类型"
+      ],
+      "blurb": [
+        "Karst, river, desert, coastal and glacial landforms: how water, wind, waves and ice carve and build the land.",
+        "喀斯特、河流、风沙、海岸和冰川地貌：流水、风、海浪和冰川怎样侵蚀和堆积出各种地貌。"
+      ],
+      "icon": "mountain",
+      "minutes": 10
+    },
+    {
+      "id": "h-soil-veg",
+      "strand": "physical",
+      "grade": "h1",
+      "tracks": [
+        "ib"
+      ],
+      "unit": [
+        "Vegetation and soil",
+        "植被与土壤"
+      ],
+      "title": [
+        "Vegetation and soil",
+        "植被与土壤"
+      ],
+      "blurb": [
+        "How forests, grasslands and desert plants fit their climates, what soil is made of, how it forms, and why black soil is so rich.",
+        "森林、草原和荒漠植被怎样适应环境，土壤由什么组成、怎样形成，黑土为什么那么肥沃。"
+      ],
+      "icon": "leaf",
+      "minutes": 10
+    },
+    {
+      "id": "h-forces",
+      "strand": "physical",
+      "grade": "h2",
+      "tracks": [
+        "uk",
+        "us"
+      ],
+      "unit": [
+        "Shaping the land surface",
+        "地表形态的塑造"
+      ],
+      "title": [
+        "The forces that shape the land",
+        "塑造地表形态的力量"
+      ],
+      "blurb": [
+        "Internal forces raise, fold and break the crust; external forces wear it down. Follow the rock cycle and see why an anticline can become a valley.",
+        "内力抬升、弯曲、断裂地壳，外力削高填低。认识岩石圈物质循环，看看背斜为什么会成谷。"
+      ],
+      "icon": "volcano",
+      "minutes": 12
+    },
+    {
+      "id": "h-integrity",
+      "strand": "physical",
+      "grade": "h2",
+      "tracks": [
+        "ib"
+      ],
+      "unit": [
+        "Unity and diversity of the natural environment",
+        "自然环境的整体性与差异性"
+      ],
+      "title": [
+        "The natural environment as a whole",
+        "自然环境的整体性"
+      ],
+      "blurb": [
+        "Climate, water, landforms, soil and life are all linked: change one and the rest follow, as the Amazon and the Loess Plateau show.",
+        "气候、水文、地形、土壤、生物相互联系：牵一发而动全身。以亚马孙雨林和黄土高原为例。"
+      ],
+      "icon": "sparkle",
+      "minutes": 9
+    },
+    {
+      "id": "h-zonation",
+      "strand": "physical",
+      "grade": "h2",
+      "tracks": [
+        "ib"
+      ],
+      "unit": [
+        "Unity and diversity of the natural environment",
+        "自然环境的整体性与差异性"
+      ],
+      "title": [
+        "Natural zones: from equator to pole, coast to inland, foot to summit",
+        "自然环境的地域差异"
+      ],
+      "blurb": [
+        "Why natural zones change with latitude, with distance from the sea and with height, build your own mountain of belts, and spot places that break the pattern.",
+        "自然带为什么随纬度、距海远近和海拔高度变化？亲手“造”一座有垂直自然带的山，再找找打破规律的地方。"
+      ],
+      "icon": "compass",
+      "minutes": 12
+    },
+    {
+      "id": "exam-h1",
+      "strand": "physical",
+      "grade": "h1",
+      "tracks": [
+        "uk",
+        "us",
+        "ib",
+        "au"
+      ],
+      "unit": [
+        "Senior Compulsory 1 · Question Bank",
+        "高中必修第一册 · 综合题库"
+      ],
+      "title": [
+        "Senior Compulsory 1 · Question Bank & Mock Exam",
+        "高中必修第一册 · 综合题库与期末模拟"
+      ],
+      "blurb": [
+        "Freshly drawn senior mock exam on Earth's spheres & history, atmospheric heating & thermal circulation, water cycle & ocean currents, landforms, soils, and vegetation.",
+        "涵盖地球的宇宙环境与圈层结构、大气受热过程与热力环流、水循环与洋流、喀斯特/流水/风沙/海岸/冰川地貌、土壤与植被。"
+      ],
+      "icon": "trophy",
+      "minutes": 15,
+      "exam": true
+    },
+    {
+      "id": "climate",
+      "strand": "climate",
+      "grade": "g7a",
+      "tracks": [
+        "uk",
+        "us",
+        "ib",
+        "au"
+      ],
+      "unit": [
+        "Weather and climate",
+        "天气与气候"
+      ],
+      "title": [
+        "Temperature and rainfall",
+        "气温和降水"
+      ],
+      "blurb": [
+        "How temperature changes through the day and the year, why it falls with latitude and height, and where in the world it rains most.",
+        "气温在一天和一年中怎样变化，为什么随纬度和海拔升高而降低；世界上哪里降水最多。"
+      ],
+      "icon": "cloud",
+      "minutes": 9
+    },
+    {
+      "id": "weather",
+      "strand": "climate",
+      "grade": "g7a",
+      "tracks": [
+        "us",
+        "uk",
+        "ib"
+      ],
+      "unit": [
+        "Weather and climate",
+        "天气与气候"
+      ],
+      "title": [
+        "Weather, wind and air",
+        "多变的天气"
+      ],
+      "blurb": [
+        "Tell weather from climate, read forecasts, symbols and satellite images, check the air quality, then meet the wind belts and monsoons.",
+        "区分天气和气候，读懂天气预报、天气符号和卫星云图，了解空气质量，再认识气压带、风带和季风。"
+      ],
+      "icon": "cloud",
+      "minutes": 9
+    },
+    {
+      "id": "climates",
+      "strand": "climate",
+      "grade": "g7a",
+      "tracks": [
+        "uk",
+        "us",
+        "ib",
+        "au"
+      ],
+      "unit": [
+        "Weather and climate",
+        "天气与气候"
+      ],
+      "title": [
+        "World climates: the tropics",
+        "世界的气候类型（一）：热带"
+      ],
+      "blurb": [
+        "The world climate map, then the four tropical climates: their graphs, where they are and what causes them.",
+        "认识世界气候类型分布图，再读懂四种热带气候的气候图、分布和成因。"
+      ],
+      "icon": "globe",
+      "minutes": 8
+    },
+    {
+      "id": "climates2",
+      "strand": "climate",
+      "grade": "g7a",
+      "tracks": [
+        "uk",
+        "us",
+        "ib"
+      ],
+      "unit": [
+        "Weather and climate",
+        "天气与气候"
+      ],
+      "title": [
+        "World climates: temperate, cold and highland",
+        "世界的气候类型（二）"
+      ],
+      "blurb": [
+        "Read and compare climate graphs, meet the climates outside the tropics, find out what shapes them and learn to name a climate from its graph.",
+        "学会阅读和比较气候图，认识热带以外的气候类型和影响气候的因素，学会根据气候图判断气候类型。"
+      ],
+      "icon": "globe",
+      "minutes": 9
+    },
+    {
+      "id": "biomes",
+      "strand": "climate",
+      "tracks": [
+        "us",
+        "uk",
+        "ib",
+        "au"
+      ],
+      "unit": [
+        "Weather and climate",
+        "天气与气候"
+      ],
+      "title": [
+        "Biomes: climate and life",
+        "气候与自然植被"
+      ],
+      "blurb": [
+        "Each climate grows its own kind of vegetation, and its own animals. Tour the world's biomes.",
+        "不同的气候孕育不同的自然植被和动物。一起游览世界的自然带。"
+      ],
+      "icon": "leaf",
+      "minutes": 9
+    },
+    {
+      "id": "climatechange",
+      "strand": "climate",
+      "tracks": [
+        "uk",
+        "us",
+        "ib",
+        "au"
+      ],
+      "unit": [
+        "Weather and climate",
+        "天气与气候"
+      ],
+      "title": [
+        "Climate change",
+        "全球气候变暖"
+      ],
+      "blurb": [
+        "How greenhouse gases warm the planet, where they come from, what is changing, and how we can cut them and adapt.",
+        "温室气体怎样使地球变暖、从哪里来，带来哪些变化，以及人类怎样减缓和适应。"
+      ],
+      "icon": "sun",
+      "minutes": 9
+    },
+    {
+      "id": "h-atmos",
+      "strand": "climate",
+      "grade": "h1",
+      "tracks": [],
+      "unit": [
+        "The atmosphere",
+        "地球上的大气"
+      ],
+      "title": [
+        "Composition and layers of the atmosphere",
+        "大气的组成和垂直分层"
+      ],
+      "blurb": [
+        "What air is made of, and why it gets colder, then warmer, then colder again as you climb to 120 km.",
+        "大气由什么组成？从地面升到 120 千米，气温为什么先降、再升、又降？"
+      ],
+      "icon": "aurora",
+      "minutes": 14
+    },
+    {
+      "id": "h-heating",
+      "strand": "climate",
+      "grade": "h1",
+      "tracks": [],
+      "unit": [
+        "The atmosphere",
+        "地球上的大气"
+      ],
+      "title": [
+        "How the atmosphere is heated",
+        "大气的受热过程"
+      ],
+      "blurb": [
+        "Sunlight warms the ground, the ground warms the air, the air sends warmth back: why clear nights are frosty and Tibet is sunny but cold.",
+        "太阳暖大地，大地暖大气，大气还大地：为什么晴朗的夜晚多霜冻，青藏高原阳光强却气温低？"
+      ],
+      "icon": "sun",
+      "minutes": 15
+    },
+    {
+      "id": "h-thermal",
+      "strand": "climate",
+      "grade": "h1",
+      "tracks": [],
+      "unit": [
+        "The atmosphere",
+        "地球上的大气"
+      ],
+      "title": [
+        "Thermal circulation",
+        "热力环流"
+      ],
+      "blurb": [
+        "Warm air rises, cool air sinks, and the wind blows between them: sea breezes, valley breezes and the city's own wind.",
+        "受热上升，冷却下沉，水平方向由高压流向低压：海陆风、山谷风和城市风。"
+      ],
+      "icon": "sail",
+      "minutes": 15
+    },
+    {
+      "id": "h-wind",
+      "strand": "climate",
+      "grade": "h1",
+      "tracks": [],
+      "unit": [
+        "The atmosphere",
+        "地球上的大气"
+      ],
+      "title": [
+        "Horizontal motion of the air: wind",
+        "大气的水平运动——风"
+      ],
+      "blurb": [
+        "Three forces steer the wind: the pressure gradient pushes, the Earth's spin turns it, friction slows it.",
+        "三个力决定风向：气压梯度力推动，地转偏向力使它偏转，摩擦力使它减速。"
+      ],
+      "icon": "compass",
+      "minutes": 14
+    },
+    {
+      "id": "h-circulation",
+      "strand": "climate",
+      "grade": "h2",
+      "tracks": [],
+      "unit": [
+        "Motion of the atmosphere",
+        "大气的运动"
+      ],
+      "title": [
+        "Pressure belts and wind belts",
+        "气压带和风带"
+      ],
+      "blurb": [
+        "Three cells of rising and sinking air wrap each hemisphere, laying down seven pressure belts and six wind belts that follow the Sun.",
+        "每个半球有三圈环流，形成七个气压带和六个风带，并随太阳直射点季节移动。"
+      ],
+      "icon": "globe",
+      "minutes": 16
+    },
+    {
+      "id": "h-monsoon-climate",
+      "strand": "climate",
+      "grade": "h2",
+      "tracks": [],
+      "unit": [
+        "Motion of the atmosphere",
+        "大气的运动"
+      ],
+      "title": [
+        "Pressure and wind belts shape climate",
+        "气压带和风带对气候的影响"
+      ],
+      "blurb": [
+        "Why rainforests sit on the equator, deserts near the tropics and Mediterranean summers are dry, and how monsoons form.",
+        "为什么雨林在赤道、沙漠在回归线附近、地中海夏季干燥？季风是怎样形成的？"
+      ],
+      "icon": "leaf",
+      "minutes": 16
+    },
+    {
+      "id": "h-fronts",
+      "strand": "climate",
+      "grade": "h2",
+      "tracks": [],
+      "unit": [
+        "Motion of the atmosphere",
+        "大气的运动"
+      ],
+      "title": [
+        "Common weather systems",
+        "常见天气系统"
+      ],
+      "blurb": [
+        "Cold fronts, warm fronts, the plum rains, typhoons and the long dry spells of high summer.",
+        "冷锋、暖锋、梅雨、台风和伏旱，都是怎样形成的？"
+      ],
+      "icon": "cloud",
+      "minutes": 16
+    },
+    {
+      "id": "h-ocean",
+      "strand": "climate",
+      "grade": "h1",
+      "tracks": [],
+      "unit": [
+        "Water on Earth",
+        "地球上的水"
+      ],
+      "title": [
+        "Properties and motion of sea water",
+        "海水的性质和运动"
+      ],
+      "blurb": [
+        "Why the Red Sea is the saltiest sea, why a desert lies beside the Pacific, and where the great fishing grounds are.",
+        "红海为什么最咸？太平洋边上为什么有沙漠？世界大渔场分布在哪里？"
+      ],
+      "icon": "ship",
+      "minutes": 18
+    },
+    {
+      "id": "exam-h2",
+      "strand": "climate",
+      "grade": "h2",
+      "tracks": [
+        "uk",
+        "us",
+        "ib"
+      ],
+      "unit": [
+        "Senior Elective 1 · Question Bank",
+        "高中选择性必修 1 · 综合题库"
+      ],
+      "title": [
+        "Senior Elective 1 · Question Bank & Mock Exam",
+        "高中选择性必修 1 · 综合题库与期末模拟"
+      ],
+      "blurb": [
+        "Freshly drawn senior mock exam on Earth's rotation/revolution & solar calculations, rock cycle & geological structures, pressure belts & monsoons, weather systems, and physical zonation.",
+        "全面覆盖地球自转与公转计算、岩石圈物质循环与内力构造、气压带风带与季风、锋面气旋天气系统、自然环境整体性与地域分异规律。"
+      ],
+      "icon": "trophy",
+      "minutes": 15,
+      "exam": true
+    },
+    {
+      "id": "population",
+      "strand": "human",
+      "grade": "g7a",
+      "tracks": [
+        "uk",
+        "us",
+        "ib",
+        "au"
+      ],
+      "unit": [
+        "People and settlements",
+        "居民与聚落"
+      ],
+      "title": [
+        "World population",
+        "人口与人种"
+      ],
+      "blurb": [
+        "Eight billion of us: how fast we grew, where we crowd together and where almost nobody lives.",
+        "世界人口已超过 80 亿：增长有多快，人们聚居在哪里，哪里几乎无人居住。"
+      ],
+      "icon": "user",
+      "minutes": 6
+    },
+    {
+      "id": "migration",
+      "strand": "human",
+      "tracks": [
+        "uk",
+        "us",
+        "ib",
+        "au"
+      ],
+      "unit": [
+        "People and settlements",
+        "居民与聚落"
+      ],
+      "title": [
+        "Population structure and migration",
+        "人口结构与人口迁移"
+      ],
+      "blurb": [
+        "Read a population pyramid, and find out why people move from place to place.",
+        "学会读人口金字塔，了解人们为什么要迁移。"
+      ],
+      "icon": "passport",
+      "minutes": 6
+    },
+    {
+      "id": "cultures",
+      "strand": "human",
+      "grade": "g7a",
+      "tracks": [
+        "us",
+        "ib"
+      ],
+      "unit": [
+        "People and settlements",
+        "居民与聚落"
+      ],
+      "title": [
+        "Languages and religions",
+        "语言和宗教"
+      ],
+      "blurb": [
+        "The six languages of the United Nations, the world's main religions, and treasures of human culture.",
+        "联合国的六种工作语言、世界主要宗教，以及人类的文化遗产。"
+      ],
+      "icon": "language",
+      "minutes": 6
+    },
+    {
+      "id": "settlements",
+      "strand": "human",
+      "grade": "g7a",
+      "tracks": [
+        "uk",
+        "us",
+        "ib",
+        "au"
+      ],
+      "unit": [
+        "People and settlements",
+        "居民与聚落"
+      ],
+      "title": [
+        "Settlements and urbanisation",
+        "聚落"
+      ],
+      "blurb": [
+        "Villages and cities: where they grow, how fast the world is moving to towns, and the giant megacities.",
+        "乡村和城市：聚落在哪里形成，城市化有多快，还有巨大的“超级城市”。"
+      ],
+      "icon": "landmark",
+      "minutes": 6
+    },
+    {
+      "id": "development",
+      "strand": "human",
+      "grade": "g7a",
+      "tracks": [
+        "uk",
+        "us",
+        "ib"
+      ],
+      "unit": [
+        "Development and cooperation",
+        "发展与合作"
+      ],
+      "title": [
+        "Development and cooperation",
+        "发展与合作"
+      ],
+      "blurb": [
+        "Developed and developing countries, how to measure development, and working together for a better world.",
+        "发达国家与发展中国家、如何衡量发展水平，以及携手共建更美好的世界。"
+      ],
+      "icon": "globe",
+      "minutes": 6
+    },
+    {
+      "id": "economy",
+      "strand": "human",
+      "tracks": [
+        "uk",
+        "us",
+        "ib",
+        "au"
+      ],
+      "unit": [
+        "The world economy",
+        "世界经济"
+      ],
+      "title": [
+        "Economic activity and resources",
+        "经济活动与资源"
+      ],
+      "blurb": [
+        "Farms, factories and services; the ships that carry world trade; oil, sunshine and wind; and where your phone comes from.",
+        "农业、工业和服务业；运送世界贸易的船只；石油、阳光和风能；还有你的手机从哪里来。"
+      ],
+      "icon": "ship",
+      "minutes": 6
+    },
+    {
+      "id": "asia",
+      "strand": "world",
+      "grade": "g7b",
+      "tracks": [
+        "uk",
+        "us",
+        "ib"
+      ],
+      "unit": [
+        "Continents and regions",
+        "大洲和地区"
+      ],
+      "title": [
+        "Asia",
+        "亚洲"
+      ],
+      "blurb": [
+        "The continent we live on: the biggest and most crowded, high in the middle, ringed by rivers and ruled by the monsoon.",
+        "我们生活的大洲：面积最大、人口最多，中部高四周低，河流放射状，季风显著。"
+      ],
+      "icon": "mountain",
+      "minutes": 10
+    },
+    {
+      "id": "neighbours",
+      "strand": "world",
+      "grade": "g7b",
+      "tracks": [
+        "us",
+        "ib",
+        "au"
+      ],
+      "unit": [
+        "Continents and regions",
+        "大洲和地区"
+      ],
+      "title": [
+        "Japan and Southeast Asia",
+        "日本和东南亚"
+      ],
+      "blurb": [
+        "An island country on shaky ground that lives by trade, and the crossroads between two oceans.",
+        "多火山地震、靠加工贸易发展的岛国，和两大洋之间的“十字路口”。"
+      ],
+      "icon": "volcano",
+      "minutes": 10
+    },
+    {
+      "id": "australia",
+      "strand": "world",
+      "grade": "g7b",
+      "tracks": [
+        "au",
+        "us"
+      ],
+      "unit": [
+        "Continents and regions",
+        "大洲和地区"
+      ],
+      "title": [
+        "Australia",
+        "澳大利亚"
+      ],
+      "blurb": [
+        "A whole continent for one country: ancient animals, a dry red heart, and a nation that rode on the sheep's back and the mine cart.",
+        "独占一块大陆的国家：古老的生物、干旱的“红色中心”，“骑在羊背上”和“坐在矿车上”的国家。"
+      ],
+      "icon": "paw",
+      "minutes": 10
+    },
+    {
+      "id": "polar",
+      "strand": "world",
+      "grade": "g7b",
+      "tracks": [
+        "uk",
+        "us",
+        "ib",
+        "au"
+      ],
+      "unit": [
+        "The polar regions",
+        "极地地区"
+      ],
+      "title": [
+        "The polar regions",
+        "极地地区"
+      ],
+      "blurb": [
+        "An ice-buried continent and a frozen ocean: the coldest, windiest places on Earth, now the frontier of science.",
+        "冰雪覆盖的大陆和冰封的海洋：地球上最冷、风最大的地方，也是科学考察的前沿。"
+      ],
+      "icon": "aurora",
+      "minutes": 10
+    },
+    {
+      "id": "middleeast",
+      "strand": "world",
+      "grade": "g7b",
+      "tracks": [
+        "uk",
+        "us",
+        "ib"
+      ],
+      "unit": [
+        "Countries and regions of the Eastern Hemisphere",
+        "东半球其他的国家和地区"
+      ],
+      "title": [
+        "The Middle East",
+        "中东"
+      ],
+      "blurb": [
+        "Where three continents meet: oil under the sand, water in short supply, and holy cities for three faiths.",
+        "“两洋三洲五海之地”：丰富的石油、匮乏的水资源和多元的文化。"
+      ],
+      "icon": "landmark",
+      "minutes": 7
+    },
+    {
+      "id": "europe",
+      "strand": "world",
+      "grade": "g7b",
+      "tracks": [
+        "us",
+        "ib"
+      ],
+      "unit": [
+        "Countries and regions of the Eastern Hemisphere",
+        "东半球其他的国家和地区"
+      ],
+      "title": [
+        "Western Europe and the EU",
+        "欧洲西部"
+      ],
+      "blurb": [
+        "Mild, wet winds from the Atlantic, green pastures, famous sights and countries that work together.",
+        "大西洋吹来的温和湿润的风、绿色的牧场、闻名世界的旅游胜地和紧密合作的国家。"
+      ],
+      "icon": "flag",
+      "minutes": 7
+    },
+    {
+      "id": "africa",
+      "strand": "world",
+      "grade": "g7b",
+      "tracks": [
+        "uk",
+        "us",
+        "ib"
+      ],
+      "unit": [
+        "Countries and regions of the Eastern Hemisphere",
+        "东半球其他的国家和地区"
+      ],
+      "title": [
+        "Sub-Saharan Africa",
+        "撒哈拉以南非洲"
+      ],
+      "blurb": [
+        "A high plateau continent, great rivers, savanna wildlife, and fast-growing young nations.",
+        "黑种人的故乡：高原大陆、大江大河、草原上的野生动物，以及人口快速增长的国家。"
+      ],
+      "icon": "paw",
+      "minutes": 7
+    },
+    {
+      "id": "russia",
+      "strand": "world",
+      "grade": "g7b",
+      "tracks": [
+        "uk",
+        "us"
+      ],
+      "unit": [
+        "Countries and regions of the Eastern Hemisphere",
+        "东半球其他的国家和地区"
+      ],
+      "title": [
+        "Russia",
+        "俄罗斯"
+      ],
+      "blurb": [
+        "The biggest country on Earth: across Europe and Asia, rivers to the Arctic, cold winters and a railway 9,000 km long.",
+        "世界上面积最大的国家：地跨两洲，河流北流，冬季严寒，资源丰富，铁路绵延 9000 多千米。"
+      ],
+      "icon": "compass",
+      "minutes": 7
+    },
+    {
+      "id": "india",
+      "strand": "world",
+      "grade": "g7b",
+      "tracks": [
+        "uk",
+        "us",
+        "ib"
+      ],
+      "unit": [
+        "Countries and regions of the Eastern Hemisphere",
+        "东半球其他的国家和地区"
+      ],
+      "title": [
+        "India",
+        "印度"
+      ],
+      "blurb": [
+        "A subcontinent shaped by the Himalayas and the monsoon: rice and wheat, booming software and the world's largest population.",
+        "喜马拉雅山和季风塑造的次大陆：稻麦之乡、软件大国和世界第一的人口。"
+      ],
+      "icon": "festival",
+      "minutes": 7
+    },
+    {
+      "id": "usa",
+      "strand": "world",
+      "grade": "g7b",
+      "tracks": [
+        "us"
+      ],
+      "unit": [
+        "Countries of the Western Hemisphere",
+        "西半球的国家"
+      ],
+      "title": [
+        "The United States",
+        "美国"
+      ],
+      "blurb": [
+        "A nation of immigrants on a land of mountains and plains, with farm belts, old industrial cities and high-tech valleys.",
+        "移民国家：西部山地、中部平原、东部山地，农业地区专业化，高新技术产业发达。"
+      ],
+      "icon": "flag",
+      "minutes": 7
+    },
+    {
+      "id": "brazil",
+      "strand": "world",
+      "grade": "g7b",
+      "tracks": [
+        "us",
+        "ib"
+      ],
+      "unit": [
+        "Countries of the Western Hemisphere",
+        "西半球的国家"
+      ],
+      "title": [
+        "Brazil",
+        "巴西"
+      ],
+      "blurb": [
+        "The giant of South America: the Amazon rainforest and the fight to save it, coffee and soybeans, and a mixed, lively culture.",
+        "南美洲的大国：亚马孙雨林的开发与保护，咖啡和大豆，以及多元的混血文化。"
+      ],
+      "icon": "leaf",
+      "minutes": 7
+    },
+    {
+      "id": "se-asia",
+      "strand": "world",
+      "grade": "g7b",
+      "tracks": [
+        "uk",
+        "us",
+        "ib",
+        "au"
+      ],
+      "unit": [
+        "Our neighbouring regions and countries",
+        "我们邻近的地区和国家"
+      ],
+      "title": [
+        "Southeast Asia: Crossroads & Tropical Farming",
+        "东南亚：“十字路口”与热带农业"
+      ],
+      "blurb": [
+        "The Strait of Malacca, parallel mountains and rivers on the Indo-China Peninsula, and monsoon rice and cash crops.",
+        "马六甲海峡、中南半岛“山河相间、纵列分布”的地形，以及水稻和热带经济作物。"
+      ],
+      "icon": "ship",
+      "minutes": 9
+    },
+    {
+      "id": "exam-g7b",
+      "strand": "world",
+      "grade": "g7b",
+      "tracks": [
+        "uk",
+        "us",
+        "ib",
+        "au"
+      ],
+      "unit": [
+        "Grade 7 Term 2 · Question Bank",
+        "七年级下册 · 综合题库"
+      ],
+      "title": [
+        "Grade 7 Term 2 · Question Bank & Mock Exam",
+        "七年级下册 · 综合题库与期末模拟"
+      ],
+      "blurb": [
+        "Freshly drawn mock exam covering Asia, Japan, SE Asia, India, Russia, Middle East, Europe, Africa, Australia, USA, Brazil, and Polar regions.",
+        "全面覆盖亚洲、日本、东南亚、印度、俄罗斯、中东、欧洲西部、撒哈拉以南非洲、澳大利亚、美国、巴西与极地地区。"
+      ],
+      "icon": "trophy",
+      "minutes": 15,
+      "exam": true
+    },
+    {
+      "id": "steps",
+      "strand": "china",
+      "grade": "g8a",
+      "tracks": [
+        "uk",
+        "us"
+      ],
+      "unit": [
+        "China's natural environment",
+        "中国的自然环境"
+      ],
+      "title": [
+        "Landforms and the three steps",
+        "地形多样，地势西高东低"
+      ],
+      "blurb": [
+        "Mountains, plateaus, basins and plains, falling in three big steps from the roof of the world to the sea.",
+        "山地、高原、盆地、平原和丘陵，从世界屋脊到大海分三级阶梯逐级下降。"
+      ],
+      "icon": "mountain",
+      "minutes": 11
+    },
+    {
+      "id": "china-climate",
+      "strand": "china",
+      "grade": "g8a",
+      "tracks": [
+        "uk",
+        "us"
+      ],
+      "unit": [
+        "China's natural environment",
+        "中国的自然环境"
+      ],
+      "title": [
+        "China's climate and rivers",
+        "中国的气候和河流"
+      ],
+      "blurb": [
+        "Winter and summer temperatures, rain belts and monsoons, the Qinling–Huaihe line, and the Yangtze and Yellow Rivers.",
+        "冬夏气温、雨带和季风、秦岭—淮河一线，以及长江和黄河。"
+      ],
+      "icon": "cloud",
+      "minutes": 12
+    },
+    {
+      "id": "china-place",
+      "strand": "china",
+      "grade": "g8a",
+      "tracks": [
+        "us",
+        "ib"
+      ],
+      "unit": [
+        "China's land and people",
+        "从世界看中国"
+      ],
+      "title": [
+        "China's territory and divisions",
+        "疆域与行政区划"
+      ],
+      "blurb": [
+        "Where China is, how big it is, its neighbours, seas and islands, and its 34 provincial-level divisions.",
+        "我国的位置、面积、邻国、海域与岛屿，以及 34 个省级行政区。"
+      ],
+      "icon": "flag",
+      "minutes": 10
+    },
+    {
+      "id": "china-people",
+      "strand": "china",
+      "grade": "g8a",
+      "tracks": [
+        "uk",
+        "us"
+      ],
+      "unit": [
+        "China's land and people",
+        "从世界看中国"
+      ],
+      "title": [
+        "Population and ethnic groups",
+        "人口与民族"
+      ],
+      "blurb": [
+        "1.41 billion people, an ageing population, a crowded east and a sparse west, and 56 ethnic groups.",
+        "14.1 亿人口、老龄化、东密西疏的人口分布，以及 56 个民族组成的大家庭。"
+      ],
+      "icon": "user",
+      "minutes": 10
+    },
+    {
+      "id": "china-water",
+      "strand": "china",
+      "grade": "g8a",
+      "tracks": [
+        "uk",
+        "ib"
+      ],
+      "unit": [
+        "China's natural resources",
+        "中国的自然资源"
+      ],
+      "title": [
+        "Land and water resources",
+        "土地资源与水资源"
+      ],
+      "blurb": [
+        "Rich in total but poor per person; farmland to guard; water uneven in place and time, moved south to north.",
+        "总量丰富、人均不足；守住耕地红线；水资源时空分布不均与南水北调。"
+      ],
+      "icon": "leaf",
+      "minutes": 10
+    },
+    {
+      "id": "china-economy",
+      "strand": "china",
+      "grade": "g8a",
+      "tracks": [
+        "uk",
+        "us"
+      ],
+      "unit": [
+        "China's economy and culture",
+        "中国的经济发展"
+      ],
+      "title": [
+        "Farming, industry, transport and culture",
+        "农业、工业、交通与地域文化"
+      ],
+      "blurb": [
+        "Rice in the south, wheat in the north, factories on the coast, fast trains and giant ports, and houses that fit the land.",
+        "南稻北麦、东耕西牧，沿海工业密集，高铁与大港连通内外，民居与环境相适应。"
+      ],
+      "icon": "ship",
+      "minutes": 10
+    },
+    {
+      "id": "china-north",
+      "strand": "china",
+      "grade": "g8b",
+      "tracks": [],
+      "unit": [
+        "Regions of China",
+        "中国的地理差异与区域"
+      ],
+      "title": [
+        "The northern region",
+        "北方地区"
+      ],
+      "blurb": [
+        "Black soil, the wheat lands of the North China Plain, spring drought, coal on the Loess Plateau and the ancient capitals.",
+        "黑土地、华北平原的麦田与春旱、黄土高原的煤炭，以及黄河流域的古都。"
+      ],
+      "icon": "landmark",
+      "minutes": 10
+    },
+    {
+      "id": "china-south",
+      "strand": "china",
+      "grade": "g8b",
+      "tracks": [],
+      "unit": [
+        "Regions of China",
+        "中国的地理差异与区域"
+      ],
+      "title": [
+        "The southern region",
+        "南方地区"
+      ],
+      "blurb": [
+        "Rivers, lakes and paddy fields, plum rains and typhoons, the Sichuan Basin, karst hills, two great deltas and two big islands.",
+        "河湖与水田、梅雨与台风、四川盆地、喀斯特山地、两大三角洲和两大岛屿。"
+      ],
+      "icon": "sail",
+      "minutes": 10
+    },
+    {
+      "id": "china-west",
+      "strand": "china",
+      "grade": "g8b",
+      "tracks": [],
+      "unit": [
+        "Regions of China",
+        "中国的地理差异与区域"
+      ],
+      "title": [
+        "The northwest and the Qinghai–Tibet region",
+        "西北地区和青藏地区"
+      ],
+      "blurb": [
+        "Grassland, oases and deserts in the dry northwest; energy and green walls; the high, cold roof of the world.",
+        "干旱的西北：草原、绿洲与荒漠，能源与防沙治沙；高寒的青藏：世界屋脊与江河之源。"
+      ],
+      "icon": "mountain",
+      "minutes": 11
+    },
+    {
+      "id": "china-regions",
+      "strand": "china",
+      "grade": "g8b",
+      "tracks": [],
+      "unit": [
+        "Regions of China",
+        "中国的地理差异与区域"
+      ],
+      "title": [
+        "The four geographical regions",
+        "中国的四大地理区域"
+      ],
+      "blurb": [
+        "Three dividing lines split China into the north, the south, the northwest and Qinghai–Tibet.",
+        "三条分界线把我国分为北方、南方、西北和青藏四大地理区域。"
+      ],
+      "icon": "grid",
+      "minutes": 9
+    },
+    {
+      "id": "yangtze",
+      "strand": "china",
+      "grade": "g8a",
+      "tracks": [],
+      "unit": [
+        "China's natural environment",
+        "中国的自然环境"
+      ],
+      "title": [
+        "The Yangtze River",
+        "长江"
+      ],
+      "blurb": [
+        "From a Tibetan glacier to Shanghai: power, shipping, floods and protection on China's longest river.",
+        "从青藏高原的冰川到上海：中国第一长河的水能、航运、防洪与保护。"
+      ],
+      "icon": "ship",
+      "minutes": 9
+    },
+    {
+      "id": "yellow-river",
+      "strand": "china",
+      "grade": "g8a",
+      "tracks": [],
+      "unit": [
+        "China's natural environment",
+        "中国的自然环境"
+      ],
+      "title": [
+        "The Yellow River",
+        "黄河"
+      ],
+      "blurb": [
+        "The mother river: irrigation, silt from the Loess Plateau, a riverbed above the plain, and how it is tamed.",
+        "母亲河：灌溉之利、黄土高原的泥沙、高出地面的“地上河”，以及黄河的治理。"
+      ],
+      "icon": "sail",
+      "minutes": 9
+    },
+    {
+      "id": "northeast",
+      "strand": "china",
+      "grade": "g8b",
+      "tracks": [],
+      "unit": [
+        "Regions of China",
+        "中国的地理差异与区域"
+      ],
+      "title": [
+        "The Northeast: black soil and white snow",
+        "东北三省：白山黑水"
+      ],
+      "blurb": [
+        "Mountains around wide plains, fertile black soil, long cold winters: a granary, an old industrial base and an ice-and-snow playground.",
+        "山环水绕、沃野千里、冬季漫长：东北是商品粮基地、老工业基地和冰雪旅游胜地。"
+      ],
+      "icon": "leaf",
+      "minutes": 9
+    },
+    {
+      "id": "loess",
+      "strand": "china",
+      "grade": "g8b",
+      "tracks": [],
+      "unit": [
+        "Regions of China",
+        "中国的地理差异与区域"
+      ],
+      "title": [
+        "The Loess Plateau",
+        "黄土高原"
+      ],
+      "blurb": [
+        "Dust blown from the northwest built the world's largest loess plateau; rain has cut it into a thousand gullies.",
+        "西北吹来的尘土堆成世界最大的黄土高原，雨水又把它切割得千沟万壑。"
+      ],
+      "icon": "mountain",
+      "minutes": 9
+    },
+    {
+      "id": "sanjiangyuan",
+      "strand": "china",
+      "grade": "g8b",
+      "tracks": [],
+      "unit": [
+        "Regions of China",
+        "中国的地理差异与区域"
+      ],
+      "title": [
+        "Qinghai–Tibet: roof of the world, source of rivers",
+        "青藏地区：世界屋脊与江河源"
+      ],
+      "blurb": [
+        "High and cold but sunny: the sources of great rivers, yak pastures, barley valleys and a railway on frozen ground.",
+        "高寒而日照强烈：大江大河的源头、牦牛牧场、青稞河谷和冻土上的铁路。"
+      ],
+      "icon": "mountain",
+      "minutes": 10
+    },
+    {
+      "id": "beijing",
+      "strand": "china",
+      "grade": "g8b",
+      "tracks": [],
+      "unit": [
+        "Regions of China",
+        "中国的地理差异与区域"
+      ],
+      "title": [
+        "Beijing, the capital",
+        "祖国的首都——北京"
+      ],
+      "blurb": [
+        "Four centres, an ancient capital on its central axis, and a capital region that shares the load.",
+        "四个中心、古都与中轴线、疏解非首都功能与京津冀协同发展。"
+      ],
+      "icon": "landmark",
+      "minutes": 8
+    },
+    {
+      "id": "yrd",
+      "strand": "china",
+      "grade": "g8b",
+      "tracks": [],
+      "unit": [
+        "Regions of China",
+        "中国的地理差异与区域"
+      ],
+      "title": [
+        "The Yangtze River Delta",
+        "长江三角洲地区"
+      ],
+      "blurb": [
+        "Water towns and the Grand Canal, Shanghai the dragon head, and China's biggest city cluster.",
+        "江南水乡与大运河，“龙头”上海，我国最大的城市群。"
+      ],
+      "icon": "ship",
+      "minutes": 8
+    },
+    {
+      "id": "hk-macau",
+      "strand": "china",
+      "grade": "g8b",
+      "tracks": [],
+      "unit": [
+        "Regions of China",
+        "中国的地理差异与区域"
+      ],
+      "title": [
+        "Hong Kong and Macao",
+        "香港和澳门"
+      ],
+      "blurb": [
+        "Two special administrative regions at the Pearl River mouth, the bridge that joins them, and the Greater Bay Area.",
+        "珠江口的两个特别行政区、港珠澳大桥与粤港澳大湾区。"
+      ],
+      "icon": "sail",
+      "minutes": 7
+    },
+    {
+      "id": "taiwan",
+      "strand": "china",
+      "grade": "g8b",
+      "tracks": [],
+      "unit": [
+        "Regions of China",
+        "中国的地理差异与区域"
+      ],
+      "title": [
+        "Taiwan Province",
+        "祖国的神圣领土——台湾省"
+      ],
+      "blurb": [
+        "Mountains in the east and plains in the west, typhoons and rain, a treasure island of farms and factories.",
+        "东部多山、西部平原，台风与多雨，物产丰富的宝岛与加工出口工业。"
+      ],
+      "icon": "leaf",
+      "minutes": 8
+    },
+    {
+      "id": "xinjiang",
+      "strand": "china",
+      "grade": "g8b",
+      "tracks": [],
+      "unit": [
+        "Regions of China",
+        "中国的地理差异与区域"
+      ],
+      "title": [
+        "Xinjiang: mountains, deserts and oases",
+        "新疆：山地、沙漠与绿洲"
+      ],
+      "blurb": [
+        "Three ranges and two basins, the Tarim River, oasis farms and karez, Turpan, gas pipelines and the Silk Road.",
+        "三山夹两盆、塔里木河、绿洲农业与坎儿井、吐鲁番盆地、西气东输与丝绸之路。"
+      ],
+      "icon": "mountain",
+      "minutes": 8
+    },
+    {
+      "id": "china-world",
+      "strand": "china",
+      "grade": "g8b",
+      "tracks": [],
+      "unit": [
+        "China in the world",
+        "中国在世界中"
+      ],
+      "title": [
+        "China in the world",
+        "中国在世界中"
+      ],
+      "blurb": [
+        "A top economy and trader, the Belt and Road, China–Europe trains, our seas and islands, and the climate pledge.",
+        "经济大国与贸易大国、“一带一路”、中欧班列、海洋权益与南海诸岛，以及“双碳”目标。"
+      ],
+      "icon": "globe",
+      "minutes": 8
+    },
+    {
+      "id": "china-hazards",
+      "strand": "china",
+      "grade": "g8a",
+      "tracks": [
+        "uk",
+        "us",
+        "ib"
+      ],
+      "unit": [
+        "China's natural environment",
+        "中国的自然环境"
+      ],
+      "title": [
+        "China's natural hazards and prevention",
+        "中国的自然灾害与防灾减灾"
+      ],
+      "blurb": [
+        "Monsoon droughts and floods, typhoons, cold waves, and why earthquakes and debris flows cluster in the southwest.",
+        "旱涝、台风、寒潮等气象灾害，以及地震、滑坡、泥石流等地质灾害的分布与防灾减灾。"
+      ],
+      "icon": "volcano",
+      "minutes": 9
+    },
+    {
+      "id": "prd",
+      "strand": "china",
+      "grade": "g8b",
+      "tracks": [
+        "ib"
+      ],
+      "unit": [
+        "China's regions",
+        "中国的地域差异与区域发展"
+      ],
+      "title": [
+        "The Pearl River Delta and Greater Bay Area",
+        "珠江三角洲与粤港澳大湾区"
+      ],
+      "blurb": [
+        "China's southern gateway: overseas Chinese ties, industrial upgrading, and cross-estuary mega-bridges.",
+        "祖国的“南大门”：毗邻港澳的区位优势、产业转型升级与跨江通道群。"
+      ],
+      "icon": "landmark",
+      "minutes": 8
+    },
+    {
+      "id": "exam-g8a",
+      "strand": "china",
+      "grade": "g8a",
+      "tracks": [
+        "uk",
+        "us",
+        "ib"
+      ],
+      "unit": [
+        "Grade 8 Term 1 · Question Bank",
+        "八年级上册 · 综合题库"
+      ],
+      "title": [
+        "Grade 8 Term 1 · Question Bank & Mock Exam",
+        "八年级上册 · 综合题库与期末模拟"
+      ],
+      "blurb": [
+        "Freshly drawn mock exam on China's territory & provinces, population, Three Terrain Steps, climate & Qinling–Huaihe line, Yangtze & Yellow River, resources, and railways.",
+        "涵盖中国的疆域与行政区划、人口民族、三级阶梯与地形区、气候与秦岭—淮河线、长江黄河、自然资源与防灾减灾及交通运输。"
+      ],
+      "icon": "trophy",
+      "minutes": 15,
+      "exam": true
+    },
+    {
+      "id": "exam-g8b",
+      "strand": "china",
+      "grade": "g8b",
+      "tracks": [
+        "ib"
+      ],
+      "unit": [
+        "Grade 8 Term 2 · Question Bank",
+        "八年级下册 · 综合题库"
+      ],
+      "title": [
+        "Grade 8 Term 2 · Question Bank & Mock Exam",
+        "八年级下册 · 综合题库与期末模拟"
+      ],
+      "blurb": [
+        "Freshly drawn mock exam on China's Four Major Geographical Regions, Northeast, Loess Plateau, Beijing, YRD, PRD/HK/Macau, Taiwan, Xinjiang, and Sanjiangyuan.",
+        "全面覆盖四大地理区域划分、北方（东北三省、黄土高原、北京）、南方（长三角、港澳、珠三角、台湾）、西北（塔里木盆地）与青藏（三江源）。"
+      ],
+      "icon": "trophy",
+      "minutes": 15,
+      "exam": true
+    }
+  ],
+  "cnOrderIds": [
+    "shape",
+    "graticule",
+    "hemispheres",
+    "rotation",
+    "revolution",
+    "zones",
+    "maps",
+    "contours",
+    "landforms",
+    "continents",
+    "plates",
+    "climate",
+    "drift",
+    "weather",
+    "climates",
+    "climates2",
+    "population",
+    "cultures",
+    "settlements",
+    "development",
+    "exam-g7a",
+    "asia",
+    "neighbours",
+    "australia",
+    "polar",
+    "middleeast",
+    "europe",
+    "africa",
+    "russia",
+    "india",
+    "usa",
+    "brazil",
+    "se-asia",
+    "exam-g7b",
+    "china-place",
+    "china-people",
+    "steps",
+    "china-climate",
+    "china-water",
+    "yangtze",
+    "yellow-river",
+    "china-hazards",
+    "china-economy",
+    "exam-g8a",
+    "china-regions",
+    "china-north",
+    "northeast",
+    "loess",
+    "beijing",
+    "china-south",
+    "yrd",
+    "hk-macau",
+    "prd",
+    "taiwan",
+    "china-west",
+    "xinjiang",
+    "sanjiangyuan",
+    "china-world",
+    "home",
+    "exam-g8b",
+    "h-history",
+    "h-layers",
+    "h-landforms",
+    "h-soil-veg",
+    "h-atmos",
+    "h-heating",
+    "h-thermal",
+    "h-wind",
+    "h-ocean",
+    "exam-h1",
+    "h-forces",
+    "h-integrity",
+    "h-zonation",
+    "h-circulation",
+    "h-monsoon-climate",
+    "h-fronts",
+    "h-motion",
+    "exam-h2"
+  ],
+  "astro": [
+    {
+      "id": "a-sun-moon",
+      "strand": "earthmoon",
+      "level": "jr",
+      "tracks": [
+        "uk",
+        "us",
+        "ib"
+      ],
+      "unit": [
+        "The Earth and the Moon",
+        "地球和月球"
+      ],
+      "title": [
+        "The Sun and the Moon",
+        "太阳和月球"
+      ],
+      "blurb": [
+        "How big and how far: a star 109 times wider than the Earth, and a dusty, airless Moon.",
+        "有多大、有多远：直径是地球 109 倍的恒星，和没有空气、布满尘土的月球。"
+      ],
+      "icon": "sun",
+      "minutes": 9
+    },
+    {
+      "id": "a-phases",
+      "strand": "earthmoon",
+      "level": "jr",
+      "tracks": [
+        "us",
+        "au",
+        "ib"
+      ],
+      "unit": [
+        "The Earth and the Moon",
+        "地球和月球"
+      ],
+      "title": [
+        "Phases of the Moon and the lunar calendar",
+        "月相和农历"
+      ],
+      "blurb": [
+        "Why the Moon changes shape through a month, and how the Chinese lunar calendar follows it.",
+        "月亮为什么一个月里会“变脸”，农历又是怎样跟着月相走的。"
+      ],
+      "icon": "calendar",
+      "minutes": 10
+    },
+    {
+      "id": "a-eclipses",
+      "strand": "earthmoon",
+      "level": "jr",
+      "tracks": [
+        "us",
+        "au",
+        "ib"
+      ],
+      "unit": [
+        "The Earth and the Moon",
+        "地球和月球"
+      ],
+      "title": [
+        "Solar and lunar eclipses",
+        "日食和月食"
+      ],
+      "blurb": [
+        "When the Sun, the Earth and the Moon line up: shadows in space, and why it does not happen every month.",
+        "当日、地、月排成一条直线：太空中的影子，以及为什么不是每个月都有日食和月食。"
+      ],
+      "icon": "eclipse",
+      "minutes": 11
+    },
+    {
+      "id": "a-tides",
+      "strand": "earthmoon",
+      "level": "jr",
+      "tracks": [
+        "au",
+        "ib"
+      ],
+      "unit": [
+        "The Earth and the Moon",
+        "地球和月球"
+      ],
+      "title": [
+        "Tides",
+        "潮汐"
+      ],
+      "blurb": [
+        "Why the sea rises and falls twice a day, and why some tides are much bigger than others.",
+        "海水为什么一天涨落两次，为什么有时潮水特别大。"
+      ],
+      "icon": "globe",
+      "minutes": 9
+    },
+    {
+      "id": "a-planets",
+      "strand": "solar",
+      "level": "jr",
+      "tracks": [
+        "uk",
+        "us",
+        "ib"
+      ],
+      "unit": [
+        "The Solar System",
+        "太阳系"
+      ],
+      "title": [
+        "The eight planets",
+        "八大行星"
+      ],
+      "blurb": [
+        "Meet the Sun’s family: rocky inner worlds, giant outer worlds, and the dwarf planets beyond.",
+        "认识太阳的家族：岩质的类地行星、庞大的巨行星，还有更远处的矮行星。"
+      ],
+      "icon": "planet",
+      "minutes": 9
+    },
+    {
+      "id": "a-scale",
+      "strand": "solar",
+      "level": "jr",
+      "tracks": [
+        "uk",
+        "us",
+        "ib"
+      ],
+      "unit": [
+        "The Solar System",
+        "太阳系"
+      ],
+      "title": [
+        "How big is the Solar System?",
+        "太阳系有多大"
+      ],
+      "blurb": [
+        "Astronomical units, a Sun the size of a football, and light that takes hours to cross the planets.",
+        "天文单位、足球大小的太阳，以及要走几个小时才能穿过行星的光。"
+      ],
+      "icon": "ruler",
+      "minutes": 9
+    },
+    {
+      "id": "a-small-bodies",
+      "strand": "solar",
+      "level": "jr",
+      "tracks": [
+        "uk",
+        "us",
+        "ib"
+      ],
+      "unit": [
+        "The Solar System",
+        "太阳系"
+      ],
+      "title": [
+        "Asteroids, comets and meteors",
+        "小行星、彗星和流星"
+      ],
+      "blurb": [
+        "Rocky asteroids, icy comets with tails that point away from the Sun, and the dust that makes shooting stars.",
+        "岩质的小行星、尾巴背向太阳的冰质彗星，以及化作流星的尘埃。"
+      ],
+      "icon": "sparkle",
+      "minutes": 10
+    },
+    {
+      "id": "a-systems",
+      "strand": "solar",
+      "level": "sr",
+      "tracks": [
+        "uk",
+        "us",
+        "ib"
+      ],
+      "unit": [
+        "The Solar System",
+        "太阳系"
+      ],
+      "title": [
+        "Celestial systems and life on Earth",
+        "天体系统和地球上的生命"
+      ],
+      "blurb": [
+        "From the Earth–Moon system to the observable universe, and why Earth is a planet with life.",
+        "从地月系到可观测宇宙，以及地球为什么是一颗有生命的行星。"
+      ],
+      "icon": "globe",
+      "minutes": 12
+    },
+    {
+      "id": "a-formation",
+      "strand": "solar",
+      "level": "sr",
+      "tracks": [
+        "uk",
+        "us",
+        "ib"
+      ],
+      "unit": [
+        "The Solar System",
+        "太阳系"
+      ],
+      "title": [
+        "How the Solar System formed",
+        "太阳系的形成"
+      ],
+      "blurb": [
+        "From a cold, slowly turning cloud to a Sun and eight planets: the nebular hypothesis, step by step.",
+        "从一团缓慢旋转的冷云到太阳和八大行星：一步步看懂星云假说。"
+      ],
+      "icon": "planet",
+      "minutes": 11
+    },
+    {
+      "id": "a-constellations",
+      "strand": "sky",
+      "level": "jr",
+      "tracks": [
+        "us",
+        "ib"
+      ],
+      "unit": [
+        "The night sky",
+        "星空"
+      ],
+      "title": [
+        "Constellations and the seasonal sky",
+        "星座和四季星空"
+      ],
+      "blurb": [
+        "Why the stars wheel round the pole every night, and why each season has its own constellations.",
+        "星星为什么每晚绕着北天极转，每个季节为什么能看到不同的星座。"
+      ],
+      "icon": "star",
+      "minutes": 10
+    },
+    {
+      "id": "a-polaris",
+      "strand": "sky",
+      "level": "jr",
+      "tracks": [
+        "us",
+        "ib"
+      ],
+      "unit": [
+        "The night sky",
+        "星空"
+      ],
+      "title": [
+        "Finding north by Polaris",
+        "北极星辨方向"
+      ],
+      "blurb": [
+        "Use the Big Dipper to find Polaris, and Polaris to find north and your latitude.",
+        "用北斗七星找到北极星，再用北极星辨认方向、估计纬度。"
+      ],
+      "icon": "compass",
+      "minutes": 9
+    },
+    {
+      "id": "a-ancient",
+      "strand": "sky",
+      "level": "jr",
+      "tracks": [],
+      "unit": [
+        "The night sky",
+        "星空"
+      ],
+      "title": [
+        "Astronomy in ancient China",
+        "中国古代天文"
+      ],
+      "blurb": [
+        "Three enclosures, 28 lunar mansions and four sacred animals: how China mapped the sky, and what its records still tell astronomers.",
+        "三垣、二十八宿和四象：古人怎样划分星空，他们的观测记录今天仍在帮助天文学家。"
+      ],
+      "icon": "compass",
+      "minutes": 10
+    },
+    {
+      "id": "a-stargazing",
+      "strand": "sky",
+      "level": "jr",
+      "tracks": [
+        "uk",
+        "ib",
+        "au"
+      ],
+      "unit": [
+        "The night sky",
+        "星空"
+      ],
+      "title": [
+        "Stargazing for beginners",
+        "观星入门"
+      ],
+      "blurb": [
+        "Magnitudes, dark skies and dark-adapted eyes: how to see more stars, find Polaris and catch a meteor shower.",
+        "星等、暗夜和暗适应：怎样看到更多的星，找到北极星，迎接流星雨。"
+      ],
+      "icon": "eye",
+      "minutes": 10
+    },
+    {
+      "id": "a-retrograde",
+      "strand": "sky",
+      "level": "sr",
+      "tracks": [
+        "ib",
+        "us"
+      ],
+      "unit": [
+        "Planets and models of the universe",
+        "行星运动和宇宙模型"
+      ],
+      "title": [
+        "Retrograde motion: Earth-centred and Sun-centred models",
+        "行星逆行，地心说和日心说"
+      ],
+      "blurb": [
+        "Why Mars sometimes loops backwards, how Ptolemy and Copernicus explained it, and what Galileo saw.",
+        "火星为什么有时会倒退打圈，托勒密和哥白尼怎样解释，伽利略又看到了什么。"
+      ],
+      "icon": "planet",
+      "minutes": 12
+    },
+    {
+      "id": "a-solar-terms",
+      "strand": "earthsun",
+      "level": "jr",
+      "tracks": [
+        "uk",
+        "us",
+        "au",
+        "ib"
+      ],
+      "unit": [
+        "Earth’s motions and the Sun",
+        "地球运动和太阳"
+      ],
+      "title": [
+        "The 24 solar terms",
+        "二十四节气"
+      ],
+      "blurb": [
+        "China’s farming calendar cuts the Earth’s orbit into 24 equal steps, and the tilted axis turns them into seasons.",
+        "把地球公转轨道等分成 24 段的农事历法，以及让节气变成季节的倾斜地轴。"
+      ],
+      "icon": "calendar",
+      "minutes": 9
+    },
+    {
+      "id": "a-gnomon",
+      "strand": "earthsun",
+      "level": "jr",
+      "tracks": [
+        "us",
+        "au",
+        "ib"
+      ],
+      "unit": [
+        "Earth’s motions and the Sun",
+        "地球运动和太阳"
+      ],
+      "title": [
+        "The gnomon and the Sun’s shadow",
+        "圭表与日影"
+      ],
+      "blurb": [
+        "A stick in the ground tells the time, the seasons and the length of the year, and Guo Shoujing built a 12-metre one.",
+        "一根立在地上的杆子，就能测出时间、季节和一年的长度，郭守敬还把它建到了 12 米高。"
+      ],
+      "icon": "ruler",
+      "minutes": 9
+    },
+    {
+      "id": "a-solar-activity",
+      "strand": "earthsun",
+      "level": "sr",
+      "tracks": [
+        "us"
+      ],
+      "unit": [
+        "The Sun and the Earth",
+        "太阳对地球的影响与地球运动"
+      ],
+      "title": [
+        "Solar radiation and solar activity",
+        "太阳辐射和太阳活动"
+      ],
+      "blurb": [
+        "Where the Earth's energy comes from, and how storms on the Sun reach us.",
+        "地球的能量从哪里来，太阳上的“风暴”又怎样影响地球。"
+      ],
+      "icon": "sun",
+      "minutes": 12
+    },
+    {
+      "id": "a-time-zones",
+      "strand": "earthsun",
+      "level": "sr",
+      "tracks": [],
+      "unit": [
+        "The Sun and the Earth",
+        "太阳对地球的影响与地球运动"
+      ],
+      "title": [
+        "Local time, time zones and the date line",
+        "地方时、时区和日界线"
+      ],
+      "blurb": [
+        "Work out the time anywhere, and find where on Earth the new day has begun.",
+        "算出任何地方的时间，找出地球上哪些地方已进入新的一天。"
+      ],
+      "icon": "clock",
+      "minutes": 12
+    },
+    {
+      "id": "a-noon-sun",
+      "strand": "earthsun",
+      "level": "sr",
+      "tracks": [],
+      "unit": [
+        "The Sun and the Earth",
+        "太阳对地球的影响与地球运动"
+      ],
+      "title": [
+        "The noon Sun's altitude",
+        "正午太阳高度"
+      ],
+      "blurb": [
+        "How high the Sun climbs at noon, from place to place and season to season, and why it matters for houses.",
+        "正午太阳有多高？它怎样随纬度和季节变化，又怎样决定楼间距。"
+      ],
+      "icon": "ruler",
+      "minutes": 12
+    },
+    {
+      "id": "a-day-length",
+      "strand": "earthsun",
+      "level": "sr",
+      "tracks": [],
+      "unit": [
+        "The Sun and the Earth",
+        "太阳对地球的影响与地球运动"
+      ],
+      "title": [
+        "Day and night: how long?",
+        "昼夜长短的变化"
+      ],
+      "blurb": [
+        "Why summer days are long, and why the Arctic has days that never end.",
+        "为什么夏季白昼长，北极地区又为什么会有“不落的太阳”。"
+      ],
+      "icon": "globe",
+      "minutes": 12
+    },
+    {
+      "id": "a-exploration",
+      "strand": "motion",
+      "level": "jr",
+      "tracks": [
+        "uk",
+        "us",
+        "au",
+        "ib"
+      ],
+      "unit": [
+        "Gravity, orbits and spaceflight",
+        "引力、轨道和航天"
+      ],
+      "title": [
+        "Humans explore space",
+        "人类探索太空"
+      ],
+      "blurb": [
+        "Rockets, satellites, the Tiangong space station, Chang’e to the Moon and Tianwen-1 to Mars.",
+        "火箭和卫星、天宫空间站、嫦娥探月和天问一号探火。"
+      ],
+      "icon": "rocket",
+      "minutes": 9
+    },
+    {
+      "id": "a-gravity",
+      "strand": "motion",
+      "level": "jr",
+      "tracks": [
+        "uk",
+        "us",
+        "au",
+        "ib"
+      ],
+      "unit": [
+        "Gravity, orbits and spaceflight",
+        "引力、轨道和航天"
+      ],
+      "title": [
+        "Gravity keeps the planets going round",
+        "引力让行星绕太阳转"
+      ],
+      "blurb": [
+        "Why the planets circle the Sun, what would happen without gravity, why you would weigh less on the Moon, and how gravity raises tides and builds worlds.",
+        "行星为什么绕太阳转？没有引力会怎样？为什么在月球上体重会变轻？引力怎样掀起潮汐、塑造星球？"
+      ],
+      "icon": "sun",
+      "minutes": 12
+    },
+    {
+      "id": "a-kepler",
+      "strand": "motion",
+      "level": "sr",
+      "tracks": [
+        "uk",
+        "ib",
+        "us"
+      ],
+      "unit": [
+        "Gravity, orbits and spaceflight",
+        "引力、轨道和航天"
+      ],
+      "title": [
+        "Kepler’s three laws",
+        "开普勒三定律"
+      ],
+      "blurb": [
+        "From epicycles to ellipses: equal areas in equal times, T² ∝ a³, the longer summer half-year, Halley’s Comet, and why gravity makes it all work.",
+        "从本轮到椭圆：面积定律、T² ∝ a³、更长的夏半年、哈雷彗星，以及万有引力为什么能解释这一切。"
+      ],
+      "icon": "planet",
+      "minutes": 14
+    },
+    {
+      "id": "a-cosmic-speeds",
+      "strand": "motion",
+      "level": "sr",
+      "tracks": [
+        "uk",
+        "ib",
+        "us"
+      ],
+      "unit": [
+        "Gravity, orbits and spaceflight",
+        "引力、轨道和航天"
+      ],
+      "title": [
+        "Gravitation and the cosmic speeds",
+        "万有引力和宇宙速度"
+      ],
+      "blurb": [
+        "The Moon test, F = GMm/r², weighing the Earth and the Sun, the three cosmic speeds 7.9, 11.2 and 16.7 km/s, and why China launches from Wenchang.",
+        "月地检验、F = GMm/r²、“称量”地球和太阳、三个宇宙速度 7.9、11.2、16.7 千米/秒，以及为什么在文昌发射。"
+      ],
+      "icon": "rocket",
+      "minutes": 15
+    },
+    {
+      "id": "a-satellites",
+      "strand": "motion",
+      "level": "sr",
+      "tracks": [
+        "uk",
+        "ib",
+        "us"
+      ],
+      "unit": [
+        "Gravity, orbits and spaceflight",
+        "引力、轨道和航天"
+      ],
+      "title": [
+        "Orbits of artificial satellites",
+        "人造卫星的轨道"
+      ],
+      "blurb": [
+        "Why higher satellites are slower, Tiangong and weightlessness, polar and geostationary orbits, BeiDou, changing orbits, and which orbit suits which job.",
+        "为什么卫星越高越慢？天宫与失重、极地轨道和地球静止轨道、北斗系统、变轨，以及不同任务选什么轨道。"
+      ],
+      "icon": "globe",
+      "minutes": 15
+    },
+    {
+      "id": "a-stars",
+      "strand": "stars",
+      "level": "sr",
+      "tracks": [
+        "ib",
+        "us"
+      ],
+      "unit": [
+        "Stars",
+        "恒星"
+      ],
+      "title": [
+        "Stars: brightness, colour and temperature",
+        "恒星：亮度、颜色和温度"
+      ],
+      "blurb": [
+        "What a star’s colour, brightness and tiny yearly shift tell us — and the HR diagram that ties them together.",
+        "恒星的颜色、亮度和每年微小的位移告诉了我们什么，以及把它们联系起来的赫罗图。"
+      ],
+      "icon": "star",
+      "minutes": 11
+    },
+    {
+      "id": "a-star-life",
+      "strand": "stars",
+      "level": "sr",
+      "tracks": [
+        "uk",
+        "ib",
+        "us"
+      ],
+      "unit": [
+        "Stars",
+        "恒星"
+      ],
+      "title": [
+        "The life of a star",
+        "恒星的一生"
+      ],
+      "blurb": [
+        "Fusion, two paths decided by mass, supernovae that make the elements, and the Sun’s future.",
+        "核聚变、由质量决定的两条演化道路、制造元素的超新星，以及太阳的未来。"
+      ],
+      "icon": "sun",
+      "minutes": 11
+    },
+    {
+      "id": "a-black-holes",
+      "strand": "stars",
+      "level": "sr",
+      "tracks": [
+        "uk",
+        "ib"
+      ],
+      "unit": [
+        "The deaths of stars",
+        "恒星的归宿"
+      ],
+      "title": [
+        "Black holes and neutron stars",
+        "黑洞和中子星"
+      ],
+      "blurb": [
+        "What a giant star leaves behind: city-sized neutron stars, pulsars and black holes that even light cannot escape.",
+        "大质量恒星死亡后留下什么：城市大小的中子星、脉冲星，以及连光都逃不出去的黑洞。"
+      ],
+      "icon": "sparkle",
+      "minutes": 10
+    },
+    {
+      "id": "a-exoplanets",
+      "strand": "stars",
+      "level": "sr",
+      "tracks": [],
+      "unit": [
+        "Other worlds",
+        "其他世界"
+      ],
+      "title": [
+        "Finding exoplanets",
+        "寻找系外行星"
+      ],
+      "blurb": [
+        "Planets of other stars are too faint to see: we find them by the wobble and the shadow they give their stars.",
+        "其他恒星的行星太暗，几乎看不见：我们通过恒星的“晃动”和行星挡住的星光找到它们。"
+      ],
+      "icon": "telescope",
+      "minutes": 10
+    },
+    {
+      "id": "a-telescopes",
+      "strand": "stars",
+      "level": "sr",
+      "tracks": [
+        "uk",
+        "us",
+        "ib",
+        "au"
+      ],
+      "unit": [
+        "Observing the universe",
+        "观测宇宙"
+      ],
+      "title": [
+        "Telescopes and the electromagnetic spectrum",
+        "望远镜与电磁波谱"
+      ],
+      "blurb": [
+        "Lenses and mirrors, why aperture matters, and why some telescopes must fly above the air, from FAST to JWST.",
+        "透镜和反射镜、口径为什么重要、为什么有的望远镜必须飞到大气层外——从中国天眼到韦布。"
+      ],
+      "icon": "telescope",
+      "minutes": 11
+    },
+    {
+      "id": "a-milky-way",
+      "strand": "cosmos",
+      "level": "jr",
+      "tracks": [
+        "uk",
+        "us",
+        "au",
+        "ib"
+      ],
+      "unit": [
+        "Galaxies and the universe",
+        "星系和宇宙"
+      ],
+      "title": [
+        "The Milky Way and the universe",
+        "银河系和宇宙"
+      ],
+      "blurb": [
+        "Our galaxy, where the Sun sits in it, the light-year, and a universe full of galaxies.",
+        "我们的星系、太阳在银河系中的位置、光年，以及充满星系的宇宙。"
+      ],
+      "icon": "sparkle",
+      "minutes": 9
+    },
+    {
+      "id": "a-big-bang",
+      "strand": "cosmos",
+      "level": "sr",
+      "tracks": [
+        "uk",
+        "ib",
+        "us",
+        "au"
+      ],
+      "unit": [
+        "The universe",
+        "宇宙"
+      ],
+      "title": [
+        "Red-shift and the Big Bang",
+        "红移和大爆炸"
+      ],
+      "blurb": [
+        "Galaxies are rushing apart, the farther the faster: run the film backwards and everything began 13.8 billion years ago.",
+        "星系彼此远离，越远退行越快：把“电影”倒放，宇宙起源于 138 亿年前。"
+      ],
+      "icon": "sparkle",
+      "minutes": 16
+    }
+  ]
+}

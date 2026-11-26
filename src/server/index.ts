@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { openDb } from './db.ts';
 import { createApp } from './app.ts';
 import { mailerFromEnv, type SendMail } from './mail.ts';
-import { devLoginFrom, isLocalOrigin } from './config.ts';
+import { devLoginFrom, isLocalOrigin, paywallFrom } from './config.ts';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const portText = process.env.PORT ?? '8787';
@@ -27,9 +27,12 @@ if ('send' in mailer) sendMail = mailer.send;
 else if (!prod) sendMail = async (to, link) => { console.log(`[mail] sign-in link for ${to.replace(/(.).*@/, '$1***@')}: ${link}`); };
 else console.error(`[mail] email sign-in is OFF: ${mailer.error}`);
 const db = openDb(process.env.DB_PATH ?? join(root, 'data', 'terrastra.db'));
+const enforcePaywall = paywallFrom(process.env);
+if (enforcePaywall) console.log('[billing] PAYWALL_ENABLED=1: Pro content gating is active.');
 const app = createApp({
   db,
   devLogin,
+  enforcePaywall,
   baseUrl: configuredBaseUrl ?? `http://localhost:${port}`,
   secureCookies: prod && process.env.INSECURE_COOKIES !== '1',
   staticDir: join(root, 'dist'),

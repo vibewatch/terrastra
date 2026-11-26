@@ -40,6 +40,7 @@ To regenerate the vendored data from the pinned Natural Earth revision, run `npm
 | `?lowfx=1` | reduced motion + the `low` tier (DPR 1, no antialiasing, 512 px map texture); also on when `prefers-reduced-motion` is set (`lowfx=0` overrides) |
 | `?notut` | skip the first-visit tutorial |
 | `?ssbs=1` / `?ssbs=0` | turn the private SSBS review class (West & Central Africa) on or off on this device; off by default (ADR-036) |
+| `?paywall=1` | preview Explorer Pro / Classroom paywall badges and activation-code modals locally even when `PAYWALL_ENABLED` is unset |
 | `#<key>` | deep link to an item, e.g. `/#eiffel`, `/#an_lion` |
 | `#map` | open the flat world map |
 | `#lesson/<id>` | open a geography lesson, e.g. `#lesson/revolution` |
@@ -58,6 +59,7 @@ Set these in `.env` (template: [`.env.example`](.env.example)) or export them.
 | `DEV_LOGIN` | — | `1` returns magic links in the API response, even in production (testing only!). Also on when `NODE_ENV=development`; off otherwise, including when `NODE_ENV` is unset |
 | `BASE_URL` | `http://localhost:$PORT` in development; required in production | public origin used in magic links and the CSRF origin check; HTTPS is required in production unless insecure cookies are explicitly enabled for staging |
 | `INSECURE_COOKIES` | — | `1` drops the `Secure` cookie flag in production (plain-HTTP staging) |
+| `PAYWALL_ENABLED` | — | `1` enforces Explorer Pro / Classroom entitlement checks on Pro lesson chunks (`/assets/pro-lessons-*.js`), Mistake Notebook cloud limits, and Pro learning sync |
 | `MAIL_FROM` | — | sender address for sign-in mail; required with either transport below |
 | `MAIL_API_URL` | — | HTTP email API taking `{ from, to, subject, text, html }` JSON (Resend-style); takes precedence over SMTP |
 | `MAIL_API_KEY` | — | bearer token for `MAIL_API_URL` |
@@ -141,3 +143,14 @@ mkdir -p /tmp/site && ln -sfn "$PWD/dist" /tmp/site/terrastra && python3 -m http
 Run `npm run backup -- /secure/backups/terrastra-snapshot.db` with `DB_PATH` set to the live database. Choose a new destination each time: the command will not overwrite an existing file. It uses SQLite's backup API so committed WAL data is included while the server is running, checks the snapshot, and atomically publishes it with owner-only permissions. The destination directory must support hard links. Schedule backups, store encrypted copies off-host, and periodically test a restore. Snapshots contain account data, sessions and application secrets.
 
 To restore, stop every server process, move the current database **and its `-wal` and `-shm` files** aside, copy the snapshot to `DB_PATH` without stale WAL files, and restart. Verify account and progress access after restoring. A restore rolls data back, potentially reviving deleted data and old sessions; account for this in retention and incident-response procedures.
+
+### Activation codes & entitlements
+Explorer Pro (`pro`, 3 concurrent devices) and Classroom (`classroom`, 10 concurrent devices) entitlements can be issued and managed directly in SQLite before connecting online payment gateways:
+```bash
+npm run codes -- create --plan pro --count 10 --note "batch-1"
+npm run codes -- list
+npm run codes -- revoke TRST-XXXX-XXXX-XXXX
+npm run codes -- grant --email learner@example.com --plan pro
+```
+Codes use a 16-character `TRST-XXXX-XXXX-XXXX` alphabet without ambiguous characters (`0/O/1/I`) and are stored as SHA-256 hashes in SQLite. Set `PAYWALL_ENABLED=1` in `.env` when ready to enforce server-side gating of `dist/.pro-assets/pro-lessons-*.js` chunks.
+

@@ -4,10 +4,13 @@
  */
 import { h, openModal, closeModal, confetti, toast } from './dom.ts';
 import { icon, type IconName } from './icons.ts';
+import { openPaywall } from './paywall.ts';
 import { t, lang, onLang } from '../lib/i18n.ts';
 import { load, save } from '../lib/storage.ts';
+import { canUsePro, isPaywallEnabled, scheduleSync } from '../store.ts';
 import { classroomLink } from '../lib/classroom.ts';
 import { closeTutorial } from './tutorial.ts';
+import { isFreeTour } from '../../shared/lib/entitlements.ts';
 import { skyEvents } from '../../shared/lib/astro/events.ts';
 import { BY_KEY } from '../../shared/data/catalogue.ts';
 
@@ -199,6 +202,10 @@ function stopTour(): void { active?.stop(); }
 export function startTour(id: string, host: TourHost): void {
   const tour = TOURS.find(x => x.id === id);
   if (!tour) return;
+  if (!isFreeTour(id) && !canUsePro()) {
+    openPaywall(L(tour.title), () => startTour(id, host));
+    return;
+  }
   stopTour();
   closeTutorial();
   const steps = tour.steps();
@@ -255,6 +262,7 @@ export function startTour(id: string, host: TourHost): void {
   };
   const finish = () => {
     save('toursDone', [...done().add(tour.id)]);
+    scheduleSync();
     stop();
     confetti(40);
   };
@@ -268,18 +276,37 @@ export function startTour(id: string, host: TourHost): void {
 /** The tour picker. */
 export function openTours(host: TourHost): void {
   const seen = done();
+  const lockedUi = isPaywallEnabled() && !canUsePro();
   openModal('tours', t('tours'), h('div', { class: 'tour-list' },
     h('p', { class: 'muted' }, t('toursIntro')),
-    ...TOURS.map(x => h('div', { class: 'tour-row' },
-      h('button', { class: 'tour-pick', 'data-testid': 'tour-' + x.id, onclick: () => { closeModal('tours'); startTour(x.id, host); } },
-        h('span', { class: 'tile', html: icon(x.icon, 22) }),
-        h('span', { class: 'grow' }, h('strong', {}, L(x.title)), h('span', { class: 'muted small' }, L(x.blurb))),
-        h('span', { class: 'meta' }, (seen.has(x.id) ? '✓ ' : '') + t('minutesN', { n: x.minutes }))),
-      // A teacher's link: opens straight into this tour with classroom mode on.
-      h('button', { class: 'icon-btn tour-link', 'data-testid': 'tour-guide-' + x.id, 'aria-label': t('tourStudyGuide'), title: t('tourStudyGuide'), html: icon('book', 16),
-        onclick: () => void copyText(formatTourStudyGuideMarkdown(x), t('tourStudyGuideCopied'), t('tourStudyGuide')) }),
-      h('button', { class: 'icon-btn tour-link', 'data-testid': 'tour-link-' + x.id, 'aria-label': t('classLink'), title: t('classLink'), html: icon('share', 16),
-        onclick: () => void copyText(classroomLink(x.id), t('classLinkCopied'), t('classLink')) })))));
+    ...TOURS.map(x => {
+      const locked = lockedUi && !isFreeTour(x.id);
+      return h('div', { class: 'tour-row' + (locked ? ' locked' : '') },
+        h('button', { class: 'tour-pick', 'data-testid': 'tour-' + x.id, onclick: () => { closeModal('tours'); startTour(x.id, host); } },
+          h('span', { class: 'tile', html: icon(x.icon, 22) }),
+          h('span', { class: 'grow' },
+            h('strong', {}, locked ? h('span', { class: 'pro-badge' }, t('planBadgePro')) : null, L(x.title)),
+            h('span', { class: 'muted small' }, L(x.blurb))),
+          h('span', { class: 'meta' }, (seen.has(x.id) ? '✓ ' : '') + t('minutesN', { n: x.minutes }))),
+        // A teacher's link: opens straight into this tour with classroom mode on.
+        h('button', {
+          class: 'icon-btn tour-link',
+          'data-testid': 'tour-guide-' + x.id,
+          'aria-label': t('tourStudyGuide'),
+          title: t('tourStudyGuide'),
+          html: icon('book', 16),
+          onclick: () => {
+            if (!canUsePro()) {
+              closeModal('tours');
+              openPaywall(t('tourStudyGuide'), () => void copyText(formatTourStudyGuideMarkdown(x), t('tourStudyGuideCopied'), t('tourStudyGuide')));
+              return;
+            }
+            void copyText(formatTourStudyGuideMarkdown(x), t('tourStudyGuideCopied'), t('tourStudyGuide'));
+          },
+        }),
+        h('button', { class: 'icon-btn tour-link', 'data-testid': 'tour-link-' + x.id, 'aria-label': t('classLink'), title: t('classLink'), html: icon('share', 16),
+          onclick: () => void copyText(classroomLink(x.id), t('classLinkCopied'), t('classLink')) }));
+    })));
 }
 
 async function copyText(text: string, okMsg: string, promptLabel: string): Promise<void> {

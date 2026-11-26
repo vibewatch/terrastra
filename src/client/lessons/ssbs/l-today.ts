@@ -1,6 +1,6 @@
 /** SSBS study lesson, part 3: West and Central Africa today, and the questions from the worksheets. */
 import { C, mk, type Lesson } from '../kit.ts';
-import { CONGO } from '../l-world.ts';
+import { CONGO } from '../geo.ts';
 import { mcq } from './helpers.ts';
 
 const unit = ['SSBS · West and Central Africa', 'SSBS · 西非与中非'] as const;

@@ -6,6 +6,14 @@ export function devLoginFrom(env: Record<string, string | undefined>): boolean {
   return env.DEV_LOGIN === '1' || env.NODE_ENV === 'development';
 }
 
+/**
+ * Controls strict Pro paywall enforcement (`401`/`402` on Pro chunks & UI locks).
+ * Defaults to false while payment gateways are not yet configured, and turns on with `PAYWALL_ENABLED=1`.
+ */
+export function paywallFrom(env: Record<string, string | undefined>): boolean {
+  return env.PAYWALL_ENABLED === '1';
+}
+
 /** True for origins that only reach this machine, where dev login cannot be abused from outside. */
 export function isLocalOrigin(url: string): boolean {
   try {

@@ -1,19 +1,35 @@
-import { h, openModal, closeModal, toast } from './dom.ts';
+import { h, openModal, closeModal, confetti, toast } from './dom.ts';
 import { t } from '../lib/i18n.ts';
 import { icon } from './icons.ts';
 import { api } from '../lib/api.ts';
-import { store, setMe, getAccountEpoch, replaceProgress, subscribe, ProgressLimitError } from '../store.ts';
+import {
+  store,
+  setMe,
+  setBilling,
+  effectivePlan,
+  readLocalExtras,
+  applyRemoteExtras,
+  getAccountEpoch,
+  replaceProgress,
+  subscribe,
+  ProgressLimitError,
+} from '../store.ts';
 import { HANDLE_PATTERN } from '../../shared/lib/profile.ts';
-import { emptyProgress, fitProgress, mergeProgress } from '../../shared/lib/progress.ts';
+import { emptyProgress, fitProgress, MAX_SYNC_REQUEST_BYTES, mergeProgress } from '../../shared/lib/progress.ts';
+import { openPaywall, planLabel, redeemAndRefresh } from './paywall.ts';
 
 export async function syncNow(quiet = false): Promise<boolean> {
   if (!store.me) return false;
   const epoch = getAccountEpoch();
   try {
     // trimmed the same way the server trims, so an oversized local record still syncs instead of failing forever
-    const { progress } = await api.syncProgress(fitProgress(store.progress));
+    const fitted = fitProgress(store.progress);
+    const extras = readLocalExtras();
+    const withExtrasBytes = new TextEncoder().encode(JSON.stringify({ progress: fitted, extras })).length;
+    const res = await api.syncProgress(fitted, withExtrasBytes <= MAX_SYNC_REQUEST_BYTES ? extras : undefined);
     if (getAccountEpoch() !== epoch) return false;
-    replaceProgress(fitProgress(mergeProgress(store.progress, progress)));
+    replaceProgress(fitProgress(mergeProgress(store.progress, res.progress)));
+    if (res.extras) applyRemoteExtras(res.extras);
     if (!quiet) toast(t('synced'));
     return true;
   } catch (err) {
@@ -38,7 +54,10 @@ export function openAccount(): void {
             out.replaceChildren(...[h('p', {}, t('linkSent')),
               r.devLink ? h('p', { class: 'small' }, t('devLink') + ': ', h('a', { href: r.devLink, 'data-testid': 'dev-link' }, t('signIn'))) : null].filter((x): x is HTMLParagraphElement => !!x));
           } catch (err) { out.replaceChildren(h('p', { class: 'error' }, (err as Error).message || t('offline'))); }
-        } }, email, h('button', { class: 'cta', type: 'submit', 'data-testid': 'send-link' }, t('sendLink'))), out);
+        } }, email, h('button', { class: 'cta', type: 'submit', 'data-testid': 'send-link' }, t('sendLink'))),
+        out,
+        h('div', { style: 'margin-top:10px' },
+          h('button', { class: 'link small', 'data-testid': 'acct-compare-plans', onclick: () => { closeModal('account'); openPaywall(); } }, '✨ ', t('planCompare'))));
       return;
     }
     const signOut = async (clear: boolean) => {
@@ -57,9 +76,51 @@ export function openAccount(): void {
         h('button', { class: 'cta', 'data-testid': 'sign-out-clear', onclick: () => void signOut(true) }, t('signOutClear')),
         h('button', { class: 'pill', 'data-testid': 'sign-out-keep', onclick: () => void signOut(false) }, t('signOutKeep'))));
     const handle = h('input', { value: me.handle ?? '', maxlength: 16, pattern: HANDLE_PATTERN, 'aria-label': t('handle'), title: t('handleRule'), 'data-testid': 'handle' });
+    const curPlan = effectivePlan();
+    const codeInput = h('input', {
+      type: 'text',
+      required: true,
+      maxlength: 32,
+      placeholder: t('redeemPlaceholder'),
+      'aria-label': t('redeemTitle'),
+      'data-testid': 'acct-redeem-input',
+    }) as HTMLInputElement;
+    const codeOut = h('small', { class: 'error', 'data-testid': 'acct-redeem-error', hidden: true });
+    const planBox = h('section', { class: 'acct-plan-box', 'data-testid': 'acct-plan-box' },
+      h('div', { class: 'acct-plan-top' },
+        h('div', {},
+          h('small', { class: 'muted' }, t('planLabel') + ': '),
+          h('span', { class: `plan-pill ${curPlan}`, 'data-testid': 'acct-plan-pill' }, planLabel(curPlan))),
+        store.billing.activeSessions > 0
+          ? h('small', { class: 'muted', 'data-testid': 'acct-session-cap' },
+              t('planDevices', { n: store.billing.activeSessions, cap: store.billing.maxSessions }))
+          : null,
+        h('button', { class: 'link small', 'data-testid': 'acct-compare-plans', onclick: () => { closeModal('account'); openPaywall(); } }, t('planCompare'))),
+      h('form', {
+        class: 'redeem-row',
+        'data-testid': 'acct-redeem-form',
+        onsubmit: async (e: Event) => {
+          e.preventDefault();
+          const raw = codeInput.value.trim();
+          if (!raw) return;
+          codeOut.hidden = true;
+          try {
+            const unlocked = await redeemAndRefresh(raw);
+            codeInput.value = '';
+            confetti(40);
+            toast(t('redeemSuccess', { plan: planLabel(unlocked) }), 4000);
+            render();
+          } catch (err) {
+            codeOut.textContent = (err as Error).message || t('offline');
+            codeOut.hidden = false;
+          }
+        },
+      }, codeInput, h('button', { class: 'pill', type: 'submit', 'data-testid': 'acct-redeem-btn' }, t('redeemBtn'))),
+      codeOut);
     body.replaceChildren(
       h('div', { class: 'acct-who' }, h('span', { class: 'acct-av', html: icon('user', 18) }),
         h('div', {}, h('small', { class: 'muted' }, t('account')), h('strong', {}, me.email))),
+      planBox,
       h('form', { class: 'acct-field', onsubmit: async (e: Event) => {
         e.preventDefault();
         const epoch = getAccountEpoch();
@@ -86,8 +147,12 @@ export function openAccount(): void {
       } }, t('deleteAccount')));
   };
   render();
-  let shownFor = store.me?.id ?? null;
-  const unsub = subscribe(() => { const id = store.me?.id ?? null; if (id !== shownFor) { shownFor = id; render(); } });
+  let shownFor = `${store.me?.id ?? 'none'}:${effectivePlan()}:${store.billing.activeSessions}`;
+  const unsub = subscribe(() => {
+    const sig = `${store.me?.id ?? 'none'}:${effectivePlan()}:${store.billing.activeSessions}`;
+    if (sig !== shownFor) { shownFor = sig; render(); }
+  });
+  if (store.me) void api.billingStatus().then(st => { if (st) setBilling(st); }).catch(() => {});
   openModal('account', t('account'), body, { onClose: unsub });
 }
 

@@ -4,6 +4,7 @@ import { icon } from './icons.ts';
 import { t, lang } from '../lib/i18n.ts';
 import { tr, type Lang } from '../../shared/data/types.ts';
 import { bookmarks, addBookmark, removeBookmark, encodeView, viewUrl, type Bookmark } from '../lib/viewlink.ts';
+import { scheduleSync } from '../store.ts';
 
 export interface BookmarkHost {
   /** What is on screen now, or null when there is nothing worth saving (a game, a loading scene). */
@@ -54,7 +55,7 @@ export function openBookmarks(host: BookmarkHost): void {
         h('span', { class: 'tile', html: icon(b.route.startsWith('sky') ? 'eclipse' : /^(solar|nearbystars|milkyway|localgroup|laniakea|universe)/.test(b.route) ? 'planet' : 'pin', 20) }),
         h('span', { class: 'grow' }, h('strong', {}, tr(b.label, lang())), h('span', { class: 'muted small' }, subStr))),
       h('button', { class: 'icon-btn tour-link', 'aria-label': t('bmCopy'), title: t('bmCopy'), html: icon('share', 16), onclick: () => void copyText(viewUrl(b), t('bmCopied')) }),
-      h('button', { class: 'icon-btn tour-link', 'data-testid': 'bm-remove', 'aria-label': t('bmRemove'), title: t('bmRemove'), html: icon('trash', 16), onclick: () => { removeBookmark(b); render(); } }));
+      h('button', { class: 'icon-btn tour-link', 'data-testid': 'bm-remove', 'aria-label': t('bmRemove'), title: t('bmRemove'), html: icon('trash', 16), onclick: () => { removeBookmark(b); scheduleSync(); render(); } }));
   };
   const render = () => {
     const bs = bookmarks();
@@ -69,7 +70,7 @@ export function openBookmarks(host: BookmarkHost): void {
   openModal('bookmarks', t('bookmarks'), h('div', {},
     h('p', { class: 'muted' }, t('bmIntro')),
     h('div', { class: 'row bm-actions' },
-      h('button', { class: 'pill', 'data-testid': 'bm-save', onclick: () => void here(b => { addBookmark(b); render(); toast(t('bmSaved')); }) }, h('span', { html: icon('pin', 15) }), t('bmSave')),
+      h('button', { class: 'pill', 'data-testid': 'bm-save', onclick: () => void here(b => { addBookmark(b); scheduleSync(); render(); toast(t('bmSaved')); }) }, h('span', { html: icon('pin', 15) }), t('bmSave')),
       h('button', { class: 'pill', 'data-testid': 'bm-share', onclick: () => void here(b => void copyText(viewUrl(b), t('bmCopied'))) }, h('span', { html: icon('share', 15) }), t('bmCopy')),
       exportBtn),
     list));

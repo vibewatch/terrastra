@@ -1,5 +1,8 @@
 import { h } from './dom.ts';
+import { openPaywall } from './paywall.ts';
 import { t, lang, fmtNum } from '../lib/i18n.ts';
+import { canUsePro } from '../store.ts';
+import { isFreeTimeStop } from '../../shared/lib/entitlements.ts';
 import { CATALOGUE } from '../../shared/data/catalogue.ts';
 import { tr, type CatalogueItem } from '../../shared/data/types.ts';
 import { STOPS, visibleAt, appearingAt, eraNote, type Stop } from '../../shared/lib/timeline.ts';
@@ -39,13 +42,36 @@ export class TimeMachine {
   /** One slider for the bar's lifetime: replacing it while it is dragged or focused would end the drag and drop focus. */
   private readonly range = (() => {
     const r = h('input', { type: 'range', min: '0', max: String(STOPS.length - 1), step: '1', 'data-testid': 'time-range' }) as HTMLInputElement;
-    r.addEventListener('input', () => { this.idx = Number(r.value); sfx.tap(); this.apply(STOPS[this.idx]); this.render(); });
+    r.addEventListener('input', () => {
+      const next = Number(r.value);
+      if (!canUsePro() && !isFreeTimeStop(STOPS[next])) {
+        r.value = String(this.idx);
+        openPaywall(t('proReasonTimeMachine'), () => {
+          this.idx = next;
+          this.apply(STOPS[this.idx]);
+          this.render();
+        });
+        return;
+      }
+      this.idx = next;
+      sfx.tap();
+      this.apply(STOPS[this.idx]);
+      this.render();
+    });
     return r;
   })();
 
   private step(delta: number): void {
     const next = Math.max(0, Math.min(STOPS.length - 1, this.idx + delta));
     if (next === this.idx) return;
+    if (!canUsePro() && !isFreeTimeStop(STOPS[next])) {
+      openPaywall(t('proReasonTimeMachine'), () => {
+        this.idx = next;
+        this.apply(STOPS[this.idx]);
+        this.render();
+      });
+      return;
+    }
     this.idx = next;
     sfx.tap();
     this.apply(STOPS[this.idx]);

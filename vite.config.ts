@@ -19,11 +19,13 @@ export default defineConfig({
         codeSplitting: {
           groups: [
             { name: 'three', test: /\/node_modules\/three\// },
-            { name: 'lessons-astro', test: /\/src\/client\/lessons\/astro\/(?:data|l-)/ },
+            { name: 'shared-lib', test: /\/src\/shared\/lib\// },
             { name: 'lessons-ssbs', test: /\/src\/client\/lessons\/ssbs\// },
-            { name: 'lessons-china', test: /\/src\/client\/lessons\/(?:l-china|geo-cn)/ },
-            { name: 'lessons-earth', test: /\/src\/client\/lessons\/(?:l-earth|l-maps|l-land|l-physical|l-climate)/ },
-            { name: 'lessons-world', test: /\/src\/client\/lessons\/(?:l-world|l-regions|l-human|l-senior|l-home)/ },
+            { name: 'lessons-free', test: /\/src\/client\/lessons\/(?:free-bundle\.ts|catalog\.ts|catalog-meta\.json|l-earth\.ts|l-land\.ts|l-home\.ts|geo(?:-cn2?)?\.ts|climate\.ts|figs\.ts|kit\.ts|models\.ts|shuffle\.ts|stage\.ts|astro\/(?:l-earthmoon|draw|stage|sunspots|types)\.ts)/ },
+            { name: 'pro-lessons-astro', test: /\/src\/client\/lessons\/astro\/(?:data\.ts|l-(?!earthmoon\.ts))/ },
+            { name: 'pro-lessons-china', test: /\/src\/client\/lessons\/l-china/ },
+            { name: 'pro-lessons-earth', test: /\/src\/client\/lessons\/(?:pro-bundle\.ts|data\.ts|l-earth2\.ts|l-maps\.ts|l-physical\.ts|l-climate\.ts|l-grade-banks\.ts)/ },
+            { name: 'pro-lessons-world', test: /\/src\/client\/lessons\/(?:l-world\.ts|l-regions\.ts|l-human\.ts|l-senior)/ },
           ],
         },
       },

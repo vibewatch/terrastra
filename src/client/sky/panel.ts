@@ -3,7 +3,10 @@ import { skyEvents, localSolar, topocentric, type SkyEvent, type SkyEventKind } 
 import { SHOWERS } from '../../shared/data/showers.ts';
 import { h } from '../ui/dom.ts';
 import { icon } from '../ui/icons.ts';
-import { lang } from '../lib/i18n.ts';
+import { openPaywall } from '../ui/paywall.ts';
+import { lang, t } from '../lib/i18n.ts';
+import { canUsePro } from '../store.ts';
+import { isFreeSkyYear } from '../../shared/lib/entitlements.ts';
 import { s, regionOf, type SkyKey } from './text.ts';
 import { eventTitle, type Site } from './acts.ts';
 
@@ -159,6 +162,10 @@ export class Calendar {
   }
 
   private exportIcs(): void {
+    if (!canUsePro()) {
+      openPaywall(t('proReasonSkyIcs'), () => this.exportIcs());
+      return;
+    }
     const evs = this.currentYearEvents();
     if (!evs.length) return;
     const ics = skyEventsToIcs(evs, this.site(), this.year);
@@ -170,7 +177,15 @@ export class Calendar {
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   }
 
-  private go(d: number): void { this.year = Math.max(1900, Math.min(2199, this.year + d)); this.render(); }
+  private go(d: number): void {
+    const target = Math.max(1900, Math.min(2199, this.year + d));
+    if (!canUsePro() && !isFreeSkyYear(target)) {
+      openPaywall(t('proReasonSkyYear'), () => { this.year = target; this.render(); });
+      return;
+    }
+    this.year = target;
+    this.render();
+  }
   showYear(y: number): void { if (y !== this.year) { this.year = y; this.render(); } }
 
   render(): void {

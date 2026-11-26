@@ -4,19 +4,35 @@
  * stays live, so the user can turn it, zoom in and open the models while a lesson runs.
  */
 import { h, openModal, closeModal, confetti, toast } from '../ui/dom.ts';
+import { withBusy } from '../ui/lazy.ts';
 import { Select } from '../ui/select.ts';
 import { icon } from '../ui/icons.ts';
+import { openPaywall } from '../ui/paywall.ts';
 import { t, lang, onLang } from '../lib/i18n.ts';
 import { load, save } from '../lib/storage.ts';
+import { canUsePro, isPaywallEnabled, scheduleSync } from '../store.ts';
 import { classroomLink } from '../lib/classroom.ts';
 import { ssbsLink } from '../lib/ssbs.ts';
 import { countryAt } from '../globe/borders.ts';
 import { haversineKm } from '../../shared/lib/geo.ts';
+import { FREE_MISTAKE_LIMIT, isFreeLesson } from '../../shared/lib/entitlements.ts';
 import { skyEvents } from '../../shared/lib/astro/events.ts';
 import type { Globe } from '../globe/scene.ts';
 import { LessonStage, fitView } from './stage.ts';
 import { AstroStage } from './astro/stage.ts';
-import { CATALOGS, findCanonicalQuiz, lessonById, nextLesson, subjectOf, type Lesson, type Quiz, type Step, type Subject } from './data.ts';
+import { freeLessonById } from './free-bundle.ts';
+import {
+  META_CATALOGS,
+  lessonMetaById,
+  loadCanonicalQuiz,
+  loadLessonById,
+  nextLessonMeta,
+  subjectOf,
+  type Lesson,
+  type Quiz,
+  type Step,
+  type Subject,
+} from './catalog.ts';
 import { renderFig, type Fig } from './figs.ts';
 import { optionOrder, shuffled } from './shuffle.ts';
 import type { AstroScene, Home, LL, Pair } from './kit.ts';
@@ -52,15 +68,15 @@ export interface LessonHost {
 
 const done = () => new Set(load<string[]>('lessonsDone', []));
 const journal = (): LessonJournal => load<LessonJournal>('lessonJournal', {});
-const saveJournal = (j: LessonJournal): void => save('lessonJournal', j);
+const saveJournal = (j: LessonJournal): void => { save('lessonJournal', j); scheduleSync(); };
 const mistakes = (): MistakeBook => load<MistakeBook>('mistakeBook', {});
-const saveMistakes = (b: MistakeBook): void => save('mistakeBook', b);
+const saveMistakes = (b: MistakeBook): void => { save('mistakeBook', b); scheduleSync(); };
 /** The curriculum picked in a subject's lesson list; Chinese readers start with the Chinese course. */
-const view = (sub: Subject): string => { const c = CATALOGS[sub], v = load<string>(c.key, ''); return v in c.views ? v : c.def(lang() === 'zh'); };
+const view = (sub: Subject): string => { const c = META_CATALOGS[sub], v = load<string>(c.key, ''); return v in c.views ? v : c.def(lang() === 'zh'); };
 const figure = (f: Fig | undefined) => f ? h('figure', { class: 'lesson-fig', 'data-testid': 'lesson-fig', html: renderFig(f, L) }) : '';
 
-function quizFromMistake(e: MistakeEntry): Quiz {
-  const canon = findCanonicalQuiz(e.lessonId, e.q[0]);
+async function quizFromMistake(e: MistakeEntry): Promise<Quiz> {
+  const canon = await loadCanonicalQuiz(e.lessonId, e.q[0], canUsePro());
   if (canon) return { ...canon };
   return {
     q: e.snapshot.q,
@@ -87,16 +103,35 @@ export function stopLesson(): void { active?.stop(); }
 export function nextForJournal(id: string): string {
   const sub = subjectOf(id);
   const v = view(sub);
-  const nx = nextLesson(id, v) ?? (v === 'all' ? undefined : nextLesson(id, 'all'));
+  const nx = nextLessonMeta(id, v) ?? (v === 'all' ? undefined : nextLessonMeta(id, 'all'));
   return nx?.id ?? id;
 }
 
 export function startLesson(id: string, host: LessonHost, opts?: { resume?: boolean }): void {
-  const lesson = lessonById(id);
-  if (!lesson || host.blocked()) return;
-  stopLesson();
-  document.querySelector('.tutorial')?.remove();
-  host.toEarth(() => run(lesson, host, opts?.resume ?? false));
+  const meta = lessonMetaById(id);
+  if (!meta || host.blocked()) return;
+  if (!isFreeLesson(id) && !canUsePro()) {
+    openPaywall(L(meta.title), () => startLesson(id, host, opts));
+    return;
+  }
+  const launch = (lesson: Lesson) => {
+    if (host.blocked()) return;
+    stopLesson();
+    document.querySelector('.tutorial')?.remove();
+    host.toEarth(() => run(lesson, host, opts?.resume ?? false));
+  };
+  if (isFreeLesson(id)) {
+    const free = freeLessonById(id);
+    if (free) launch(free);
+    return;
+  }
+  void withBusy(loadLessonById(id)).then(
+    lesson => { if (lesson) launch(lesson); },
+    () => {
+      if (isPaywallEnabled()) openPaywall(L(meta.title), () => startLesson(id, host, opts));
+      else toast('⚠️ ' + t('loadFail', { s: L(meta.title) }));
+    },
+  );
 }
 
 export function startMistakeReview(host: LessonHost, sub: Subject = 'geo', customEntries?: MistakeEntry[]): void {
@@ -109,22 +144,29 @@ export function startMistakeReview(host: LessonHost, sub: Subject = 'geo', custo
         return todo.length > 0 ? todo : listMistakes(book, { status: 'all', filterFn: id => subjectOf(id) === sub });
       })();
   if (entries.length === 0) return;
-  const reviewLesson: Lesson = {
-    id: sub === 'astro' ? 'a-mistake-review' : sub === 'ssbs' ? 'ssbs-mistake-review' : 'mistake-review-geo',
-    strand: 'maps',
-    tracks: [],
-    unit: ['Wrong-question notebook', '错题本专项复习'],
-    icon: 'book',
-    minutes: Math.max(2, Math.ceil(entries.length * 1.5)),
-    title: ['Mistake Review', '错题本复习'],
-    blurb: ['Re-practice missed questions until mastered.', '针对答错题目进行专项重练，答对即标记为已掌握。'],
-    keys: entries.slice(0, 5).map(e => e.why),
-    steps: [],
-    quiz: entries.map(quizFromMistake),
-  };
-  stopLesson();
-  document.querySelector('.tutorial')?.remove();
-  host.toEarth(() => run(reviewLesson, host, false, entries.map(e => e.key)));
+  if (!canUsePro() && entries.length > FREE_MISTAKE_LIMIT) {
+    openPaywall(t('proReasonMistakes'), () => startMistakeReview(host, sub, customEntries));
+    return;
+  }
+  void Promise.all(entries.map(quizFromMistake)).then(resolvedQuiz => {
+    if (host.blocked()) return;
+    const reviewLesson: Lesson = {
+      id: sub === 'astro' ? 'a-mistake-review' : sub === 'ssbs' ? 'ssbs-mistake-review' : 'mistake-review-geo',
+      strand: 'maps',
+      tracks: [],
+      unit: ['Wrong-question notebook', '错题本专项复习'],
+      icon: 'book',
+      minutes: Math.max(2, Math.ceil(entries.length * 1.5)),
+      title: ['Mistake Review', '错题本复习'],
+      blurb: ['Re-practice missed questions until mastered.', '针对答错题目进行专项重练，答对即标记为已掌握。'],
+      keys: entries.slice(0, 5).map(e => e.why),
+      steps: [],
+      quiz: resolvedQuiz,
+    };
+    stopLesson();
+    document.querySelector('.tutorial')?.remove();
+    host.toEarth(() => run(reviewLesson, host, false, entries.map(e => e.key)));
+  });
 }
 
 function run(lesson: Lesson, host: LessonHost, resume = false, reviewKeys?: string[]): void {
@@ -391,7 +433,7 @@ function run(lesson: Lesson, host: LessonHost, resume = false, reviewKeys?: stri
   const renderScore = () => {
     const s = answers.filter(Boolean).length;
     const missedIdx = quiz.map((_, idx) => idx).filter(idx => answers[idx] === false);
-    const v = view(sub), nx = isMistakeSession ? undefined : (nextLesson(lesson.id, v) ?? (v === 'all' ? undefined : nextLesson(lesson.id, 'all')));
+    const v = view(sub), nx = isMistakeSession ? undefined : (nextLessonMeta(lesson.id, v) ?? (v === 'all' ? undefined : nextLessonMeta(lesson.id, 'all')));
     const again = () => {
       if (lesson.gen) { ({ steps, quiz } = lesson.gen()); answers = quiz.map(() => null); kept.length = 0; }
       else answers.fill(null);
@@ -586,6 +628,7 @@ function run(lesson: Lesson, host: LessonHost, resume = false, reviewKeys?: stri
       return;
     }
     save('lessonsDone', [...done().add(lesson.id)]);
+    scheduleSync();
     let score = 0, total = 0;
     const missed: (readonly [string, string])[] = [];
     quiz.forEach((q, k) => {
@@ -662,7 +705,7 @@ function nextSolstice(): string | undefined {
 
 /** The lesson picker of a subject: pick a curriculum, then its lessons in groups (textbook volumes, or themes). */
 export function openLessons(host: LessonHost, sub: Subject = 'geo'): void {
-  const seen = done(), jMap = journal(), cat = CATALOGS[sub];
+  const seen = done(), jMap = journal(), cat = META_CATALOGS[sub];
   const list = h('div', { class: 'tour-list lesson-list', 'data-testid': 'lesson-list' });
   const journalBox = h('div', { class: 'lesson-journal-wrap' });
   const mistakeBox = h('div', { class: 'lesson-mistake-wrap' });
@@ -681,7 +724,9 @@ export function openLessons(host: LessonHost, sub: Subject = 'geo'): void {
               h('strong', {}, t('mistake.title')),
               all.length > 0 ? h('span', { class: 'muted small', 'data-testid': 'mistake-stats' },
                 t('mistake.stats', { todo: todo.length, mastered: mastered.length, total: all.length })) : null),
-            all.length === 0 ? h('p', { class: 'muted small', 'data-testid': 'mistake-empty' }, t('mistake.empty')) : null),
+            all.length === 0 ? h('p', { class: 'muted small', 'data-testid': 'mistake-empty' }, t('mistake.empty')) : null,
+            !canUsePro() && all.length > FREE_MISTAKE_LIMIT ? h('p', { class: 'muted small', 'data-testid': 'mistake-pro-hint' },
+              '🔒 ', t('mistake.proHint', { n: FREE_MISTAKE_LIMIT })) : null),
           all.length > 0 ? h('div', { class: 'mistake-actions' },
             h('button', {
               class: 'cta pill-sm',
@@ -702,7 +747,7 @@ export function openLessons(host: LessonHost, sub: Subject = 'geo'): void {
         notebookOpen && all.length > 0 ? h('div', { class: 'mistake-list', 'data-testid': 'mistake-list' },
           ...all.map(e => {
             const ansSummary = L(e.rightText);
-            const srcLesson = lessonById(e.lessonId);
+            const srcLesson = lessonMetaById(e.lessonId);
             const lessonName = srcLesson ? L(srcLesson.title) : e.lessonId;
             return h('article', { class: 'mistake-card' + (e.mastered ? ' mastered' : ''), 'data-testid': 'mistake-item' },
               h('div', { class: 'mistake-card-top' },
@@ -741,8 +786,8 @@ export function openLessons(host: LessonHost, sub: Subject = 'geo'): void {
   };
 
   const renderJournal = (v: string) => {
-    const cont = pickContinueLesson(jMap, id => subjectOf(id) === sub && !!lessonById(id));
-    const subEntries = Object.values(jMap).filter(e => subjectOf(e.id) === sub && !!lessonById(e.id));
+    const cont = pickContinueLesson(jMap, id => subjectOf(id) === sub && !!lessonMetaById(id));
+    const subEntries = Object.values(jMap).filter(e => subjectOf(e.id) === sub && !!lessonMetaById(e.id));
     const reviewPairs: Pair[] = [];
     const seenTopics = new Set<string>();
     for (const e of subEntries.sort((a, b) => b.updatedAt - a.updatedAt)) {
@@ -765,8 +810,8 @@ export function openLessons(host: LessonHost, sub: Subject = 'geo'): void {
     const isMid = !!cont && cont.stepIndex > 0 && cont.stepIndex < cont.totalSteps;
     const targetLesson = cont
       ? (isMid
-          ? lessonById(cont.id)
-          : (nextLesson(cont.id, v) ?? (v === 'all' ? undefined : nextLesson(cont.id, 'all')) ?? lessonById(cont.id)))
+          ? lessonMetaById(cont.id)
+          : (nextLessonMeta(cont.id, v) ?? (v === 'all' ? undefined : nextLessonMeta(cont.id, 'all')) ?? lessonMetaById(cont.id)))
       : undefined;
 
     const completedCount = [...seen].filter(id => subjectOf(id) === sub).length;
@@ -804,6 +849,7 @@ export function openLessons(host: LessonHost, sub: Subject = 'geo'): void {
     note.textContent = L(cat.views[v].note);
     renderJournal(v);
     renderMistakes();
+    const lockedUi = isPaywallEnabled() && !canUsePro();
     const groups = cat.course(v).map(gr => h('section', { class: 'lesson-group' },
       h('h3', { class: 'lesson-grade' }, h('span', {}, L(gr.name)), h('small', {}, `${gr.lessons.filter(x => seen.has(x.id)).length}/${gr.lessons.length}`)),
       ...gr.lessons.map(x => {
@@ -812,10 +858,13 @@ export function openLessons(host: LessonHost, sub: Subject = 'geo'): void {
         const progTag = !seen.has(x.id) && je && je.stepIndex > 0 && je.stepIndex < je.totalSteps
           ? `${t('lessonInProg', { i: je.stepIndex + 1, n: je.totalSteps })} · `
           : '';
-        return h('div', { class: 'tour-row lesson-row' + (seen.has(x.id) ? ' done' : '') },
+        const locked = lockedUi && !isFreeLesson(x.id);
+        return h('div', { class: 'tour-row lesson-row' + (seen.has(x.id) ? ' done' : '') + (locked ? ' locked' : '') },
           h('button', { class: 'tour-pick', 'data-testid': 'lesson-' + x.id, onclick: () => { closeModal('lessons'); startLesson(x.id, host); } },
             h('span', { class: 'tile', html: icon(x.icon, 18) }),
-            h('span', { class: 'grow' }, h('strong', {}, L(x.title)), h('span', { class: 'muted small' }, `${L(x.unit)} · ${L(x.blurb)}`)),
+            h('span', { class: 'grow' },
+              h('strong', {}, locked ? h('span', { class: 'pro-badge' }, t('planBadgePro')) : null, L(x.title)),
+              h('span', { class: 'muted small' }, `${L(x.unit)} · ${L(x.blurb)}`)),
             h('span', { class: 'meta' }, (seen.has(x.id) ? '✓ ' : '') + scoreTag + progTag + t('minutesN', { n: x.minutes }))),
           h('button', { class: 'icon-btn tour-link', 'aria-label': t('classLink'), title: t('classLink'), html: icon('share', 14),
             onclick: () => void copyLink(sub === 'ssbs' ? ssbsLink(x.id) : classroomLink(x.id, 'lesson')) }));

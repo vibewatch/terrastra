@@ -594,3 +594,161 @@ describe('client keys for rate limits', () => {
     } finally { srv.close(); db3.close(); }
   });
 });
+
+describe('billing, redemption codes, session caps, sync v2 & gated pro chunks', async () => {
+  const { issueRedemptionCodes, grantEntitlement, hashRedeemCode } = await import('../../src/server/billing.ts');
+  const { mkdtempSync, mkdirSync, rmSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+
+  async function loginFreshSession(srvBase: string, email: string): Promise<string> {
+    const reqRes = await fetch(srvBase + '/api/auth/request', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: srvBase },
+      body: JSON.stringify({ email }),
+    });
+    expect(reqRes.status).toBe(200);
+    const { devLink } = await reqRes.json() as { devLink: string };
+    const verified = await confirmLink(devLink, srvBase, false);
+    expect(verified.status).toBe(303);
+    expect(verified.sid).toBeTruthy();
+    return verified.sid!;
+  }
+
+  it('redeems single-use codes, enforces FIFO session caps (3 vs 10), syncs extras, and gates pro-lessons chunks', async () => {
+    const staticDir = mkdtempSync(join(tmpdir(), 'terrastra-pro-gate-'));
+    mkdirSync(join(staticDir, 'assets'), { recursive: true });
+    mkdirSync(join(staticDir, '.pro-assets'), { recursive: true });
+    writeFileSync(join(staticDir, 'index.html'), '<!doctype html><html><head></head><body>ok</body></html>');
+    writeFileSync(join(staticDir, 'assets', 'public-test.js'), 'export const pub = 1;\n');
+    writeFileSync(join(staticDir, '.pro-assets', 'pro-lessons-earth-TEST123.js'), 'export const secretLesson = true;\n');
+
+    const paywallDb = openDb(':memory:');
+    const [proCode] = issueRedemptionCodes(paywallDb, { plan: 'pro', count: 1, note: 'unit-pro' });
+    const [revokedCode] = issueRedemptionCodes(paywallDb, { plan: 'pro', count: 1, note: 'unit-revoked' });
+    paywallDb.prepare('UPDATE redemption_codes SET revoked = 1 WHERE code_hash = ?').run(hashRedeemCode(revokedCode!));
+
+    let srv: Server | undefined;
+    try {
+      const app = createApp({
+        db: paywallDb,
+        staticDir,
+        devLogin: true,
+        baseUrl: 'http://127.0.0.1',
+        secureCookies: false,
+        enforcePaywall: true,
+      });
+      srv = await new Promise<Server>(r => { const s = app.listen(0, '127.0.0.1', () => r(s)); });
+      const srvBase = `http://127.0.0.1:${(srv.address() as { port: number }).port}`;
+
+      // 1. Direct /.pro-assets access is always 404; public asset is 200; pro chunk is 401 when signed out
+      expect((await fetch(srvBase + '/.pro-assets/pro-lessons-earth-TEST123.js')).status).toBe(404);
+      expect((await fetch(srvBase + '/assets/public-test.js')).status).toBe(200);
+      expect((await fetch(srvBase + '/assets/pro-lessons-earth-TEST123.js')).status).toBe(401);
+
+      const anonStatus = await (await fetch(srvBase + '/api/billing/status')).json();
+      expect(anonStatus).toMatchObject({ paywall: true, plan: 'free', proAccess: false, maxSessions: 3, activeSessions: 0 });
+
+      // 2. Sign in on 4 separate devices as a Free user -> oldest session is evicted (FIFO cap = 3)
+      const sids: string[] = [];
+      for (let i = 0; i < 4; i++) {
+        paywallDb.prepare("DELETE FROM rate_limits").run();
+        sids.push(await loginFreshSession(srvBase, 'learner@example.com'));
+      }
+      const checkMe = async (cookie: string) => (await (await fetch(srvBase + '/api/me', { headers: { cookie } })).json()).user;
+      expect(await checkMe(sids[0]!)).toBeNull();
+      expect((await checkMe(sids[1]!))?.plan).toBe('free');
+      expect((await checkMe(sids[3]!))?.plan).toBe('free');
+
+      const activeSid = sids[3]!;
+      const authedStatus = await (await fetch(srvBase + '/api/billing/status', { headers: { cookie: activeSid } })).json();
+      expect(authedStatus).toMatchObject({ plan: 'free', proAccess: false, activeSessions: 3, maxSessions: 3 });
+
+      // 3. Signed-in Free user gets 402 on pro-lessons chunk and has cloud mistakes capped to 5
+      expect((await fetch(srvBase + '/assets/pro-lessons-earth-TEST123.js', { headers: { cookie: activeSid } })).status).toBe(402);
+
+      const { recordMistake } = await import('../../src/shared/lib/journal.ts');
+      let mistakes = {};
+      for (let i = 0; i < 7; i++) {
+        mistakes = recordMistake(
+          mistakes,
+          'shape',
+          { q: [`Q${i}?`, `题${i}？`], options: [['A', 'A'], ['B', 'B']], answer: 0, why: ['W', '因'] },
+          100 + i,
+        );
+      }
+      const putFree = await fetch(srvBase + '/api/progress', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json', origin: srvBase, cookie: activeSid },
+        body: JSON.stringify({
+          progress: emptyProgress(),
+          extras: {
+            lessonsDone: ['shape'],
+            bookmarks: [{ route: '', cam: { lat: 30, lon: 120, h: 1.5 }, label: { en: 'Home' }, at: 500 }],
+            mistakeBook: mistakes,
+          },
+        }),
+      });
+      expect(putFree.status).toBe(200);
+      const freeBody = await putFree.json();
+      expect(Object.keys(freeBody.extras.mistakeBook)).toHaveLength(5);
+      expect(freeBody.extras.bookmarks).toEqual([]);
+
+      // 4. Redemption error handling (401 anon, 400 malformed, 404 unknown/revoked) + normalized redemption
+      const redeem = (code: string, cookie?: string) => fetch(srvBase + '/api/billing/redeem', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', origin: srvBase, ...(cookie ? { cookie } : {}) },
+        body: JSON.stringify({ code }),
+      });
+      expect((await redeem(proCode!)).status).toBe(401);
+      expect((await redeem('bad-code', activeSid)).status).toBe(400);
+      expect((await redeem(revokedCode!, activeSid)).status).toBe(404);
+
+      const okRedeem = await redeem(proCode!.toLowerCase().replace(/-/g, ' '), activeSid);
+      expect(okRedeem.status).toBe(200);
+      const okJson = await okRedeem.json();
+      expect(okJson.entitlement.plan).toBe('pro');
+      expect(okJson.user.plan).toBe('pro');
+
+      // Re-redeeming the same single-use code returns 409 Conflict
+      expect((await redeem(proCode!, activeSid)).status).toBe(409);
+
+      // 5. Pro user now gets 200 OK on gated pro-lessons chunk and syncs full bookmarks + unlimited mistakes
+      const proChunk = await fetch(srvBase + '/assets/pro-lessons-earth-TEST123.js', { headers: { cookie: activeSid } });
+      expect(proChunk.status).toBe(200);
+      expect(proChunk.headers.get('cache-control')).toContain('private');
+      expect(await proChunk.text()).toContain('secretLesson = true');
+
+      const putPro = await fetch(srvBase + '/api/progress', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json', origin: srvBase, cookie: activeSid },
+        body: JSON.stringify({
+          progress: emptyProgress(),
+          extras: {
+            lessonsDone: ['shape', 'usa'],
+            bookmarks: [{ route: '', cam: { lat: 30, lon: 120, h: 1.5 }, label: { en: 'Home' }, at: 500 }],
+            mistakeBook: mistakes,
+          },
+        }),
+      });
+      const proBody = await putPro.json();
+      expect(Object.keys(proBody.extras.mistakeBook)).toHaveLength(7);
+      expect(proBody.extras.bookmarks).toHaveLength(1);
+
+      // 6. Upgrading to Classroom raises concurrent device cap to 10 without downgrading on a Pro grant
+      const uRow = paywallDb.prepare('SELECT id FROM users WHERE email = ?').get('learner@example.com') as { id: number };
+      expect(grantEntitlement(paywallDb, { userId: uRow.id, plan: 'classroom', source: 'school-license' }).maxSessions).toBe(10);
+      expect(grantEntitlement(paywallDb, { userId: uRow.id, plan: 'pro', source: 'extra-code' }).plan).toBe('classroom');
+      for (let i = 0; i < 5; i++) {
+        paywallDb.prepare("DELETE FROM rate_limits").run();
+        await loginFreshSession(srvBase, 'learner@example.com');
+      }
+      const clsStatus = await (await fetch(srvBase + '/api/billing/status', { headers: { cookie: activeSid } })).json();
+      expect(clsStatus).toMatchObject({ plan: 'classroom', activeSessions: 8, maxSessions: 10 });
+    } finally {
+      if (srv) await new Promise<void>(r => srv!.close(() => r()));
+      paywallDb.close();
+      rmSync(staticDir, { recursive: true, force: true });
+    }
+  });
+});

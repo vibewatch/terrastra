@@ -1,6 +1,6 @@
 /** SSBS study lessons, part 1: the key terms, the land and its climate, and the trading empires. */
 import { C, mk, type Lesson, type Quiz, type Step } from '../kit.ts';
-import { CONGO, NIGER, SAHEL } from '../l-world.ts';
+import { CONGO, NIGER, SAHEL } from '../geo.ts';
 import { GROUPS, TERMS, type TermGroup } from './terms.ts';
 import { AFRICA_CAM } from './countries.ts';
 import { mcq } from './helpers.ts';

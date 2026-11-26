@@ -75,6 +75,8 @@ const P: Record<string, string> = {
   upload: '<path d="M12 15V4M7.5 8.5 12 4l4.5 4.5M5 19.5h14"/>',
   eye: '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/>',
   quake: '<path d="M2.5 12h4l2-5.5 3 11 2.8-8.5 2 3H21.5"/>',
+  lock: '<rect x="5" y="11" width="14" height="9.5" rx="2"/><path d="M8 11V7.5a4 4 0 0 1 8 0V11"/>',
+  key: '<circle cx="8" cy="14" r="3.5"/><path d="m10.7 11.7 8.8-5.2M16 8.6l2 2.9M18.8 7l1.7 2.5"/>',
 };
 
 export type IconName = keyof typeof P;

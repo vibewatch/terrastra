@@ -1,7 +1,8 @@
 /** 七下 · 东半球其他的国家和地区、西半球的国家: the Middle East, Europe, Africa, Russia, India, the USA, Brazil. */
 import { C, arrows, mk, par, type Fig, type Lesson, type Pair } from './kit.ts';
 import type { LL } from './stage.ts';
-import { ASIA_EUROPE, EAST_AFRICA_RIFT, REGIONS, RIVERS, SUEZ } from './geo.ts';
+import { ASIA_EUROPE, CONGO, EAST_AFRICA_RIFT, NIGER, REGIONS, RIVERS, SAHEL, SUEZ } from './geo.ts';
+export { CONGO, NIGER, SAHEL };
 import { svg, tx } from './figs.ts';
 
 const r1 = (v: number) => Math.round(v * 10) / 10;
@@ -37,8 +38,6 @@ const route = (pts: LL[], t: number, c: string = C.gold) => ({ pts, c, t, w: 1.6
 // Hand-traced sketch lines and areas (textbook-diagram detail).
 const NILE: LL[] = [[0.4, 33.2], [2.3, 31.5], [4.85, 31.6], [9.5, 31.65], [12.5, 32.6], [15.6, 32.5], [17.7, 34.0], [19.5, 33.3], [18.5, 31.8], [19.2, 30.5], [21.8, 31.3], [24.1, 32.9], [25.7, 32.6], [27.2, 31.2], [30.0, 31.2], [31.5, 31.0]];
 const BLUE_NILE: LL[] = [[12.0, 37.3], [10.2, 37.9], [11.0, 35.3], [13.5, 33.6], [15.6, 32.5]];
-export const CONGO: LL[] = [[-11.0, 26.5], [-5.0, 26.9], [-2.9, 25.9], [0.5, 25.2], [2.0, 22.5], [1.5, 19.0], [0.0, 18.3], [-2.5, 16.2], [-4.3, 15.3], [-6.0, 12.4]];
-export const NIGER: LL[] = [[9.2, -10.6], [12.6, -8.0], [14.5, -4.2], [16.8, -3.0], [16.3, 0.0], [13.5, 2.1], [9.1, 4.8], [7.8, 6.7], [5.0, 6.2], [4.3, 6.0]];
 const VOLGA: LL[] = [[57.3, 32.5], [56.9, 35.9], [57.6, 39.9], [56.3, 44.0], [55.8, 49.1], [53.2, 50.1], [51.5, 46.0], [48.7, 44.5], [46.35, 48.0], [45.8, 48.4]];
 const URALS: LL[] = ASIA_EUROPE.slice(0, 5);
 const TRANS_SIB: LL[] = [[55.75, 37.6], [56.3, 44.0], [56.8, 60.6], [55.0, 73.4], [55.0, 82.9], [56.0, 92.9], [52.3, 104.3], [51.8, 107.6], [52.0, 113.5], [54.0, 123.9], [48.5, 135.1], [43.1, 131.9]];
@@ -72,8 +71,6 @@ const RHINE: LL[] = [[46.63, 8.67], [46.85, 9.53], [47.5, 9.6], [47.66, 9.17], [
 const DANUBE: LL[] = [[47.95, 8.5], [48.4, 10.0], [49.02, 12.1], [48.57, 13.46], [48.3, 14.29], [48.21, 16.37], [48.14, 17.1], [47.8, 18.8], [47.5, 19.04], [46.0, 18.9], [45.25, 19.85], [44.82, 20.45], [44.65, 22.4], [43.75, 24.5], [44.1, 27.3], [45.27, 27.97], [45.17, 28.8], [45.2, 29.7]];
 const ALPS: LL[] = [[43.9, 7.3], [44.8, 6.9], [45.83, 6.86], [46.1, 7.8], [46.45, 9.3], [46.9, 11.0], [47.1, 12.8], [47.4, 14.5], [47.8, 16.0]];
 const SCANDES: LL[] = [[58.5, 7], [61, 7.5], [63, 10], [65.5, 13.5], [68, 16.5], [69.5, 20]];
-/** The Sahel, the semi-arid belt on the Sahara's southern edge (sketch). */
-export const SAHEL: LL[] = [[17.5, -16.5], [17, -5], [16.5, 5], [16.5, 15], [15.5, 24], [15, 33], [12.5, 33], [12.5, 24], [13, 15], [12.5, 5], [13, -5], [13.5, -16.8]];
 /** 中东 in the PEP sense: West Asia except Afghanistan, plus Egypt. */
 const ME = ['SA', 'IR', 'IQ', 'KW', 'AE', 'QA', 'BH', 'OM', 'YE', 'JO', 'SY', 'LB', 'IL', 'PS', 'TR', 'CY', 'GE', 'AM', 'AZ', 'EG'];
 const WEU = ['GB', 'IE', 'FR', 'DE', 'NL', 'BE', 'LU', 'CH', 'AT', 'ES', 'PT', 'IT', 'DK', 'NO', 'SE', 'FI', 'IS'];

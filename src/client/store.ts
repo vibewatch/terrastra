@@ -1,9 +1,12 @@
 import { load, save } from './lib/storage.ts';
 import { emptyProgress, fitsSyncRequest, isProgress, mergeProgress, type Progress } from '../shared/lib/progress.ts';
+import { hasProAccess, type Plan } from '../shared/lib/entitlements.ts';
+import { isSyncExtras, mergeSyncExtras, type SyncBookmark, type SyncExtras } from '../shared/lib/sync-extras.ts';
+import type { LessonJournal, MistakeBook } from '../shared/lib/journal.ts';
 import { newlyEarned } from '../shared/lib/stickers.ts';
 import { ANIMALS, DISCOVERIES } from '../shared/data/catalogue.ts';
 import { DEFAULT_SETTINGS, type Settings } from './globe/scene.ts';
-import type { Me } from './lib/api.ts';
+import type { BillingStatus, Me } from './lib/api.ts';
 
 type Listener = () => void;
 const subs = new Set<Listener>();
@@ -12,11 +15,21 @@ export class ProgressLimitError extends Error {
   constructor() { super('Merged progress exceeds supported limits'); }
 }
 
+const DEFAULT_BILLING: BillingStatus = {
+  paywall: false,
+  plan: 'free',
+  source: null,
+  grantedAt: null,
+  activeSessions: 0,
+  maxSessions: 3,
+};
+
 const stored = load<unknown>('progress', null);
 export const store = {
   progress: isProgress(stored) ? mergeProgress(emptyProgress(), stored) : emptyProgress(),
   settings: { ...DEFAULT_SETTINGS, ...load<Partial<Settings>>('settings', {}) } as Settings,
   me: null as Me | null,
+  billing: { ...DEFAULT_BILLING } as BillingStatus,
 };
 let lastSavedRef: Progress = store.progress;
 
@@ -136,13 +149,62 @@ export function getAccountEpoch(): number { return accountEpoch; }
 export function setMe(me: Me | null): void {
   if (store.me?.id !== me?.id || store.me?.email !== me?.email) accountEpoch++;
   store.me = me;
+  if (!me) {
+    store.billing = { ...store.billing, plan: 'free', source: null, grantedAt: null, activeSessions: 0, maxSessions: 3 };
+  } else if (me.plan) {
+    store.billing = { ...store.billing, plan: me.plan };
+  }
+  emit();
+}
+
+export function setBilling(status: BillingStatus | null): void {
+  store.billing = status ? { ...status } : { ...DEFAULT_BILLING };
+  if (store.me && status) store.me = { ...store.me, plan: status.plan };
+  emit();
+}
+
+export function effectivePlan(): Plan {
+  return store.me?.plan ?? store.billing.plan ?? 'free';
+}
+
+export function isPaywallEnabled(): boolean {
+  if (store.billing.paywall) return true;
+  if (typeof location !== 'undefined') {
+    const q = new URLSearchParams(location.search).get('paywall');
+    if (q === '1') return true;
+  }
+  return false;
+}
+
+export function canUsePro(): boolean {
+  return hasProAccess(effectivePlan(), isPaywallEnabled());
+}
+
+export function readLocalExtras(): SyncExtras {
+  return {
+    lessonsDone: load<string[]>('lessonsDone', []),
+    toursDone: load<string[]>('toursDone', []),
+    lessonJournal: load<LessonJournal>('lessonJournal', {}),
+    mistakeBook: load<MistakeBook>('mistakeBook', {}),
+    bookmarks: load<SyncBookmark[]>('bookmarks', []),
+  };
+}
+
+export function applyRemoteExtras(remote: unknown): void {
+  if (!isSyncExtras(remote)) return;
+  const merged = mergeSyncExtras(readLocalExtras(), remote);
+  save('lessonsDone', merged.lessonsDone ?? []);
+  save('toursDone', merged.toursDone ?? []);
+  save('lessonJournal', merged.lessonJournal ?? {});
+  save('mistakeBook', merged.mistakeBook ?? {});
+  save('bookmarks', merged.bookmarks ?? []);
   emit();
 }
 
 let syncTimer = 0;
 let syncer: (() => Promise<void>) | null = null;
 export function setSyncer(fn: () => Promise<void>): void { syncer = fn; }
-function scheduleSync(): void {
+export function scheduleSync(): void {
   if (!store.me || !syncer) return;
   clearTimeout(syncTimer);
   syncTimer = window.setTimeout(() => void syncer?.(), 1500);

@@ -868,6 +868,47 @@ body.gaming .level-switch { visibility: hidden; }
 body.fading .level-switch { pointer-events: none; }
 html.classroom .lv-text b { font-size: .95rem; }
 
+/* ---- Pro entitlements, badges, redemption & paywall ---- */
+.pro-badge {
+  display: inline-flex; align-items: center; gap: 3px; padding: 1px 6px; margin-right: 6px;
+  border-radius: 999px; font: 700 .66rem var(--font-hud); letter-spacing: .08em; text-transform: uppercase;
+  color: #161004; background: linear-gradient(135deg, #ffd24a, #ff9f43); vertical-align: middle;
+}
+.plan-pill {
+  display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border-radius: 999px;
+  font: 600 .72rem var(--font-hud); letter-spacing: .05em; border: 1px solid var(--hud-line); color: var(--text);
+  background: rgba(14, 28, 46, .75);
+}
+.plan-pill.pro, .plan-pill.classroom {
+  color: #161004; border-color: transparent; background: linear-gradient(135deg, #ffd24a, #ffb347);
+}
+.acct-plan-box, .paywall-redeem {
+  border: 1px solid var(--hud-line); border-radius: 10px; padding: 10px 12px; margin: 10px 0;
+  background: rgba(8, 18, 32, .55); display: grid; gap: 8px;
+}
+.acct-plan-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.redeem-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.redeem-row input { flex: 1 1 190px; font-family: var(--font-mono, monospace); text-transform: uppercase; letter-spacing: .06em; }
+.paywall { display: grid; gap: 12px; }
+.paywall-ctx {
+  margin: 0; padding: 6px 10px; border-radius: 8px; font-size: .85rem;
+  color: #ffd98a; background: rgba(255, 180, 71, .12); border: 1px solid rgba(255, 180, 71, .35);
+}
+.paywall-tiers { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.paywall-tier {
+  border: 1px solid var(--hud-line); border-radius: 10px; padding: 12px;
+  background: rgba(10, 22, 38, .65); display: grid; gap: 6px; align-content: start;
+}
+.paywall-tier.featured { border-color: rgba(255, 210, 74, .65); box-shadow: inset 0 0 0 1px rgba(255, 210, 74, .2); }
+.paywall-tier h3 { margin: 0; font-size: 1rem; display: flex; align-items: center; gap: 6px; }
+.paywall-price { margin: 0; font: 700 .86rem var(--font-hud); color: #ffd24a; }
+.paywall-note {
+  margin: 0; padding: 8px 10px; border-radius: 8px; border: 1px dashed var(--hud-line);
+  font-size: .84rem; color: #b8d4e6;
+}
+@media (max-width: 560px) { .paywall-tiers { grid-template-columns: 1fr; } }
+
+
 
 /* ---- settings drawer: switch chips, one-line settings ---- */
 .menu { padding-top: 12px; }

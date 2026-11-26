@@ -63,3 +63,8 @@ export const PLATES: [LL, readonly [string, string]][] = [
   [[-12, -58], ['American Plate', '美洲板块']], [[5, -150], ['Pacific Plate', '太平洋板块']], [[-25, 85], ['Indo-Australian Plate', '印度洋板块']],
   [[-25, 132], ['Indo-Australian Plate', '印度洋板块']], [[-76, 30], ['Antarctic Plate', '南极洲板块']],
 ];
+
+/** West and Central African rivers and semi-arid Sahel belt (shared with SSBS and world geography). */
+export const CONGO: LL[] = [[-11.0, 26.5], [-5.0, 26.9], [-2.9, 25.9], [0.5, 25.2], [2.0, 22.5], [1.5, 19.0], [0.0, 18.3], [-2.5, 16.2], [-4.3, 15.3], [-6.0, 12.4]];
+export const NIGER: LL[] = [[9.2, -10.6], [12.6, -8.0], [14.5, -4.2], [16.8, -3.0], [16.3, 0.0], [13.5, 2.1], [9.1, 4.8], [7.8, 6.7], [5.0, 6.2], [4.3, 6.0]];
+export const SAHEL: LL[] = [[17.5, -16.5], [17, -5], [16.5, 5], [16.5, 15], [15.5, 24], [15, 33], [12.5, 33], [12.5, 24], [13, 15], [12.5, 5], [13, -5], [13.5, -16.8]];

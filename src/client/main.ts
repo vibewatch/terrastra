@@ -19,7 +19,7 @@ import { gazetteerToPlaceHit, resolvePlaceByKey } from './lib/search.ts';
 import { Shell } from './ui/shell.ts';
 import { h, toast, confetti, closeModal } from './ui/dom.ts';
 import { slerpLatLon } from '../shared/lib/geo.ts';
-import { store, subscribe, setStickerHandler, setSyncer, setMe, getAccountEpoch, replaceProgress, ProgressLimitError } from './store.ts';
+import { store, subscribe, setStickerHandler, setSyncer, setMe, setBilling, applyRemoteExtras, getAccountEpoch, replaceProgress, ProgressLimitError } from './store.ts';
 import { t, lang, onLang } from './lib/i18n.ts';
 import { tr } from '../shared/data/types.ts';
 import { STICKERS } from '../shared/lib/stickers.ts';
@@ -732,15 +732,18 @@ async function boot(): Promise<void> {
   } else loader?.remove();
   window.__pp = { ready: true, globe, shell, itemScreen: k => globe.itemScreen(k), solar: () => solar, map: () => flatMap };
 
-  // ---- account (optional) ----
+  // ---- account & entitlements (optional) ----
+  void api.billingStatus().then(st => { if (st) setBilling(st); }).catch(() => {});
   void api.me().then(async me => {
     if (!me) return;
     setMe(me);
+    void api.billingStatus().then(st => { if (st) setBilling(st); }).catch(() => {});
     const epoch = getAccountEpoch();
     try {
-      const { progress } = await api.getProgress();
+      const { progress, extras } = await api.getProgress();
       if (getAccountEpoch() !== epoch) return;
       if (progress) replaceProgress(mergeProgress(store.progress, progress));
+      if (extras) applyRemoteExtras(extras);
       await (await accountMod()).syncNow(true);
     } catch (err) { console.error('[sync] could not load progress:', err); toast('⚠️ ' + t(err instanceof ProgressLimitError ? 'syncLimit' : 'accountUnavailable'), 4000); }
   }).catch(err => { console.error('[account] could not load session:', err); toast('⚠️ ' + t('accountUnavailable'), 4000); });

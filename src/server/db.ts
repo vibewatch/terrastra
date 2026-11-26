@@ -19,11 +19,42 @@ export function openDb(path: string): DB {
     CREATE INDEX IF NOT EXISTS login_tokens_expiry ON login_tokens(expires);
     CREATE INDEX IF NOT EXISTS login_tokens_email ON login_tokens(email);
     CREATE TABLE IF NOT EXISTS sessions (
-      hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, expires INTEGER NOT NULL);
+      hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, expires INTEGER NOT NULL,
+      created_at INTEGER NOT NULL DEFAULT 0);
     CREATE INDEX IF NOT EXISTS sessions_expiry ON sessions(expires);
     CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
     CREATE TABLE IF NOT EXISTS progress (
       user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, json TEXT NOT NULL, updated_at INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS learning_sync (
+      user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, json TEXT NOT NULL, updated_at INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS entitlements (
+      user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      plan TEXT NOT NULL DEFAULT 'free' CHECK (plan IN ('free', 'pro', 'classroom')),
+      max_sessions INTEGER NOT NULL DEFAULT 3,
+      granted_at INTEGER NOT NULL,
+      expires_at INTEGER,
+      source TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS orders (
+      id TEXT PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      provider TEXT NOT NULL,
+      external_id TEXT UNIQUE,
+      plan TEXT NOT NULL CHECK (plan IN ('pro', 'classroom')),
+      amount_cents INTEGER NOT NULL DEFAULT 0,
+      currency TEXT NOT NULL DEFAULT 'CNY',
+      status TEXT NOT NULL CHECK (status IN ('pending', 'paid', 'refunded', 'disputed')),
+      created_at INTEGER NOT NULL,
+      paid_at INTEGER);
+    CREATE INDEX IF NOT EXISTS orders_user ON orders(user_id);
+    CREATE TABLE IF NOT EXISTS redemption_codes (
+      code_hash TEXT PRIMARY KEY,
+      code_hint TEXT NOT NULL DEFAULT '',
+      plan TEXT NOT NULL CHECK (plan IN ('pro', 'classroom')),
+      note TEXT,
+      created_at INTEGER NOT NULL,
+      redeemed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      redeemed_at INTEGER,
+      revoked INTEGER NOT NULL DEFAULT 0);
     CREATE TABLE IF NOT EXISTS reactions (
       visitor TEXT NOT NULL, item TEXT NOT NULL, kind TEXT NOT NULL CHECK (kind IN ('like','visited')),
       created_at INTEGER NOT NULL, PRIMARY KEY (visitor, item, kind));
@@ -43,6 +74,10 @@ export function openDb(path: string): DB {
       PRIMARY KEY (scope, key));
     CREATE INDEX IF NOT EXISTS rate_limits_reset ON rate_limits(scope, reset);
   `);
+  const sessionCols = db.prepare('PRAGMA table_info(sessions)').all() as { name: string }[];
+  if (!sessionCols.some(c => c.name === 'created_at')) {
+    db.exec('ALTER TABLE sessions ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0');
+  }
   return db;
 }
 
