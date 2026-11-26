@@ -296,7 +296,7 @@ export function openTours(host: TourHost): void {
           title: t('tourStudyGuide'),
           html: icon('book', 16),
           onclick: () => {
-            if (!canUsePro()) {
+            if (!isFreeTour(x.id) && !canUsePro()) {
               closeModal('tours');
               openPaywall(t('tourStudyGuide'), () => void copyText(formatTourStudyGuideMarkdown(x), t('tourStudyGuideCopied'), t('tourStudyGuide')));
               return;

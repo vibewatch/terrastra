@@ -1,5 +1,5 @@
 import type { Progress } from '../../shared/lib/progress.ts';
-import type { Plan } from '../../shared/lib/entitlements.ts';
+import type { Plan, PlanSpec } from '../../shared/lib/entitlements.ts';
 import type { SyncExtras } from '../../shared/lib/sync-extras.ts';
 import { HAS_API, url } from './env.ts';
 
@@ -11,6 +11,7 @@ export interface BillingStatus {
   grantedAt: number | null;
   activeSessions: number;
   maxSessions: number;
+  pricing?: { pro: PlanSpec; classroom: PlanSpec };
 }
 export interface RedeemResponse {
   ok: true;
@@ -25,11 +26,26 @@ export interface RedeemResponse {
 }
 interface GuestbookEntry { id: number; handle: string; body: string; created_at: string }
 
+export class ApiError extends Error {
+  readonly status: number;
+  readonly code?: string;
+  constructor(status: number, message: string, code?: string) {
+    super(message);
+    this.status = status;
+    this.code = code;
+  }
+}
+
 async function j<T>(res: Response): Promise<T> {
   if (!res.ok) {
     let msg = res.statusText;
-    try { msg = ((await res.json()) as { error?: string }).error ?? msg; } catch { /* not json */ }
-    throw new Error(msg);
+    let code: string | undefined;
+    try {
+      const body = (await res.json()) as { error?: string; code?: string };
+      if (body.error) msg = body.error;
+      if (body.code) code = body.code;
+    } catch { /* not json */ }
+    throw new ApiError(res.status, msg, code);
   }
   return (await res.json()) as T;
 }

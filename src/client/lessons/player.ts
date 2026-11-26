@@ -9,8 +9,10 @@ import { Select } from '../ui/select.ts';
 import { icon } from '../ui/icons.ts';
 import { openPaywall } from '../ui/paywall.ts';
 import { t, lang, onLang } from '../lib/i18n.ts';
+import { api } from '../lib/api.ts';
+import { HAS_API } from '../lib/env.ts';
 import { load, save } from '../lib/storage.ts';
-import { canUsePro, isPaywallEnabled, scheduleSync } from '../store.ts';
+import { canUsePro, getLastBillingSyncAt, isPaywallEnabled, scheduleSync, setBilling } from '../store.ts';
 import { classroomLink } from '../lib/classroom.ts';
 import { ssbsLink } from '../lib/ssbs.ts';
 import { countryAt } from '../globe/borders.ts';
@@ -125,10 +127,23 @@ export function startLesson(id: string, host: LessonHost, opts?: { resume?: bool
     if (free) launch(free);
     return;
   }
-  void withBusy(loadLessonById(id)).then(
-    lesson => { if (lesson) launch(lesson); },
-    () => {
-      if (isPaywallEnabled()) openPaywall(L(meta.title), () => startLesson(id, host, opts));
+  void withBusy((async () => {
+    // Re-verify session entitlement if stale so FIFO-evicted tabs open Paywall cleanly instead of hitting 401 on ES module import.
+    if (HAS_API && isPaywallEnabled() && Date.now() - getLastBillingSyncAt() > 15_000) {
+      const st = await api.billingStatus().catch(() => null);
+      if (st) setBilling(st);
+      if (!canUsePro()) return null;
+    }
+    return loadLessonById(id);
+  })()).then(
+    lesson => {
+      if (lesson) launch(lesson);
+      else if (isPaywallEnabled() && !canUsePro()) openPaywall(L(meta.title), () => startLesson(id, host, opts));
+    },
+    async () => {
+      const st = HAS_API ? await api.billingStatus().catch(() => null) : null;
+      if (st) setBilling(st);
+      if (isPaywallEnabled() && !canUsePro()) openPaywall(L(meta.title), () => startLesson(id, host, opts));
       else toast('⚠️ ' + t('loadFail', { s: L(meta.title) }));
     },
   );
@@ -736,6 +751,14 @@ export function openLessons(host: LessonHost, sub: Subject = 'geo'): void {
                 startMistakeReview(host, sub, todo.length > 0 ? todo : all);
               },
             }, todo.length > 0 ? t('mistake.practiceBtn', { n: todo.length }) : t('mistake.practiceAllBtn', { n: all.length })),
+            !canUsePro() && (todo.length > 0 ? todo : all).length > FREE_MISTAKE_LIMIT ? h('button', {
+              class: 'pill pill-sm',
+              'data-testid': 'mistake-practice-free-btn',
+              onclick: () => {
+                closeModal('lessons');
+                startMistakeReview(host, sub, (todo.length > 0 ? todo : all).slice(0, FREE_MISTAKE_LIMIT));
+              },
+            }, t('mistake.practiceFreeBtn', { n: FREE_MISTAKE_LIMIT })) : null,
             h('button', {
               class: 'pill pill-sm',
               'data-testid': 'mistake-toggle-btn',
@@ -745,10 +768,33 @@ export function openLessons(host: LessonHost, sub: Subject = 'geo'): void {
               },
             }, notebookOpen ? t('mistake.hideBtn') : t('mistake.viewBtn', { n: all.length }))) : null),
         notebookOpen && all.length > 0 ? h('div', { class: 'mistake-list', 'data-testid': 'mistake-list' },
-          ...all.map(e => {
-            const ansSummary = L(e.rightText);
+          ...all.map((e, idx) => {
+            const lockedCard = !canUsePro() && idx >= FREE_MISTAKE_LIMIT;
             const srcLesson = lessonMetaById(e.lessonId);
             const lessonName = srcLesson ? L(srcLesson.title) : e.lessonId;
+            if (lockedCard) {
+              return h('article', { class: 'mistake-card locked', 'data-testid': 'mistake-item-locked' },
+                h('div', { class: 'mistake-card-top' },
+                  h('span', { class: 'mistake-lesson-tag' }, lessonName + (e.tag ? ' · ' + L(e.tag) : '')),
+                  h('span', { class: 'pro-badge' }, t('planBadgePro'))),
+                h('p', { class: 'mistake-q' }, L(e.q)),
+                h('p', { class: 'muted small', style: 'margin:4px 0' }, '🔒 ', t('mistake.lockedCardHint')),
+                h('div', { class: 'mistake-card-actions' },
+                  h('button', {
+                    class: 'cta pill-sm',
+                    'data-testid': 'mistake-unlock-btn',
+                    onclick: () => openPaywall(t('proReasonMistakes'), () => renderMistakes()),
+                  }, t('paywallTitle')),
+                  h('button', {
+                    class: 'pill pill-sm',
+                    'data-testid': 'mistake-remove',
+                    onclick: () => {
+                      saveMistakes(removeMistake(mistakes(), e.key));
+                      renderMistakes();
+                    },
+                  }, t('mistake.remove'))));
+            }
+            const ansSummary = L(e.rightText);
             return h('article', { class: 'mistake-card' + (e.mastered ? ' mastered' : ''), 'data-testid': 'mistake-item' },
               h('div', { class: 'mistake-card-top' },
                 h('span', { class: 'mistake-lesson-tag' }, lessonName + (e.tag ? ' · ' + L(e.tag) : '')),

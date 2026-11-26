@@ -9,6 +9,7 @@ import {
   effectivePlan,
   readLocalExtras,
   applyRemoteExtras,
+  clearLocalExtras,
   getAccountEpoch,
   replaceProgress,
   subscribe,
@@ -16,7 +17,8 @@ import {
 } from '../store.ts';
 import { HANDLE_PATTERN } from '../../shared/lib/profile.ts';
 import { emptyProgress, fitProgress, MAX_SYNC_REQUEST_BYTES, mergeProgress } from '../../shared/lib/progress.ts';
-import { openPaywall, planLabel, redeemAndRefresh } from './paywall.ts';
+import { fitSyncExtras } from '../../shared/lib/sync-extras.ts';
+import { openPaywall, planLabel, redeemAndRefresh, redeemErrorMessage } from './paywall.ts';
 
 export async function syncNow(quiet = false): Promise<boolean> {
   if (!store.me) return false;
@@ -24,8 +26,8 @@ export async function syncNow(quiet = false): Promise<boolean> {
   try {
     // trimmed the same way the server trims, so an oversized local record still syncs instead of failing forever
     const fitted = fitProgress(store.progress);
-    const extras = readLocalExtras();
-    const withExtrasBytes = new TextEncoder().encode(JSON.stringify({ progress: fitted, extras })).length;
+    const extras = fitSyncExtras(fitted, readLocalExtras(), MAX_SYNC_REQUEST_BYTES);
+    const withExtrasBytes = new TextEncoder().encode(JSON.stringify({ progress: fitted, extras })).byteLength;
     const res = await api.syncProgress(fitted, withExtrasBytes <= MAX_SYNC_REQUEST_BYTES ? extras : undefined);
     if (getAccountEpoch() !== epoch) return false;
     replaceProgress(fitProgress(mergeProgress(store.progress, res.progress)));
@@ -66,7 +68,10 @@ export function openAccount(): void {
         if (clear && !(await syncNow(true))) { toast(t('offline')); return; }
         await api.logout();
         setMe(null);
-        if (clear) replaceProgress(emptyProgress());
+        if (clear) {
+          clearLocalExtras();
+          replaceProgress(emptyProgress());
+        }
         toast(t(clear ? 'signedOutCleared' : 'signedOut'));
       } catch (err) { toast((err as Error).message || t('offline')); }
     };
@@ -81,11 +86,15 @@ export function openAccount(): void {
       type: 'text',
       required: true,
       maxlength: 32,
+      autocapitalize: 'characters',
+      spellcheck: 'false',
       placeholder: t('redeemPlaceholder'),
       'aria-label': t('redeemTitle'),
       'data-testid': 'acct-redeem-input',
     }) as HTMLInputElement;
+    const redeemBtn = h('button', { class: 'pill', type: 'submit', 'data-testid': 'acct-redeem-btn' }, t('redeemBtn')) as HTMLButtonElement;
     const codeOut = h('small', { class: 'error', 'data-testid': 'acct-redeem-error', hidden: true });
+    let redeeming = false;
     const planBox = h('section', { class: 'acct-plan-box', 'data-testid': 'acct-plan-box' },
       h('div', { class: 'acct-plan-top' },
         h('div', {},
@@ -101,8 +110,12 @@ export function openAccount(): void {
         'data-testid': 'acct-redeem-form',
         onsubmit: async (e: Event) => {
           e.preventDefault();
+          if (redeeming) return;
           const raw = codeInput.value.trim();
           if (!raw) return;
+          redeeming = true;
+          redeemBtn.disabled = true;
+          redeemBtn.textContent = t('redeemActivating');
           codeOut.hidden = true;
           try {
             const unlocked = await redeemAndRefresh(raw);
@@ -111,11 +124,17 @@ export function openAccount(): void {
             toast(t('redeemSuccess', { plan: planLabel(unlocked) }), 4000);
             render();
           } catch (err) {
-            codeOut.textContent = (err as Error).message || t('offline');
+            codeOut.textContent = redeemErrorMessage(err);
             codeOut.hidden = false;
+          } finally {
+            redeeming = false;
+            if (redeemBtn.isConnected) {
+              redeemBtn.disabled = false;
+              redeemBtn.textContent = t('redeemBtn');
+            }
           }
         },
-      }, codeInput, h('button', { class: 'pill', type: 'submit', 'data-testid': 'acct-redeem-btn' }, t('redeemBtn'))),
+      }, codeInput, redeemBtn),
       codeOut);
     body.replaceChildren(
       h('div', { class: 'acct-who' }, h('span', { class: 'acct-av', html: icon('user', 18) }),

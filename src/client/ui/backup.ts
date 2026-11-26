@@ -46,7 +46,6 @@ export function importProgress(): void {
         h('button', { class: 'cta', 'data-testid': 'backup-merge', onclick: () => {
           const current = mergeProgress(store.progress, p);
           if (!canReplaceProgress(current)) { toast('⚠️ ' + t('backupLimit'), 4000); return; }
-          replaceProgress(current, true);
           if (parsed.lessonsDone.length > 0) {
             const curDone = load<string[]>('lessonsDone', []);
             save('lessonsDone', [...new Set([...curDone, ...parsed.lessonsDone])]);
@@ -67,6 +66,7 @@ export function importProgress(): void {
             const curBm = load<Bookmark[]>('bookmarks', []);
             save('bookmarks', mergeBookmarks(curBm, parsed.bookmarks));
           }
+          replaceProgress(current, true);
           closeModal('backup-import'); toast('✅ ' + t('backupDone'));
         } }, t('backupMergeBtn')),
         h('button', { class: 'pill', onclick: () => closeModal('backup-import') }, t('cancel')))));

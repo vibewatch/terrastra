@@ -11,8 +11,7 @@
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { openDb, transaction } from '../src/server/db.ts';
-import { grantEntitlement, hashRedeemCode, issueRedemptionCodes } from '../src/server/billing.ts';
-import { normalizeRedeemCode } from '../src/shared/lib/entitlements.ts';
+import { grantEntitlement, issueRedemptionCodes, revokeRedemptionCode } from '../src/server/billing.ts';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const dbPath = process.env.DB_PATH ?? join(root, 'data', 'terrastra.db');
@@ -83,28 +82,16 @@ try {
     }
   } else if (cmd === 'revoke') {
     const raw = args[1] ?? '';
-    const code = normalizeRedeemCode(raw);
-    if (!code) {
-      console.error('Error: provide a valid code in TRST-XXXX-XXXX-XXXX format');
-      process.exit(1);
-    }
     const revokeUser = args.includes('--revoke-user');
-    const hash = hashRedeemCode(code);
-    const outcome = transaction(db, () => {
-      const row = db.prepare('SELECT redeemed_by FROM redemption_codes WHERE code_hash = ?')
-        .get(hash) as { redeemed_by: number | null } | undefined;
-      if (!row) return null;
-      db.prepare('UPDATE redemption_codes SET revoked = 1 WHERE code_hash = ?').run(hash);
-      if (revokeUser && row.redeemed_by !== null) {
-        db.prepare('DELETE FROM entitlements WHERE user_id = ?').run(row.redeemed_by);
-      }
-      return row;
-    });
+    const outcome = revokeRedemptionCode(db, raw, { revokeUser });
     if (!outcome) {
-      console.error('Code not found.');
+      console.error('Error: code is invalid or not found.');
       process.exit(1);
     }
-    console.log(`Revoked ${code}${revokeUser && outcome.redeemed_by ? ` and removed entitlement for user #${outcome.redeemed_by}` : ''}.`);
+    const suffix = revokeUser && outcome.redeemedBy !== null
+      ? ` and updated user #${outcome.redeemedBy} -> ${(outcome.userPlanAfter ?? 'free').toUpperCase()}`
+      : '';
+    console.log(`Revoked ${outcome.code}${suffix}.`);
   } else if (cmd === 'grant') {
     const email = (argVal(args, '--email') ?? '').trim().toLowerCase();
     const planRaw = argVal(args, '--plan') ?? 'pro';

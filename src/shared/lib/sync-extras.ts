@@ -132,3 +132,125 @@ export function filterIncomingExtrasForPlan(
     mistakeBook: cappedMistakes,
   };
 }
+
+function payloadBytes(progress: unknown, extras: SyncExtras): number {
+  return new TextEncoder().encode(JSON.stringify({ progress, extras })).byteLength;
+}
+
+/** Binary-searches the largest prefix `items.slice(0, keep)` that fits within `maxBytes`. */
+function maxFittingPrefix<T>(
+  items: readonly T[],
+  buildCandidate: (kept: T[]) => SyncExtras,
+  progress: unknown,
+  maxBytes: number,
+): T[] {
+  let lo = 0;
+  let hi = items.length;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (payloadBytes(progress, buildCandidate(items.slice(0, mid))) <= maxBytes) lo = mid;
+    else hi = mid - 1;
+  }
+  return items.slice(0, lo);
+}
+
+/**
+ * Ensures `{ progress, extras }` fits within `maxBytes` (default 64 KB) so Pro learners with
+ * large Mistake Notebooks or Journals keep syncing instead of hitting 413 or silently dropping sync.
+ * Trimming priority (least valuable dropped first):
+ *   1. Oldest mastered mistakes
+ *   2. Oldest completed journal entries (preserving mid-lesson resume positions longest)
+ *   3. Oldest saved bookmarks
+ *   4. Oldest active (unmastered) mistakes
+ */
+export function fitSyncExtras(progress: unknown, extras: SyncExtras, maxBytes: number): SyncExtras {
+  if (payloadBytes(progress, extras) <= maxBytes) return extras;
+
+  let cur: SyncExtras = {
+    ...(extras.lessonsDone ? { lessonsDone: [...extras.lessonsDone] } : {}),
+    ...(extras.toursDone ? { toursDone: [...extras.toursDone] } : {}),
+    ...(extras.lessonJournal ? { lessonJournal: { ...extras.lessonJournal } } : {}),
+    ...(extras.mistakeBook ? { mistakeBook: { ...extras.mistakeBook } } : {}),
+    ...(extras.bookmarks ? { bookmarks: [...extras.bookmarks] } : {}),
+  };
+
+  // 1. Trim oldest mastered mistakes while keeping all active mistakes.
+  if (cur.mistakeBook && Object.keys(cur.mistakeBook).length > 0) {
+    const allMistakes = Object.values(cur.mistakeBook);
+    const active = allMistakes.filter(m => !m.mastered).sort((a, b) => b.updatedAt - a.updatedAt);
+    const mastered = allMistakes.filter(m => m.mastered).sort((a, b) => b.updatedAt - a.updatedAt);
+    if (mastered.length > 0) {
+      const keptMastered = maxFittingPrefix(
+        mastered,
+        kept => ({
+          ...cur,
+          mistakeBook: Object.fromEntries([...active, ...kept].map(m => [m.key, m])),
+        }),
+        progress,
+        maxBytes,
+      );
+      cur = {
+        ...cur,
+        mistakeBook: Object.fromEntries([...active, ...keptMastered].map(m => [m.key, m])),
+      };
+      if (payloadBytes(progress, cur) <= maxBytes) return cur;
+    }
+  }
+
+  // 2. Trim oldest journal entries (keep in-progress lessons first, then newest updatedAt).
+  if (cur.lessonJournal && Object.keys(cur.lessonJournal).length > 0) {
+    const sortedJournal = Object.values(cur.lessonJournal).sort((a, b) => {
+      const aMid = a.stepIndex > 0 && a.stepIndex < a.totalSteps ? 1 : 0;
+      const bMid = b.stepIndex > 0 && b.stepIndex < b.totalSteps ? 1 : 0;
+      if (aMid !== bMid) return bMid - aMid;
+      return b.updatedAt - a.updatedAt;
+    });
+    const keptJournal = maxFittingPrefix(
+      sortedJournal,
+      kept => ({
+        ...cur,
+        lessonJournal: Object.fromEntries(kept.map(j => [j.id, j])),
+      }),
+      progress,
+      maxBytes,
+    );
+    cur = {
+      ...cur,
+      lessonJournal: Object.fromEntries(keptJournal.map(j => [j.id, j])),
+    };
+    if (payloadBytes(progress, cur) <= maxBytes) return cur;
+  }
+
+  // 3. Trim oldest bookmarks.
+  if (cur.bookmarks && cur.bookmarks.length > 0) {
+    const sortedBm = [...cur.bookmarks].sort((a, b) => b.at - a.at);
+    const keptBm = maxFittingPrefix(
+      sortedBm,
+      kept => ({ ...cur, bookmarks: kept }),
+      progress,
+      maxBytes,
+    );
+    cur = { ...cur, bookmarks: keptBm };
+    if (payloadBytes(progress, cur) <= maxBytes) return cur;
+  }
+
+  // 4. Trim oldest active mistakes if still above budget.
+  if (cur.mistakeBook && Object.keys(cur.mistakeBook).length > 0) {
+    const sortedActive = Object.values(cur.mistakeBook).sort((a, b) => b.updatedAt - a.updatedAt);
+    const keptActive = maxFittingPrefix(
+      sortedActive,
+      kept => ({
+        ...cur,
+        mistakeBook: Object.fromEntries(kept.map(m => [m.key, m])),
+      }),
+      progress,
+      maxBytes,
+    );
+    cur = {
+      ...cur,
+      mistakeBook: Object.fromEntries(keptActive.map(m => [m.key, m])),
+    };
+  }
+
+  return cur;
+}

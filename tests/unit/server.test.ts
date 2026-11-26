@@ -713,11 +713,39 @@ describe('billing, redemption codes, session caps, sync v2 & gated pro chunks', 
       // Re-redeeming the same single-use code returns 409 Conflict
       expect((await redeem(proCode!, activeSid)).status).toBe(409);
 
-      // 5. Pro user now gets 200 OK on gated pro-lessons chunk and syncs full bookmarks + unlimited mistakes
+      // 5. Pro user now gets 200 OK on gated pro-lessons chunk (with Vary: Cookie) and URL-encoded /.pro-assets stays 404
+      expect((await fetch(srvBase + '/%2epro-assets/pro-lessons-earth-TEST123.js')).status).toBe(404);
       const proChunk = await fetch(srvBase + '/assets/pro-lessons-earth-TEST123.js', { headers: { cookie: activeSid } });
       expect(proChunk.status).toBe(200);
       expect(proChunk.headers.get('cache-control')).toContain('private');
+      expect(proChunk.headers.get('vary')).toContain('Cookie');
       expect(await proChunk.text()).toContain('secretLesson = true');
+
+      // 5b. Redeeming another Pro code on an already-lifetime-Pro account returns 409 ALREADY_ENTITLED WITHOUT burning the code!
+      const [spareProCode, singleUseDeleteTestCode] = issueRedemptionCodes(paywallDb, { plan: 'pro', count: 2, note: 'audit-regression' });
+      const dupEntitled = await redeem(spareProCode!, activeSid);
+      expect(dupEntitled.status).toBe(409);
+      expect(await dupEntitled.json()).toMatchObject({ code: 'ALREADY_ENTITLED' });
+
+      // Another Free account CAN still redeem `spareProCode` because it was not burned!
+      paywallDb.prepare("DELETE FROM rate_limits").run();
+      const secondSid = await loginFreshSession(srvBase, 'sibling@example.com');
+      expect((await redeem(spareProCode!, secondSid)).status).toBe(200);
+
+      // 5c. Account deletion (`DELETE /api/me`) MUST NOT allow single-use activation code replay on a new account!
+      paywallDb.prepare("DELETE FROM rate_limits").run();
+      const tempSid = await loginFreshSession(srvBase, 'temp-deleter@example.com');
+      expect((await redeem(singleUseDeleteTestCode!, tempSid)).status).toBe(200);
+      const delRes = await fetch(srvBase + '/api/me', {
+        method: 'DELETE',
+        headers: { origin: srvBase, cookie: tempSid },
+      });
+      expect(delRes.status).toBe(200);
+      paywallDb.prepare("DELETE FROM rate_limits").run();
+      const replaySid = await loginFreshSession(srvBase, 'replayer@example.com');
+      const replayAttempt = await redeem(singleUseDeleteTestCode!, replaySid);
+      expect(replayAttempt.status).toBe(409);
+      expect(await replayAttempt.json()).toMatchObject({ code: 'CODE_ALREADY_USED' });
 
       const putPro = await fetch(srvBase + '/api/progress', {
         method: 'PUT',

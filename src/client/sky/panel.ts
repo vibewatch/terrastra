@@ -6,7 +6,7 @@ import { icon } from '../ui/icons.ts';
 import { openPaywall } from '../ui/paywall.ts';
 import { lang, t } from '../lib/i18n.ts';
 import { canUsePro } from '../store.ts';
-import { isFreeSkyYear } from '../../shared/lib/entitlements.ts';
+import { isFreeSkyYear, skyEventYear } from '../../shared/lib/entitlements.ts';
 import { s, regionOf, type SkyKey } from './text.ts';
 import { eventTitle, type Site } from './acts.ts';
 
@@ -23,7 +23,7 @@ function eventsOf(year: number): SkyEvent[] {
 
 /** Find an event by id (ids carry their year). */
 export function findEvent(id: string): SkyEvent | undefined {
-  const y = Number(/(?:^|-)((?:19|20|21)\d\d)(?:-|$)/.exec(id)?.[1]);
+  const y = skyEventYear(id);
   if (!y) return undefined;
   for (const yy of [y, y - 1, y + 1]) { const e = eventsOf(yy).find(x => x.id === id); if (e) return e; }
   return undefined;

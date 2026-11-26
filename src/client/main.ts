@@ -17,9 +17,11 @@ import { ADMIN_GLOBE_ZOOM, ADMIN_MAP_ZOOM, fetchAdminData, type AdminData } from
 import { CATALOGUE, BY_KEY } from '../shared/data/catalogue.ts';
 import { gazetteerToPlaceHit, resolvePlaceByKey } from './lib/search.ts';
 import { Shell } from './ui/shell.ts';
+import { openPaywall } from './ui/paywall.ts';
 import { h, toast, confetti, closeModal } from './ui/dom.ts';
 import { slerpLatLon } from '../shared/lib/geo.ts';
-import { store, subscribe, setStickerHandler, setSyncer, setMe, setBilling, applyRemoteExtras, getAccountEpoch, replaceProgress, ProgressLimitError } from './store.ts';
+import { store, subscribe, setStickerHandler, setSyncer, setMe, setBilling, applyRemoteExtras, canUsePro, getAccountEpoch, replaceProgress, ProgressLimitError } from './store.ts';
+import { isFreeSkyYear, skyEventYear } from '../shared/lib/entitlements.ts';
 import { t, lang, onLang } from './lib/i18n.ts';
 import { tr } from '../shared/data/types.ts';
 import { STICKERS } from '../shared/lib/stickers.ts';
@@ -70,6 +72,21 @@ async function boot(): Promise<void> {
   initTooltips();
   document.documentElement.lang = lang();
   document.title = t('title');
+  // Start billing & session checks immediately in parallel with TopoJSON + WebGL warmup so deep links see entitlements.
+  const initialAuth = HAS_API
+    ? Promise.all([
+        api.billingStatus().then(st => { if (st) setBilling(st); }).catch(() => {}),
+        api.me().then(me => {
+          if (me) setMe(me);
+          return me;
+        }).catch(err => {
+          console.error('[account] could not load session:', err);
+          toast('⚠️ ' + t('accountUnavailable'), 4000);
+          return null;
+        }),
+      ])
+    : Promise.resolve([undefined, null] as const);
+
   // a deep link into another scene: fetch that scene's code alongside the Earth's, not after it
   const linkHead = location.hash.slice(1).split('/')[0];
   if (linkHead === 'sky') void import('./sky/index.ts').catch(() => {});
@@ -286,6 +303,12 @@ async function boot(): Promise<void> {
   const loadSky = lazy(() => import('./sky/index.ts'));
   const openSky = async (id?: string, attempt = 1): Promise<import('./sky/theatre.ts').Theatre | null> => {
     if (sceneMode.gaming) return null;
+    const yr = id ? skyEventYear(id) : null;
+    if (yr !== null && !canUsePro() && !isFreeSkyYear(yr)) {
+      if (location.hash.startsWith('#sky/')) history.replaceState(null, '', location.pathname + location.search);
+      openPaywall(t('proReasonSkyYear'), () => void openSky(id, attempt));
+      return null;
+    }
     const seq = sceneMode.beginNav();
     let m: typeof import('./sky/index.ts');
     try { m = await withBusy(loadSky()); } catch (e) {
@@ -732,11 +755,10 @@ async function boot(): Promise<void> {
   } else loader?.remove();
   window.__pp = { ready: true, globe, shell, itemScreen: k => globe.itemScreen(k), solar: () => solar, map: () => flatMap };
 
-  // ---- account & entitlements (optional) ----
-  void api.billingStatus().then(st => { if (st) setBilling(st); }).catch(() => {});
-  void api.me().then(async me => {
+  // ---- account & entitlements (already kicked off in parallel at boot) ----
+  await Promise.race([initialAuth, new Promise<void>(r => setTimeout(r, 1500))]);
+  void initialAuth.then(async ([, me]) => {
     if (!me) return;
-    setMe(me);
     void api.billingStatus().then(st => { if (st) setBilling(st); }).catch(() => {});
     const epoch = getAccountEpoch();
     try {
@@ -746,7 +768,7 @@ async function boot(): Promise<void> {
       if (extras) applyRemoteExtras(extras);
       await (await accountMod()).syncNow(true);
     } catch (err) { console.error('[sync] could not load progress:', err); toast('⚠️ ' + t(err instanceof ProgressLimitError ? 'syncLimit' : 'accountUnavailable'), 4000); }
-  }).catch(err => { console.error('[account] could not load session:', err); toast('⚠️ ' + t('accountUnavailable'), 4000); });
+  });
 
   const deepLink = !!location.hash;
   route();

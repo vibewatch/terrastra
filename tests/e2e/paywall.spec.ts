@@ -44,12 +44,21 @@ test('paywall enforcement: gates Pro lessons & chunks until signed-in activation
     });
     srv = await new Promise<Server>(r => { const s = app.listen(port, () => r(s)); });
 
-    // 1. Open app on paywall-enforced server; verify Pro lesson chunks are blocked (401)
-    await page.goto(`${origin}/?lowfx=1&notut`);
+    // 1. Open deep-linked Pro route directly on paywall-enforced server (WITHOUT ?paywall=1):
+    // boot auth hydration catches it before route() and opens Paywall instead of firing unauthorized chunk load!
+    await page.goto(`${origin}/?lowfx=1&notut#lesson/usa`);
     await expect.poll(
       () => page.evaluate(() => !!(window as unknown as { __pp?: { ready: boolean } }).__pp?.ready),
       { timeout: 90_000 },
     ).toBe(true);
+    await expect(page.getByTestId('paywall')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId('tier-pro-price')).toContainText('49');
+    await page.keyboard.press('Escape');
+
+    // Deep-linking to a historical Sky event (#sky/solar-eclipse-1999-08-11) is also gated on Free tier
+    await page.evaluate(() => { location.hash = 'sky/solar-eclipse-1999-08-11'; });
+    await expect(page.getByTestId('paywall')).toBeVisible({ timeout: 30_000 });
+    await page.keyboard.press('Escape');
 
     const anonChunkStatus = await page.evaluate(f => fetch(`/assets/${f}`).then(r => r.status), proChunkName);
     expect(anonChunkStatus).toBe(401);
@@ -95,28 +104,67 @@ test('paywall enforcement: gates Pro lessons & chunks until signed-in activation
     const freeChunkStatus = await page.evaluate(f => fetch(`/assets/${f}`).then(r => r.status), proChunkName);
     expect(freeChunkStatus).toBe(402);
 
-    // Close Account modal, click Pro lesson ('usa') -> Paywall modal now shows redemption input, redeem & auto-continue!
+    // Seed 7 mistakes on Free tier and verify #1..#5 remain usable while #6..#7 are locked against per-card bypass
     await page.keyboard.press('Escape');
+    await page.evaluate(() => {
+      const book: Record<string, unknown> = {};
+      for (let i = 0; i < 7; i++) {
+        const key = `shape::q${i}`;
+        const q = [`Sample geo question ${i}?`, `地理错题 ${i}？`];
+        const why = [`Why ${i}`, `解析 ${i}`];
+        book[key] = {
+          key,
+          lessonId: 'shape',
+          q,
+          rightText: [`Answer ${i}`, `答案 ${i}`],
+          why,
+          snapshot: { q, why, options: [['Answer 0', '答案 0'], ['Other', '其他']], answer: 0 },
+          wrongCount: 1,
+          reviewStreak: 0,
+          mastered: false,
+          lastMissedAt: 1000 + i,
+          updatedAt: 1000 + i,
+        };
+      }
+      localStorage.setItem('pp.mistakeBook', JSON.stringify(book));
+    });
     await page.getByTestId('btn-hub').click();
     await page.getByTestId('hub-tab-learn').click();
     await page.getByTestId('menu-lessons').click();
-    await page.getByTestId('lesson-track').click();
-    await page.getByRole('option', { name: /China · PEP grades/ }).click();
+    await expect(page.getByTestId('mistake-practice-free-btn')).toBeVisible();
+    await page.getByTestId('mistake-toggle-btn').click();
+    await expect(page.getByTestId('mistake-item')).toHaveCount(5);
+    await expect(page.getByTestId('mistake-item-locked')).toHaveCount(2);
+    await page.getByTestId('mistake-toggle-btn').click();
+
+    // Clicking a Pro lesson ('usa') -> Paywall modal shows redemption input; verify invalid code error & valid code unlock!
     await page.getByTestId('lesson-usa').click();
     await expect(page.getByTestId('paywall-code-input')).toBeVisible();
+    await page.getByTestId('paywall-code-input').fill('TRST-0000-0000-0000');
+    await page.getByTestId('paywall-redeem-btn').click();
+    await expect(page.getByTestId('paywall-feedback')).toBeVisible();
     await page.getByTestId('paywall-code-input').fill(proCode!);
     await page.getByTestId('paywall-redeem-btn').click();
 
-    // 5. Pro lesson dynamically imports gated pro-lessons-*.js chunk with session cookie and starts immediately!
+    // 5. Pro lesson dynamically imports gated pro-lessons-earth-*.js chunk with session cookie and starts immediately!
     await expect(page.getByTestId('lesson')).toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId('lesson')).toContainText(/United States|美国/);
     await page.getByTestId('lesson-exit').click();
 
-    // Verify Account modal reflects Explorer Pro badge
+    // Also verify decoupled pro-lessons-astro-*.js loads independently via #lesson/a-black-holes!
+    await page.evaluate(() => { location.hash = 'lesson/a-black-holes'; });
+    await expect(page.getByTestId('lesson')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId('lesson')).toContainText(/Black holes|黑洞/i);
+    await page.getByTestId('lesson-exit').click();
+
+    // Verify Account modal reflects Explorer Pro badge, and "Sign out & clear this device" wipes local mistakeBook
     await page.getByTestId('btn-hub').click();
     await page.getByTestId('hub-tab-me').click();
     await page.getByTestId('menu-account').click();
     await expect(page.getByTestId('acct-plan-pill')).toContainText(/Explorer Pro/i);
+    await page.getByTestId('sign-out').click();
+    await page.getByTestId('sign-out-clear').click();
+    await expect.poll(() => page.evaluate(() => localStorage.getItem('pp.mistakeBook'))).toBe('{}');
     expect(errors).toEqual([]);
   } finally {
     if (srv) await new Promise<void>(r => srv!.close(() => r()));

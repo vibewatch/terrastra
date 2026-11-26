@@ -22,6 +22,7 @@ import {
 import {
   emptySyncExtras,
   filterIncomingExtrasForPlan,
+  fitSyncExtras,
   isSyncExtras,
   mergeSyncExtras,
   type SyncExtras,
@@ -313,7 +314,7 @@ export function createApp(o: AppOptions): express.Express {
         const storedRow = db.prepare('SELECT json FROM learning_sync WHERE user_id = ?').get(u.id) as { json: string } | undefined;
         const storedExtras = storedRow ? JSON.parse(storedRow.json) as SyncExtras : emptySyncExtras();
         const filtered = filterIncomingExtrasForPlan(rawExtras, u.plan, paywall);
-        mergedExtras = mergeSyncExtras(storedExtras, filtered);
+        mergedExtras = fitSyncExtras(result, mergeSyncExtras(storedExtras, filtered), MAX_SYNC_REQUEST_BYTES);
         const totalBytes = new TextEncoder().encode(JSON.stringify({ progress: result, extras: mergedExtras })).byteLength;
         if (totalBytes > MAX_SYNC_REQUEST_BYTES) return null;
         db.prepare('INSERT INTO learning_sync (user_id, json, updated_at) VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET json = excluded.json, updated_at = excluded.updated_at')
@@ -401,11 +402,17 @@ export function createApp(o: AppOptions): express.Express {
     const dir = o.staticDir;
     const proChunkCache = new Map<string, Buffer>();
     const PRO_CHUNK_RE = /^pro-lessons-[A-Za-z0-9_-]+\.js$/;
-    app.use('/.pro-assets', (_req, res) => { res.status(404).end(); });
+    app.use((req, res, next) => {
+      let decoded = req.path;
+      try { decoded = decodeURIComponent(req.path); } catch { return res.status(400).end(); }
+      if (decoded === '/.pro-assets' || decoded.startsWith('/.pro-assets/')) return res.status(404).end();
+      next();
+    });
     app.get('/assets/:file', (req, res, next) => {
       const file = req.params.file;
       if (!PRO_CHUNK_RE.test(file)) return next();
       res.setHeader('Cache-Control', 'private, no-store');
+      res.vary('Cookie');
       if (paywall) {
         const u = currentUser(req);
         if (!u) return res.status(401).json({ error: 'Sign in required', code: 'AUTH_REQUIRED' });
@@ -413,7 +420,7 @@ export function createApp(o: AppOptions): express.Express {
           return res.status(402).json({ error: 'Explorer Pro required', code: 'PRO_REQUIRED' });
         }
         if (!proAssetLimit(`user:${u.id}`) || !proAssetLimit(`ip:${clientKey(req.ip).host}`)) {
-          return res.status(429).json({ error: 'Too many requests, try again later' });
+          return res.status(429).json({ error: 'Too many requests, try again later', code: 'RATE_LIMITED' });
         }
       }
       let buf = proChunkCache.get(file);
@@ -427,7 +434,11 @@ export function createApp(o: AppOptions): express.Express {
       }
       return res.type('application/javascript; charset=utf-8').send(buf);
     });
-    app.use(express.static(dir, { extensions: ['html'], setHeaders: (res, p) => { if (p.includes('/assets/')) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable'); } }));
+    app.use(express.static(dir, {
+      dotfiles: 'ignore',
+      extensions: ['html'],
+      setHeaders: (res, p) => { if (p.includes('/assets/')) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable'); },
+    }));
     const notFound = join(dir, '404.html');
     app.use((_req, res) => { res.status(404).type('html').send(existsSync(notFound) ? readFileSync(notFound, 'utf8') : 'Not found'); });
   }

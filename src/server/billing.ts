@@ -17,8 +17,12 @@ export interface UserEntitlement {
 
 export class RedeemError extends Error {
   readonly status: 400 | 404 | 409;
-  readonly code: 'INVALID_CODE' | 'CODE_NOT_FOUND' | 'CODE_ALREADY_USED';
-  constructor(status: 400 | 404 | 409, code: 'INVALID_CODE' | 'CODE_NOT_FOUND' | 'CODE_ALREADY_USED', message: string) {
+  readonly code: 'INVALID_CODE' | 'CODE_NOT_FOUND' | 'CODE_ALREADY_USED' | 'ALREADY_ENTITLED';
+  constructor(
+    status: 400 | 404 | 409,
+    code: 'INVALID_CODE' | 'CODE_NOT_FOUND' | 'CODE_ALREADY_USED' | 'ALREADY_ENTITLED',
+    message: string,
+  ) {
     super(message);
     this.status = status;
     this.code = code;
@@ -98,18 +102,24 @@ export function grantEntitlement(
   return getUserEntitlement(db, opts.userId, now);
 }
 
-/** Enforces FIFO concurrent active sessions for a user before inserting one new session. */
-export function enforceSessionCap(db: DB, userId: number, maxSessions: number, now = Date.now()): void {
-  const cap = Math.max(1, Math.floor(maxSessions));
+/** Trims oldest active sessions so at most `keepCount` unexpired sessions remain for `userId`. */
+export function trimActiveSessions(db: DB, userId: number, keepCount: number, now = Date.now()): void {
+  const keep = Math.max(0, Math.floor(keepCount));
   db.prepare('DELETE FROM sessions WHERE user_id = ? AND expires <= ?').run(userId, now);
   const rows = db.prepare(
     'SELECT hash FROM sessions WHERE user_id = ? ORDER BY created_at ASC, rowid ASC',
   ).all(userId) as { hash: string }[];
-  const overflow = rows.length - (cap - 1);
+  const overflow = rows.length - keep;
   if (overflow > 0) {
     const del = db.prepare('DELETE FROM sessions WHERE hash = ?');
     for (let i = 0; i < overflow; i++) del.run(rows[i]!.hash);
   }
+}
+
+/** Enforces FIFO concurrent active sessions for a user before inserting one new session. */
+export function enforceSessionCap(db: DB, userId: number, maxSessions: number, now = Date.now()): void {
+  const cap = Math.max(1, Math.floor(maxSessions));
+  trimActiveSessions(db, userId, cap - 1, now);
 }
 
 export function countActiveSessions(db: DB, userId: number, now = Date.now()): number {
@@ -152,16 +162,29 @@ export function redeemCodeForUser(db: DB, userId: number, rawCode: string, now =
   const hash = hashRedeemCode(normalized);
   return transaction(db, () => {
     const row = db.prepare(
-      'SELECT plan, redeemed_by, revoked FROM redemption_codes WHERE code_hash = ?',
-    ).get(hash) as { plan: 'pro' | 'classroom'; redeemed_by: number | null; revoked: number } | undefined;
+      'SELECT plan, redeemed_by, redeemed_at, revoked FROM redemption_codes WHERE code_hash = ?',
+    ).get(hash) as {
+      plan: 'pro' | 'classroom';
+      redeemed_by: number | null;
+      redeemed_at: number | null;
+      revoked: number;
+    } | undefined;
     if (!row || row.revoked) {
       throw new RedeemError(404, 'CODE_NOT_FOUND', 'Activation code not found or no longer valid');
     }
-    if (row.redeemed_by !== null) {
+    if (row.redeemed_by !== null || row.redeemed_at !== null) {
       throw new RedeemError(409, 'CODE_ALREADY_USED', 'This activation code has already been redeemed');
     }
+    const current = getUserEntitlement(db, userId, now);
+    if (current.plan !== 'free' && current.expiresAt === null && PLAN_RANK[row.plan] <= PLAN_RANK[current.plan]) {
+      throw new RedeemError(
+        409,
+        'ALREADY_ENTITLED',
+        `Your account already has lifetime ${current.plan === 'classroom' ? 'Classroom Edition' : 'Explorer Pro'} — save this code for another account`,
+      );
+    }
     const updated = db.prepare(
-      'UPDATE redemption_codes SET redeemed_by = ?, redeemed_at = ? WHERE code_hash = ? AND redeemed_by IS NULL AND revoked = 0',
+      'UPDATE redemption_codes SET redeemed_by = ?, redeemed_at = ? WHERE code_hash = ? AND redeemed_by IS NULL AND redeemed_at IS NULL AND revoked = 0',
     ).run(userId, now, hash);
     if (updated.changes !== 1) {
       throw new RedeemError(409, 'CODE_ALREADY_USED', 'This activation code has already been redeemed');
@@ -177,5 +200,72 @@ export function redeemCodeForUser(db: DB, userId: number, rawCode: string, now =
       source: `redeem:${normalized.slice(-4)}`,
       now,
     });
+  });
+}
+
+/**
+ * Revokes an activation code and optionally rolls back the redeeming user's entitlement
+ * while preserving any other valid paid orders or CLI grants on that account.
+ */
+export function revokeRedemptionCode(
+  db: DB,
+  rawCode: string,
+  opts: { revokeUser?: boolean; now?: number } = {},
+): { code: string; redeemedBy: number | null; userPlanAfter: Plan | null } | null {
+  const code = normalizeRedeemCode(rawCode);
+  if (!code) return null;
+  const hash = hashRedeemCode(code);
+  const now = opts.now ?? Date.now();
+  return transaction(db, () => {
+    const row = db.prepare('SELECT redeemed_by FROM redemption_codes WHERE code_hash = ?')
+      .get(hash) as { redeemed_by: number | null } | undefined;
+    if (!row) return null;
+    db.prepare('UPDATE redemption_codes SET revoked = 1 WHERE code_hash = ?').run(hash);
+    db.prepare("UPDATE orders SET status = 'refunded' WHERE provider = 'redeem' AND external_id = ?")
+      .run(`code:${hash.slice(0, 24)}`);
+
+    let userPlanAfter: Plan | null = null;
+    if (opts.revokeUser && row.redeemed_by !== null) {
+      const userId = row.redeemed_by;
+      const paidOrders = db.prepare(
+        "SELECT plan, provider, external_id FROM orders WHERE user_id = ? AND status = 'paid'",
+      ).all(userId) as { plan: 'pro' | 'classroom'; provider: string; external_id: string | null }[];
+      const entRow = db.prepare(
+        'SELECT plan, expires_at, source FROM entitlements WHERE user_id = ?',
+      ).get(userId) as { plan: Plan; expires_at: number | null; source: string } | undefined;
+
+      let bestPlan: Plan = 'free';
+      let bestSource = 'order';
+      for (const ord of paidOrders) {
+        if (PLAN_RANK[ord.plan] > PLAN_RANK[bestPlan]) {
+          bestPlan = ord.plan;
+          bestSource = ord.provider;
+        }
+      }
+      // Preserve non-redemption grants (e.g. cli-grant) that are still active.
+      if (
+        entRow
+        && !entRow.source.startsWith('redeem:')
+        && (entRow.expires_at === null || entRow.expires_at > now)
+        && PLAN_RANK[entRow.plan] > PLAN_RANK[bestPlan]
+      ) {
+        bestPlan = entRow.plan;
+        bestSource = entRow.source;
+      }
+
+      if (bestPlan === 'free') {
+        db.prepare('DELETE FROM entitlements WHERE user_id = ?').run(userId);
+      } else {
+        const cap = maxSessionsForPlan(bestPlan);
+        db.prepare(`
+          UPDATE entitlements
+          SET plan = ?, max_sessions = ?, source = ?
+          WHERE user_id = ?
+        `).run(bestPlan, cap, bestSource, userId);
+      }
+      trimActiveSessions(db, userId, maxSessionsForPlan(bestPlan), now);
+      userPlanAfter = bestPlan;
+    }
+    return { code, redeemedBy: row.redeemed_by, userPlanAfter };
   });
 }

@@ -133,6 +133,14 @@ if (typeof window !== 'undefined' && typeof window.addEventListener === 'functio
     } else if (e.key === 'pp.settings') {
       store.settings = { ...DEFAULT_SETTINGS, ...load<Partial<Settings>>('settings', {}) } as Settings;
       emit();
+    } else if (
+      e.key === 'pp.lessonsDone'
+      || e.key === 'pp.toursDone'
+      || e.key === 'pp.lessonJournal'
+      || e.key === 'pp.mistakeBook'
+      || e.key === 'pp.bookmarks'
+    ) {
+      emit();
     }
   });
 }
@@ -157,9 +165,21 @@ export function setMe(me: Me | null): void {
   emit();
 }
 
+let lastBillingAt = 0;
+export function getLastBillingSyncAt(): number { return lastBillingAt; }
+
 export function setBilling(status: BillingStatus | null): void {
   store.billing = status ? { ...status } : { ...DEFAULT_BILLING };
-  if (store.me && status) store.me = { ...store.me, plan: status.plan };
+  if (status) {
+    lastBillingAt = Date.now();
+    // If the server reports 0 active sessions, any cached session in this tab was expired or FIFO-evicted.
+    if (status.activeSessions === 0 && store.me) {
+      accountEpoch++;
+      store.me = null;
+    } else if (store.me) {
+      store.me = { ...store.me, plan: status.plan };
+    }
+  }
   emit();
 }
 
@@ -198,6 +218,16 @@ export function applyRemoteExtras(remote: unknown): void {
   save('lessonJournal', merged.lessonJournal ?? {});
   save('mistakeBook', merged.mistakeBook ?? {});
   save('bookmarks', merged.bookmarks ?? []);
+  emit();
+}
+
+/** Clears local learning extras when signing out on a shared classroom/family device so data never leaks to the next user. */
+export function clearLocalExtras(): void {
+  save('lessonsDone', []);
+  save('toursDone', []);
+  save('lessonJournal', {});
+  save('mistakeBook', {});
+  save('bookmarks', []);
   emit();
 }
 

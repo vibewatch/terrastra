@@ -147,17 +147,32 @@ export const ALL_ASTRO_META: readonly LessonMeta[] = ASTRO_META;
 /** Loads a full Lesson object; free starter lessons resolve from the public bundle, Pro lessons lazy-load from `pro-lessons-*.js`. */
 export async function loadLessonById(id: string): Promise<Lesson | undefined> {
   if (isFreeLesson(id)) return freeLessonById(id);
+  if (id.startsWith('a-')) {
+    const astro = await import('./pro-astro-bundle.ts');
+    return astro.proAstroLessonById(id);
+  }
   const pro = await import('./pro-bundle.ts');
   return pro.proLessonById(id);
 }
 
-/** Loads a canonical Quiz object for Mistake Notebook review; checks free lessons first, then Pro if accessible. */
+/** Loads a canonical Quiz object for Mistake Notebook review; checks free lessons first, then the matching Pro bundle if accessible. */
 export async function loadCanonicalQuiz(lessonId: string, qEn: string, allowPro: boolean): Promise<Quiz | undefined> {
   const free = findFreeCanonicalQuiz(lessonId, qEn);
   if (free || !allowPro) return free;
   try {
+    if (lessonId.startsWith('a-')) {
+      const astro = await import('./pro-astro-bundle.ts');
+      const hit = astro.proFindAstroCanonicalQuiz(lessonId, qEn);
+      if (hit) return hit;
+    }
     const pro = await import('./pro-bundle.ts');
-    return pro.proFindCanonicalQuiz(lessonId, qEn);
+    const geoHit = pro.proFindCanonicalQuiz(lessonId, qEn);
+    if (geoHit) return geoHit;
+    if (!lessonId.startsWith('a-')) {
+      const astro = await import('./pro-astro-bundle.ts');
+      return astro.proFindAstroCanonicalQuiz(lessonId, qEn);
+    }
+    return undefined;
   } catch {
     return undefined;
   }

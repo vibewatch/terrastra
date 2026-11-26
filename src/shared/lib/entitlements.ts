@@ -120,9 +120,15 @@ export function isFreeTour(id: string): boolean {
 /** Free accounts keep up to 5 local mistake-notebook items; Pro unlocks unlimited mistake review & cloud sync. */
 export const FREE_MISTAKE_LIMIT = 5;
 
-/** Current and next UTC year are free in Sky Theatre; multi-decade historical/future ephemeris & .ics export are Pro. */
-export function isFreeSkyYear(year: number, nowYear = new Date().getUTCFullYear()): boolean {
-  return year === nowYear || year === nowYear + 1;
+/** ±1 year around the current calendar year is free in Sky Theatre; multi-decade 1900–2199 ephemeris & .ics export are Pro. */
+export function isFreeSkyYear(year: number, nowYear = new Date().getFullYear()): boolean {
+  return Math.abs(year - nowYear) <= 1;
+}
+
+/** Extracts the 4-digit calendar year (1900–2199) embedded in a Sky Theatre event ID, or `null` if absent. */
+export function skyEventYear(id: string): number | null {
+  const m = /(?:^|-)((?:19|20|21)\d\d)(?:-|$)/.exec(id);
+  return m ? Number(m[1]) : null;
 }
 
 /** Today, 2000 CE, and Dinosaur era (66 Ma) are free in Time Machine; full historical timeline stops are Pro. */

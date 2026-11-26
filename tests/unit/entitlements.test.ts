@@ -15,16 +15,26 @@ import {
   isFreeTour,
   maxSessionsForPlan,
   normalizeRedeemCode,
+  skyEventYear,
 } from '../../src/shared/lib/entitlements.ts';
 import {
   emptySyncExtras,
   filterIncomingExtrasForPlan,
+  fitSyncExtras,
   isSyncExtras,
   mergeSyncExtras,
 } from '../../src/shared/lib/sync-extras.ts';
-import { recordLessonFinish, recordMistake, type MistakeBook } from '../../src/shared/lib/journal.ts';
+import { emptyProgress, MAX_SYNC_REQUEST_BYTES } from '../../src/shared/lib/progress.ts';
+import {
+  recordLessonFinish,
+  recordLessonStep,
+  recordMistake,
+  recordMistakeReview,
+  type LessonJournal,
+  type MistakeBook,
+} from '../../src/shared/lib/journal.ts';
 import { openDb } from '../../src/server/db.ts';
-import { getUserEntitlement } from '../../src/server/billing.ts';
+import { getUserEntitlement, redeemCodeForUser } from '../../src/server/billing.ts';
 
 describe('entitlements & redemption code rules', () => {
   it('normalizes valid activation codes and rejects ambiguous or malformed inputs', () => {
@@ -62,10 +72,15 @@ describe('entitlements & redemption code rules', () => {
     expect(isFreeTour('eclipse')).toBe(false);
     expect(isFreeTour('apollo11')).toBe(false);
 
+    expect(isFreeSkyYear(2025, 2026)).toBe(true);
     expect(isFreeSkyYear(2026, 2026)).toBe(true);
     expect(isFreeSkyYear(2027, 2026)).toBe(true);
-    expect(isFreeSkyYear(2025, 2026)).toBe(false);
+    expect(isFreeSkyYear(2024, 2026)).toBe(false);
     expect(isFreeSkyYear(2030, 2026)).toBe(false);
+
+    expect(skyEventYear('solar-eclipse-1999-08-11')).toBe(1999);
+    expect(skyEventYear('transit-venus-2117-12-11')).toBe(2117);
+    expect(skyEventYear('invalid-event')).toBeNull();
 
     expect(isFreeTimeStop('now')).toBe(true);
     expect(isFreeTimeStop('dino')).toBe(true);
@@ -132,6 +147,52 @@ describe('sync extras validation, merging & plan filtering', () => {
     expect(filterIncomingExtrasForPlan(merged, 'pro', true).bookmarks).toHaveLength(2);
     expect(filterIncomingExtrasForPlan(merged, 'free', false).bookmarks).toHaveLength(2);
   });
+
+  it('fits oversized SyncExtras under 64 KB by trimming mastered mistakes before active mistakes and in-progress lessons', () => {
+    let mistakes: MistakeBook = {};
+    const pad = '地理与天文详细解析 '.repeat(25);
+    for (let i = 0; i < 90; i++) {
+      mistakes = recordMistake(
+        mistakes,
+        'shape',
+        {
+          q: [`Question ${i}: ${pad}?`, `问题 ${i}：${pad}？`],
+          options: [['Option A ' + pad, '选项 A ' + pad], ['Option B', '选项 B']],
+          answer: 0,
+          why: [`Explanation ${i}: ${pad}`, `解析 ${i}：${pad}`],
+        },
+        1000 + i,
+      );
+      if (i < 75) {
+        const key = Object.keys(mistakes).find(k => mistakes[k]!.q[0].startsWith(`Question ${i}:`))!;
+        mistakes = recordMistakeReview(mistakes, key, true, 2000 + i);
+      }
+    }
+    let journal: LessonJournal = {};
+    for (let i = 0; i < 40; i++) {
+      journal = recordLessonFinish(journal, `lesson-${i}`, 4, 5, [['Topic ' + i, '考点 ' + i]], 6, 3000 + i);
+    }
+    journal = recordLessonStep(journal, 'active-mid-lesson', 3, 8, 9999);
+
+    const rawExtras = {
+      lessonsDone: ['shape', 'usa'],
+      toursDone: ['cosmos'],
+      mistakeBook: mistakes,
+      lessonJournal: journal,
+      bookmarks: [{ route: '', cam: { lat: 31.2, lon: 121.5, h: 1.4 }, label: { en: 'Shanghai' }, at: 5000 }],
+    };
+    const rawBytes = new TextEncoder().encode(JSON.stringify({ progress: emptyProgress(), extras: rawExtras })).byteLength;
+    expect(rawBytes).toBeGreaterThan(MAX_SYNC_REQUEST_BYTES);
+
+    const fitted = fitSyncExtras(emptyProgress(), rawExtras, MAX_SYNC_REQUEST_BYTES);
+    const fittedBytes = new TextEncoder().encode(JSON.stringify({ progress: emptyProgress(), extras: fitted })).byteLength;
+    expect(fittedBytes).toBeLessThanOrEqual(MAX_SYNC_REQUEST_BYTES);
+    expect(isSyncExtras(fitted)).toBe(true);
+    // All 15 active (unmastered) mistakes and the mid-lesson resume position are preserved!
+    const keptMistakes = Object.values(fitted.mistakeBook ?? {});
+    expect(keptMistakes.filter(m => !m.mastered)).toHaveLength(15);
+    expect(fitted.lessonJournal?.['active-mid-lesson']?.stepIndex).toBe(3);
+  });
 });
 
 describe('manage-codes CLI', () => {
@@ -167,8 +228,23 @@ describe('manage-codes CLI', () => {
         const ent = getUserEntitlement(db, u.id);
         expect(ent.plan).toBe('classroom');
         expect(ent.maxSessions).toBe(10);
+
+        // Also verify --revoke-user rolls back a redeemed user cleanly without wiping cli-grant accounts
+        db.prepare('INSERT INTO users (email) VALUES (?)').run('buyer@example.com');
+        const buyer = db.prepare('SELECT id FROM users WHERE email = ?').get('buyer@example.com') as { id: number };
+        redeemCodeForUser(db, buyer.id, codes[1]!);
+        expect(getUserEntitlement(db, buyer.id).plan).toBe('pro');
       } finally {
         db.close();
+      }
+      const revokedBuyer = run('revoke', codes[1]!, '--revoke-user');
+      expect(revokedBuyer.status, revokedBuyer.stderr).toBe(0);
+      const db2 = openDb(dbPath);
+      try {
+        const buyer = db2.prepare('SELECT id FROM users WHERE email = ?').get('buyer@example.com') as { id: number };
+        expect(getUserEntitlement(db2, buyer.id).plan).toBe('free');
+      } finally {
+        db2.close();
       }
     } finally {
       rmSync(dir, { recursive: true, force: true });
