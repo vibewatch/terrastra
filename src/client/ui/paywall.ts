@@ -2,6 +2,7 @@
 import { h, openModal, closeModal, confetti, toast } from './dom.ts';
 import { icon } from './icons.ts';
 import { t } from '../lib/i18n.ts';
+import { FULL_APP_URL, HAS_API } from '../lib/env.ts';
 import { ApiError, api } from '../lib/api.ts';
 import { store, setMe, setBilling, effectivePlan } from '../store.ts';
 import { PLANS, type Plan, type PlanSpec } from '../../shared/lib/entitlements.ts';
@@ -23,6 +24,7 @@ export function redeemErrorMessage(err: unknown): string {
   if (err instanceof ApiError) {
     if (err.code === 'INVALID_CODE') return t('redeemErrInvalid');
     if (err.code === 'CODE_NOT_FOUND') return t('redeemErrNotFound');
+    if (err.code === 'CODE_EXPIRED') return t('redeemErrExpired');
     if (err.code === 'CODE_ALREADY_USED') return t('redeemErrUsed');
     if (err.code === 'ALREADY_ENTITLED') return t('redeemErrAlready');
     if (err.code === 'AUTH_REQUIRED' || err.status === 401) return t('redeemSignInFirst');
@@ -66,53 +68,70 @@ export function openPaywall(featureReason?: string, onUnlocked?: () => void): vo
   const feedback = h('p', { class: 'small', 'aria-live': 'polite', 'data-testid': 'paywall-feedback', hidden: true });
   let busy = false;
 
-  const redeemSection = store.me
-    ? h('form', {
-        class: 'paywall-redeem',
-        'data-testid': 'paywall-redeem-form',
-        onsubmit: async (e: Event) => {
-          e.preventDefault();
-          if (busy) return;
-          const v = codeInput.value.trim();
-          if (!v) return;
-          busy = true;
-          submitBtn.disabled = true;
-          submitBtn.textContent = t('redeemActivating');
-          feedback.hidden = true;
-          try {
-            const unlockedPlan = await redeemAndRefresh(v);
-            confetti(45);
-            toast(t('redeemSuccess', { plan: planLabel(unlockedPlan) }), 4000);
-            closeModal('paywall');
-            onUnlocked?.();
-          } catch (err) {
-            feedback.className = 'small error';
-            feedback.textContent = redeemErrorMessage(err);
-            feedback.hidden = false;
-          } finally {
-            busy = false;
-            submitBtn.disabled = false;
-            submitBtn.textContent = t('redeemBtn');
-          }
-        },
-      },
-      h('strong', {}, h('span', { html: icon('key', 15) }), ' ', t('redeemTitle')),
-      h('div', { class: 'redeem-row' }, codeInput, submitBtn),
-      feedback)
-    : h('div', { class: 'paywall-redeem', 'data-testid': 'paywall-signin-box' },
-        h('p', { class: 'muted small', style: 'margin:0' }, t('redeemSignInFirst')),
-        h('button', {
-          class: 'cta',
-          'data-testid': 'paywall-signin-btn',
-          onclick: () => {
-            closeModal('paywall');
-            void import('./account.ts').then(m => m.openAccount());
+  const redeemSection = !HAS_API
+    ? h('div', { class: 'paywall-redeem', 'data-testid': 'paywall-demo-box' },
+        h('p', { class: 'muted small', style: 'margin:0' }, t('paywallDemoNote')),
+        FULL_APP_URL
+          ? h('a', {
+              class: 'cta',
+              href: FULL_APP_URL,
+              target: '_blank',
+              rel: 'noopener noreferrer',
+              'data-testid': 'paywall-open-full',
+            }, t('paywallOpenFullBtn'))
+          : null)
+    : store.me
+      ? h('form', {
+          class: 'paywall-redeem',
+          'data-testid': 'paywall-redeem-form',
+          onsubmit: async (e: Event) => {
+            e.preventDefault();
+            if (busy) return;
+            const v = codeInput.value.trim();
+            if (!v) return;
+            busy = true;
+            submitBtn.disabled = true;
+            submitBtn.textContent = t('redeemActivating');
+            feedback.hidden = true;
+            try {
+              const unlockedPlan = await redeemAndRefresh(v);
+              confetti(45);
+              toast(t('redeemSuccess', { plan: planLabel(unlockedPlan) }), 4000);
+              closeModal('paywall');
+              onUnlocked?.();
+            } catch (err) {
+              feedback.className = 'small error';
+              feedback.textContent = redeemErrorMessage(err);
+              feedback.hidden = false;
+            } finally {
+              busy = false;
+              submitBtn.disabled = false;
+              submitBtn.textContent = t('redeemBtn');
+            }
           },
-        }, t('signIn')));
+        },
+        h('strong', {}, h('span', { html: icon('key', 15) }), ' ', t('redeemTitle')),
+        h('div', { class: 'redeem-row' }, codeInput, submitBtn),
+        feedback)
+      : h('div', { class: 'paywall-redeem', 'data-testid': 'paywall-signin-box' },
+          h('p', { class: 'muted small', style: 'margin:0' }, t('redeemSignInFirst')),
+          h('button', {
+            class: 'cta',
+            'data-testid': 'paywall-signin-btn',
+            onclick: () => {
+              closeModal('paywall');
+              void import('./account.ts').then(m => m.openAccount());
+            },
+          }, t('signIn')));
 
   const cur = effectivePlan();
   const proPricing = store.billing.pricing?.pro ?? PLANS.pro;
   const classPricing = store.billing.pricing?.classroom ?? PLANS.classroom;
+  const sf = store.billing.storefront;
+  const buyProUrl = sf?.purchaseUrlPro ?? null;
+  const buyClassUrl = sf?.purchaseUrlClassroom ?? null;
+  const contact = sf?.purchaseContact ?? null;
+
   const body = h('div', { class: 'paywall', 'data-testid': 'paywall' },
     featureReason ? h('p', { class: 'paywall-ctx', 'data-testid': 'paywall-reason' }, '🔒 ', t('paywallFeatureCtx', { s: featureReason })) : null,
     h('p', { class: 'muted', style: 'margin:0' }, t('paywallSubtitle')),
@@ -120,12 +139,33 @@ export function openPaywall(featureReason?: string, onUnlocked?: () => void): vo
       h('section', { class: 'paywall-tier featured', 'data-testid': 'tier-pro' },
         h('h3', {}, h('span', { html: icon('sparkle', 16) }), t('planPro'), cur === 'pro' ? h('span', { class: 'plan-pill pro' }, '✓') : null),
         h('p', { class: 'paywall-price', 'data-testid': 'tier-pro-price' }, formatPlanPrice(proPricing)),
-        h('p', { class: 'muted small', style: 'margin:0' }, t('paywallProDesc'))),
+        h('p', { class: 'muted small', style: 'margin:0' }, t('paywallProDesc')),
+        buyProUrl
+          ? h('a', {
+              class: 'cta',
+              style: 'margin-top:8px;text-align:center',
+              href: buyProUrl,
+              target: '_blank',
+              rel: 'noopener noreferrer',
+              'data-testid': 'paywall-buy-pro',
+            }, t('paywallBuyProBtn'))
+          : null),
       h('section', { class: 'paywall-tier', 'data-testid': 'tier-classroom' },
         h('h3', {}, h('span', { html: icon('book', 16) }), t('planClassroom'), cur === 'classroom' ? h('span', { class: 'plan-pill classroom' }, '✓') : null),
         h('p', { class: 'paywall-price', 'data-testid': 'tier-classroom-price' }, formatPlanPrice(classPricing)),
-        h('p', { class: 'muted small', style: 'margin:0' }, t('paywallClassDesc')))),
-    h('p', { class: 'paywall-note' }, t('paywallCheckoutSoon')),
+        h('p', { class: 'muted small', style: 'margin:0' }, t('paywallClassDesc')),
+        buyClassUrl && buyClassUrl !== buyProUrl
+          ? h('a', {
+              class: 'pill',
+              style: 'margin-top:8px;text-align:center',
+              href: buyClassUrl,
+              target: '_blank',
+              rel: 'noopener noreferrer',
+              'data-testid': 'paywall-buy-classroom',
+            }, t('paywallBuyClassBtn'))
+          : null)),
+    !buyProUrl ? h('p', { class: 'paywall-note' }, t('paywallCheckoutSoon')) : null,
+    contact ? h('p', { class: 'paywall-note', 'data-testid': 'paywall-contact' }, t('paywallContact', { c: contact })) : null,
     redeemSection,
   );
 

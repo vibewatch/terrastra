@@ -1,4 +1,5 @@
 import { load, save } from './lib/storage.ts';
+import { PAYWALL_DEMO } from './lib/env.ts';
 import { emptyProgress, fitsSyncRequest, isProgress, mergeProgress, type Progress } from '../shared/lib/progress.ts';
 import { hasProAccess, type Plan } from '../shared/lib/entitlements.ts';
 import { isSyncExtras, mergeSyncExtras, type SyncBookmark, type SyncExtras } from '../shared/lib/sync-extras.ts';
@@ -158,7 +159,16 @@ export function setMe(me: Me | null): void {
   if (store.me?.id !== me?.id || store.me?.email !== me?.email) accountEpoch++;
   store.me = me;
   if (!me) {
-    store.billing = { ...store.billing, plan: 'free', source: null, grantedAt: null, activeSessions: 0, maxSessions: 3 };
+    store.billing = {
+      ...store.billing,
+      plan: 'free',
+      source: null,
+      grantedAt: null,
+      expiresAt: null,
+      activeSessions: 0,
+      maxSessions: 3,
+      orders: [],
+    };
   } else if (me.plan) {
     store.billing = { ...store.billing, plan: me.plan };
   }
@@ -188,7 +198,7 @@ export function effectivePlan(): Plan {
 }
 
 export function isPaywallEnabled(): boolean {
-  if (store.billing.paywall) return true;
+  if (PAYWALL_DEMO || store.billing.paywall) return true;
   if (typeof location !== 'undefined') {
     const q = new URLSearchParams(location.search).get('paywall');
     if (q === '1') return true;

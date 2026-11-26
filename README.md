@@ -60,6 +60,9 @@ Set these in `.env` (template: [`.env.example`](.env.example)) or export them.
 | `BASE_URL` | `http://localhost:$PORT` in development; required in production | public origin used in magic links and the CSRF origin check; HTTPS is required in production unless insecure cookies are explicitly enabled for staging |
 | `INSECURE_COOKIES` | — | `1` drops the `Secure` cookie flag in production (plain-HTTP staging) |
 | `PAYWALL_ENABLED` | — | `1` enforces Explorer Pro / Classroom entitlement checks on Pro lesson chunks (`/assets/pro-lessons-*.js`), Mistake Notebook cloud limits, and Pro learning sync |
+| `PURCHASE_URL_PRO` | — | optional HTTPS storefront URL shown in the paywall modal for acquiring Explorer Pro activation codes |
+| `PURCHASE_URL_CLASSROOM` | — | optional HTTPS storefront URL for Classroom Edition activation codes (falls back to `PURCHASE_URL_PRO`) |
+| `PURCHASE_CONTACT` | — | optional support/school-order contact line displayed in the paywall modal |
 | `MAIL_FROM` | — | sender address for sign-in mail; required with either transport below |
 | `MAIL_API_URL` | — | HTTP email API taking `{ from, to, subject, text, html }` JSON (Resend-style); takes precedence over SMTP |
 | `MAIL_API_KEY` | — | bearer token for `MAIL_API_URL` |
@@ -147,10 +150,13 @@ To restore, stop every server process, move the current database **and its `-wal
 ### Activation codes & entitlements
 Explorer Pro (`pro`, 3 concurrent devices) and Classroom (`classroom`, 10 concurrent devices) entitlements can be issued and managed directly in SQLite before connecting online payment gateways:
 ```bash
-npm run codes -- create --plan pro --count 10 --note "batch-1"
+npm run codes -- create --plan pro --count 10 --note "batch-1" --expires-days 365
+npm run codes -- create --plan pro --count 50 --raw > batch.txt
 npm run codes -- list
-npm run codes -- revoke TRST-XXXX-XXXX-XXXX
+npm run codes -- inspect TRST-XXXX-XXXX-XXXX
+npm run codes -- stats
+npm run codes -- revoke TRST-XXXX-XXXX-XXXX --revoke-user
 npm run codes -- grant --email learner@example.com --plan pro
 ```
-Codes use a 16-character `TRST-XXXX-XXXX-XXXX` alphabet without ambiguous characters (`0/O/1/I`) and are stored as SHA-256 hashes in SQLite. Set `PAYWALL_ENABLED=1` in `.env` when ready to enforce server-side gating of `dist/.pro-assets/pro-lessons-*.js` chunks.
+Codes use a 16-character `TRST-XXXX-XXXX-XXXX` alphabet without ambiguous characters (`0/O/1/I`) and are stored as SHA-256 hashes in SQLite. Set `PAYWALL_ENABLED=1` in `.env` when ready to enforce server-side gating of `dist/.pro-assets/pro-lessons-*.js` chunks. For a public static teaser build (without paid curriculum chunks in `dist/`), build with `VITE_STATIC=1 VITE_PAYWALL_DEMO=1 VITE_FULL_APP_URL=https://your-domain.example npm run build`.
 

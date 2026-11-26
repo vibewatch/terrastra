@@ -7,10 +7,10 @@ import { icon, type IconName } from './icons.ts';
 import { openPaywall } from './paywall.ts';
 import { t, lang, onLang } from '../lib/i18n.ts';
 import { load, save } from '../lib/storage.ts';
-import { canUsePro, isPaywallEnabled, scheduleSync } from '../store.ts';
+import { store, canUsePro, effectivePlan, isPaywallEnabled, scheduleSync } from '../store.ts';
 import { classroomLink } from '../lib/classroom.ts';
 import { closeTutorial } from './tutorial.ts';
-import { isFreeTour } from '../../shared/lib/entitlements.ts';
+import { isFreeTour, maskLicenseEmail } from '../../shared/lib/entitlements.ts';
 import { skyEvents } from '../../shared/lib/astro/events.ts';
 import { BY_KEY } from '../../shared/data/catalogue.ts';
 
@@ -174,7 +174,11 @@ function missionTime(ms: number, t0?: number): string {
 }
 
 /** Formats a guided tour as a clean Markdown study guide for classroom or self-study notes. */
-export function formatTourStudyGuideMarkdown(tour: Tour, l: 'en' | 'zh' = lang()): string {
+export function formatTourStudyGuideMarkdown(
+  tour: Tour,
+  l: 'en' | 'zh' = lang(),
+  licensedEmail: string | null | undefined = effectivePlan() !== 'free' ? store.me?.email : null,
+): string {
   const pick = (p: Pair) => (l === 'zh' ? p[1] : p[0]);
   const steps = tour.steps();
   const lines: string[] = [
@@ -191,6 +195,10 @@ export function formatTourStudyGuideMarkdown(tour: Tour, l: 'en' | 'zh' = lang()
     }
     lines.push('', pick(st.body), '');
   });
+  if (licensedEmail) {
+    const masked = maskLicenseEmail(licensedEmail);
+    lines.push('---', l === 'zh' ? `*授权账号：${masked}*` : `*Licensed to ${masked}*`, '');
+  }
   return lines.join('\n').trim() + '\n';
 }
 

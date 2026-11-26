@@ -4,14 +4,30 @@ import type { SyncExtras } from '../../shared/lib/sync-extras.ts';
 import { HAS_API, url } from './env.ts';
 
 export interface Me { id: number; email: string; handle: string | null; plan?: Plan }
+export interface StorefrontInfo {
+  purchaseUrlPro: string | null;
+  purchaseUrlClassroom: string | null;
+  purchaseContact: string | null;
+}
+export interface BillingOrder {
+  id: string;
+  plan: 'pro' | 'classroom';
+  provider: string;
+  status: 'pending' | 'paid' | 'refunded' | 'disputed';
+  createdAt: number;
+  paidAt: number | null;
+}
 export interface BillingStatus {
   paywall: boolean;
   plan: Plan;
   source: string | null;
   grantedAt: number | null;
+  expiresAt?: number | null;
   activeSessions: number;
   maxSessions: number;
   pricing?: { pro: PlanSpec; classroom: PlanSpec };
+  storefront?: StorefrontInfo;
+  orders?: BillingOrder[];
 }
 export interface RedeemResponse {
   ok: true;
@@ -57,6 +73,7 @@ export const api = {
   redeemCode: async (code: string) => j<RedeemResponse>(await fetch(url('api/billing/redeem'), opt('POST', { code }))),
   requestLink: async (email: string) => j<{ ok: true; devLink?: string }>(await fetch(url('api/auth/request'), opt('POST', { email }))),
   logout: async () => j<{ ok: true }>(await fetch(url('api/auth/logout'), opt('POST', {}))),
+  logoutOthers: async () => j<{ ok: true; revoked: number; activeSessions: number }>(await fetch(url('api/auth/logout-others'), opt('POST', {}))),
   setHandle: async (handle: string) => j<{ user: Me }>(await fetch(url('api/profile'), opt('PUT', { handle }))),
   deleteAccount: async () => j<{ ok: true }>(await fetch(url('api/me'), opt('DELETE'))),
   getProgress: async () => j<{ progress: Progress | null; extras?: SyncExtras | null }>(await fetch(url('api/progress'), opt('GET'))),

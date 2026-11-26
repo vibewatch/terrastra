@@ -52,6 +52,7 @@ export function openDb(path: string): DB {
       plan TEXT NOT NULL CHECK (plan IN ('pro', 'classroom')),
       note TEXT,
       created_at INTEGER NOT NULL,
+      expires_at INTEGER,
       redeemed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
       redeemed_at INTEGER,
       revoked INTEGER NOT NULL DEFAULT 0);
@@ -77,6 +78,10 @@ export function openDb(path: string): DB {
   const sessionCols = db.prepare('PRAGMA table_info(sessions)').all() as { name: string }[];
   if (!sessionCols.some(c => c.name === 'created_at')) {
     db.exec('ALTER TABLE sessions ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0');
+  }
+  const codeCols = db.prepare('PRAGMA table_info(redemption_codes)').all() as { name: string }[];
+  if (!codeCols.some(c => c.name === 'expires_at')) {
+    db.exec('ALTER TABLE redemption_codes ADD COLUMN expires_at INTEGER');
   }
   return db;
 }

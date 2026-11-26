@@ -1,15 +1,19 @@
 import express, { type Request, type Response, type NextFunction } from 'express';
 import { createHash, createHmac, randomBytes } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { extname, join, resolve } from 'node:path';
+import { brotliCompressSync, constants as zlibConstants, gzipSync } from 'node:zlib';
 import { transaction, type DB } from './db.ts';
 import {
   countActiveSessions,
   enforceSessionCap,
   getUserEntitlement,
+  listUserOrders,
   redeemCodeForUser,
   RedeemError,
+  revokeOtherSessions,
 } from './billing.ts';
+import type { StorefrontConfig } from './config.ts';
 import { limiter } from './rate-limit.ts';
 import { clientKey } from './client-key.ts';
 import { mergeProgress, isProgress, emptyProgress, fitsSyncRequest, MAX_SYNC_REQUEST_BYTES, type Progress, fitProgress } from '../shared/lib/progress.ts';
@@ -36,6 +40,8 @@ interface AppOptions {
   devLogin: boolean;
   /** Enforce strict 401/402 gating on Pro lesson chunks and cloud sync extras (`PAYWALL_ENABLED=1`). */
   enforcePaywall?: boolean;
+  /** Optional external storefront links & operator contact for activation-code purchases. */
+  storefront?: StorefrontConfig;
   /** Absolute base URL used to build magic links. */
   baseUrl: string;
   secureCookies: boolean;
@@ -49,7 +55,57 @@ const SESSION_TTL = 60 * 24 * 3600_000;
 const JSON_LIMIT = MAX_SYNC_REQUEST_BYTES;
 const EMAIL_RE = /^[^\s@]{1,64}@[^\s@]{1,255}\.[^\s@]{2,}$/;
 const BLOCKED = ['stupid', 'idiot', 'hate', 'kill', 'dumb', 'shut up', '笨蛋', '白痴', '傻瓜', '滚开'];
+const COMPRESS_MIN_BYTES = 1024;
+const COMPRESSIBLE_TYPE_RE = /^(?:application\/(?:javascript|json|manifest\+json|xml)|text\/|image\/svg\+xml)\b/i;
+const COMPRESSIBLE_EXT_RE = /\.(?:js|css|json|svg|xml|webmanifest)$/i;
 const sha = (s: string) => createHash('sha256').update(s).digest('hex');
+
+interface CompressedAsset {
+  raw: Buffer;
+  br: Buffer;
+  gzip: Buffer;
+  etag: string;
+  mtimeMs: number;
+  size: number;
+}
+
+function buildCompressedAsset(raw: Buffer, mtimeMs = 0): CompressedAsset {
+  return {
+    raw,
+    br: brotliCompressSync(raw, { params: { [zlibConstants.BROTLI_PARAM_QUALITY]: 5 } }),
+    gzip: gzipSync(raw, { level: 6 }),
+    etag: `W/"${raw.byteLength.toString(16)}-${sha(raw.toString('latin1')).slice(0, 16)}"`,
+    mtimeMs,
+    size: raw.byteLength,
+  };
+}
+
+/** Negotiates `br` or `gzip` from `Accept-Encoding`, honoring `q=0` exclusions. */
+export function negotiateEncoding(header: string | undefined): 'br' | 'gzip' | null {
+  if (!header) return null;
+  let brQ = -1;
+  let gzipQ = -1;
+  for (const rawPart of header.split(',')) {
+    const [tokenRaw, ...params] = rawPart.trim().toLowerCase().split(';');
+    const token = tokenRaw.trim();
+    if (!token) continue;
+    let q = 1;
+    for (const p of params) {
+      const m = /^q\s*=\s*([01](?:\.\d{0,3})?)$/.exec(p.trim());
+      if (m) q = Number(m[1]);
+    }
+    if (token === 'br') brQ = q;
+    else if (token === 'gzip' || token === 'x-gzip') gzipQ = Math.max(gzipQ, q);
+  }
+  if (brQ <= 0 && gzipQ <= 0) return null;
+  return brQ >= gzipQ && brQ > 0 ? 'br' : gzipQ > 0 ? 'gzip' : null;
+}
+
+function matchesIfNoneMatch(header: string | undefined, etag: string): boolean {
+  if (!header) return false;
+  if (header.trim() === '*') return true;
+  return header.split(',').some(part => part.trim() === etag);
+}
 
 function cookies(req: Request): Record<string, string> {
   const out: Record<string, string> = {};
@@ -84,10 +140,39 @@ export function createApp(o: AppOptions): express.Express {
   app.disable('x-powered-by');
   app.set('trust proxy', 'loopback');
 
-  app.use((_req, res, next) => {
+  app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
     res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    const origSend = res.send.bind(res);
+    res.send = ((body?: unknown) => {
+      if (res.headersSent || res.getHeader('Content-Encoding')) return origSend(body);
+      const ctype = String(res.getHeader('Content-Type') ?? '');
+      const isJsonObj = body !== null && typeof body === 'object' && !Buffer.isBuffer(body);
+      if (!COMPRESSIBLE_TYPE_RE.test(ctype) && !isJsonObj) return origSend(body);
+      res.vary('Accept-Encoding');
+      const enc = negotiateEncoding(req.headers['accept-encoding']);
+      if (!enc) return origSend(body);
+      let raw: Buffer;
+      if (Buffer.isBuffer(body)) {
+        raw = body;
+      } else if (typeof body === 'string') {
+        raw = Buffer.from(body, 'utf8');
+      } else if (isJsonObj) {
+        if (!ctype) res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        raw = Buffer.from(JSON.stringify(body), 'utf8');
+      } else {
+        return origSend(body);
+      }
+      if (raw.byteLength < COMPRESS_MIN_BYTES) return origSend(body);
+      const compressed = enc === 'br'
+        ? brotliCompressSync(raw, { params: { [zlibConstants.BROTLI_PARAM_QUALITY]: 4 } })
+        : gzipSync(raw, { level: 6 });
+      if (compressed.byteLength >= raw.byteLength) return origSend(body);
+      res.setHeader('Content-Encoding', enc);
+      res.removeHeader('Content-Length');
+      return origSend(compressed);
+    }) as typeof res.send;
     next();
   });
   app.use('/api', (_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
@@ -164,9 +249,11 @@ export function createApp(o: AppOptions): express.Express {
     }
     const token = randomBytes(24).toString('base64url');
     // housekeeping, at most a few times an hour per visitor thanks to the limit above
-    db.prepare('DELETE FROM login_tokens WHERE expires < ?').run(Date.now());
-    db.prepare('DELETE FROM sessions WHERE expires < ?').run(Date.now());
-    db.prepare('INSERT INTO login_tokens (hash, email, expires) VALUES (?, ?, ?)').run(sha(token), email, Date.now() + TOKEN_TTL);
+    const now = Date.now();
+    db.prepare('DELETE FROM login_tokens WHERE expires < ?').run(now);
+    db.prepare('DELETE FROM sessions WHERE expires < ?').run(now);
+    db.prepare('DELETE FROM rate_limits WHERE reset <= ?').run(now);
+    db.prepare('INSERT INTO login_tokens (hash, email, expires) VALUES (?, ?, ?)').run(sha(token), email, now + TOKEN_TTL);
     const link = `${baseOrigin}/api/auth/verify?token=${token}`;
     if (o.sendMail) {
       try { await o.sendMail(email, link); } catch (e) {
@@ -221,7 +308,21 @@ export function createApp(o: AppOptions): express.Express {
     res.json({ ok: true });
   });
 
+  app.post('/api/auth/logout-others', (req, res) => {
+    const u = requireUser(req, res); if (!u) return;
+    const sid = cookies(req).pp_sid;
+    const revoked = revokeOtherSessions(db, u.id, sid ? sha(sid) : null);
+    const activeSessions = countActiveSessions(db, u.id, Date.now());
+    res.json({ ok: true, revoked, activeSessions });
+  });
+
   app.get('/api/me', (req, res) => { res.json({ user: currentUser(req) }); });
+
+  const storefront: StorefrontConfig = o.storefront ?? {
+    purchaseUrlPro: null,
+    purchaseUrlClassroom: null,
+    purchaseContact: null,
+  };
 
   app.get('/api/billing/status', (req, res) => {
     const u = currentUser(req);
@@ -230,6 +331,7 @@ export function createApp(o: AppOptions): express.Express {
       ? getUserEntitlement(db, u.id, now)
       : { plan: 'free' as const, maxSessions: maxSessionsForPlan('free'), grantedAt: null, expiresAt: null, source: null };
     const activeSessions = u ? countActiveSessions(db, u.id, now) : 0;
+    const orders = u ? listUserOrders(db, u.id) : [];
     res.json({
       paywall,
       plan: ent.plan,
@@ -237,9 +339,12 @@ export function createApp(o: AppOptions): express.Express {
       maxSessions: ent.maxSessions,
       activeSessions,
       grantedAt: ent.grantedAt,
+      expiresAt: ent.expiresAt,
       source: ent.source,
       checkoutReady: false,
       pricing: { pro: PLANS.pro, classroom: PLANS.classroom },
+      storefront,
+      orders,
     });
   });
 
@@ -399,9 +504,31 @@ export function createApp(o: AppOptions): express.Express {
   });
 
   if (o.staticDir && existsSync(o.staticDir)) {
-    const dir = o.staticDir;
-    const proChunkCache = new Map<string, Buffer>();
+    const dir = resolve(o.staticDir);
+    const proChunkCache = new Map<string, CompressedAsset>();
+    const staticAssetCache = new Map<string, CompressedAsset>();
+    const MAX_STATIC_CACHE = 96;
     const PRO_CHUNK_RE = /^pro-lessons-[A-Za-z0-9_-]+\.js$/;
+
+    const sendCompressedAsset = (req: Request, res: Response, asset: CompressedAsset, contentType: string) => {
+      res.vary('Accept-Encoding');
+      res.setHeader('ETag', asset.etag);
+      if (matchesIfNoneMatch(req.headers['if-none-match'], asset.etag)) {
+        return res.status(304).end();
+      }
+      const enc = asset.raw.byteLength >= COMPRESS_MIN_BYTES ? negotiateEncoding(req.headers['accept-encoding']) : null;
+      res.type(contentType);
+      if (enc === 'br' && asset.br.byteLength < asset.raw.byteLength) {
+        res.setHeader('Content-Encoding', 'br');
+        return res.end(req.method === 'HEAD' ? undefined : asset.br);
+      }
+      if (enc === 'gzip' && asset.gzip.byteLength < asset.raw.byteLength) {
+        res.setHeader('Content-Encoding', 'gzip');
+        return res.end(req.method === 'HEAD' ? undefined : asset.gzip);
+      }
+      return res.end(req.method === 'HEAD' ? undefined : asset.raw);
+    };
+
     app.use((req, res, next) => {
       let decoded = req.path;
       try { decoded = decodeURIComponent(req.path); } catch { return res.status(400).end(); }
@@ -423,16 +550,40 @@ export function createApp(o: AppOptions): express.Express {
           return res.status(429).json({ error: 'Too many requests, try again later', code: 'RATE_LIMITED' });
         }
       }
-      let buf = proChunkCache.get(file);
-      if (!buf) {
+      let cached = proChunkCache.get(file);
+      if (!cached) {
         const gatedPath = join(dir, '.pro-assets', file);
         const fallbackPath = join(dir, 'assets', file);
         const resolved = existsSync(gatedPath) ? gatedPath : existsSync(fallbackPath) ? fallbackPath : null;
         if (!resolved) return res.status(404).end();
-        buf = readFileSync(resolved);
-        proChunkCache.set(file, buf);
+        cached = buildCompressedAsset(readFileSync(resolved));
+        proChunkCache.set(file, cached);
       }
-      return res.type('application/javascript; charset=utf-8').send(buf);
+      return sendCompressedAsset(req, res, cached, 'application/javascript; charset=utf-8');
+    });
+    app.use((req, res, next) => {
+      if ((req.method !== 'GET' && req.method !== 'HEAD') || req.headers.range) return next();
+      if (!COMPRESSIBLE_EXT_RE.test(req.path)) return next();
+      let relPath = req.path;
+      try { relPath = decodeURIComponent(req.path); } catch { return next(); }
+      if (relPath.split('/').some(seg => seg.startsWith('.'))) return next();
+      const fullPath = resolve(dir, '.' + relPath);
+      if (!fullPath.startsWith(dir + '/') || !existsSync(fullPath)) return next();
+      let st;
+      try { st = statSync(fullPath); } catch { return next(); }
+      if (!st.isFile() || st.size < COMPRESS_MIN_BYTES || st.size > 4 * 1024 * 1024) return next();
+      let cached = staticAssetCache.get(fullPath);
+      if (!cached || cached.mtimeMs !== st.mtimeMs || cached.size !== st.size) {
+        if (staticAssetCache.size >= MAX_STATIC_CACHE) {
+          const oldest = staticAssetCache.keys().next().value;
+          if (oldest) staticAssetCache.delete(oldest);
+        }
+        cached = buildCompressedAsset(readFileSync(fullPath), st.mtimeMs);
+        staticAssetCache.set(fullPath, cached);
+      }
+      if (relPath.startsWith('/assets/')) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      else res.setHeader('Cache-Control', 'public, max-age=0');
+      return sendCompressedAsset(req, res, cached, extname(fullPath));
     });
     app.use(express.static(dir, {
       dotfiles: 'ignore',

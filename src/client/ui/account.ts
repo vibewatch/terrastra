@@ -82,6 +82,8 @@ export function openAccount(): void {
         h('button', { class: 'pill', 'data-testid': 'sign-out-keep', onclick: () => void signOut(false) }, t('signOutKeep'))));
     const handle = h('input', { value: me.handle ?? '', maxlength: 16, pattern: HANDLE_PATTERN, 'aria-label': t('handle'), title: t('handleRule'), 'data-testid': 'handle' });
     const curPlan = effectivePlan();
+    const otherDevices = Math.max(0, store.billing.activeSessions - 1);
+    const orders = store.billing.orders ?? [];
     const codeInput = h('input', {
       type: 'text',
       required: true,
@@ -103,6 +105,21 @@ export function openAccount(): void {
         store.billing.activeSessions > 0
           ? h('small', { class: 'muted', 'data-testid': 'acct-session-cap' },
               t('planDevices', { n: store.billing.activeSessions, cap: store.billing.maxSessions }))
+          : null,
+        otherDevices > 0
+          ? h('button', {
+              class: 'link small',
+              'data-testid': 'acct-logout-others',
+              onclick: async () => {
+                try {
+                  const res = await api.logoutOthers();
+                  setBilling({ ...store.billing, activeSessions: res.activeSessions });
+                  toast(t('acctSignedOutOthers', { n: res.revoked }));
+                } catch (err) {
+                  toast((err as Error).message || t('offline'));
+                }
+              },
+            }, t('acctSignOutOthers', { n: otherDevices }))
           : null,
         h('button', { class: 'link small', 'data-testid': 'acct-compare-plans', onclick: () => { closeModal('account'); openPaywall(); } }, t('planCompare'))),
       h('form', {
@@ -135,7 +152,15 @@ export function openAccount(): void {
           }
         },
       }, codeInput, redeemBtn),
-      codeOut);
+      codeOut,
+      orders.length > 0
+        ? h('div', { class: 'acct-orders', 'data-testid': 'acct-orders' },
+            h('small', { class: 'muted' }, t('acctReceiptsTitle')),
+            ...orders.slice(0, 3).map(o => h('div', { class: 'acct-order-row small', 'data-testid': 'acct-order-row' },
+              h('span', {}, `${planLabel(o.plan)} · ${new Date(o.paidAt ?? o.createdAt).toLocaleDateString()}`),
+              h('code', { class: 'muted' }, o.id),
+              h('span', { class: o.status === 'paid' ? 'ok' : 'muted' }, o.status === 'paid' ? t('acctOrderPaid') : t('acctOrderRefunded')))))
+        : null);
     body.replaceChildren(
       h('div', { class: 'acct-who' }, h('span', { class: 'acct-av', html: icon('user', 18) }),
         h('div', {}, h('small', { class: 'muted' }, t('account')), h('strong', {}, me.email))),
@@ -162,13 +187,21 @@ export function openAccount(): void {
       signOutAsk,
       h('button', { class: 'link danger acct-delete', 'data-testid': 'delete-account', onclick: async () => {
         if (!confirm(t('deleteConfirm'))) return;
-        try { await api.deleteAccount(); setMe(null); closeModal('account'); toast(t('signedOut')); } catch (err) { toast((err as Error).message); }
+        try {
+          await api.deleteAccount();
+          setMe(null);
+          clearLocalExtras();
+          replaceProgress(emptyProgress());
+          closeModal('account');
+          toast(t('signedOutCleared'));
+        } catch (err) { toast((err as Error).message); }
       } }, t('deleteAccount')));
   };
   render();
-  let shownFor = `${store.me?.id ?? 'none'}:${effectivePlan()}:${store.billing.activeSessions}`;
+  const stateSig = () => `${store.me?.id ?? 'none'}:${effectivePlan()}:${store.billing.activeSessions}:${store.billing.orders?.length ?? 0}`;
+  let shownFor = stateSig();
   const unsub = subscribe(() => {
-    const sig = `${store.me?.id ?? 'none'}:${effectivePlan()}:${store.billing.activeSessions}`;
+    const sig = stateSig();
     if (sig !== shownFor) { shownFor = sig; render(); }
   });
   if (store.me) void api.billingStatus().then(st => { if (st) setBilling(st); }).catch(() => {});

@@ -1,5 +1,5 @@
 /** Generates crawlable static pages (encyclopedia, about, privacy, 404, sitemap) into dist/. */
-import { mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BY_TYPE, CATALOGUE } from '../src/shared/data/catalogue.ts';
@@ -19,21 +19,28 @@ const SITE = (process.env.BASE_URL ?? 'https://terrastra.example').replace(/\/$/
 // Path prefix when hosted below the domain root (GitHub Pages project site: "/<repo>/").
 const BASE = ('/' + (process.env.BASE_PATH ?? '/') + '/').replace(/\/+/g, '/');
 const STATIC = process.env.VITE_STATIC === '1';
+const PAYWALL_DEMO = process.env.VITE_PAYWALL_DEMO === '1';
+const STRIP_PUBLIC_PRO = !STATIC || PAYWALL_DEMO;
 const withBase = (html: string) => html.replace(/\b(href|src)="\/(?!\/)/g, `$1="${BASE}`);
 if (!existsSync(out)) mkdirSync(out, { recursive: true });
 const assetsDir = join(out, 'assets');
-const proFiles = !STATIC && existsSync(assetsDir)
+const proFiles = STRIP_PUBLIC_PRO && existsSync(assetsDir)
   ? readdirSync(assetsDir).filter(f => /^pro-lessons-[^/]+\.js$/.test(f))
   : [];
 if (proFiles.length) {
-  const proDir = join(out, '.pro-assets');
-  mkdirSync(proDir, { recursive: true });
-  for (const f of proFiles) renameSync(join(assetsDir, f), join(proDir, f));
+  if (STATIC && PAYWALL_DEMO) {
+    // Public static demo (e.g. GitHub Pages teaser): remove paid curriculum chunks from dist/ entirely.
+    for (const f of proFiles) rmSync(join(assetsDir, f), { force: true });
+  } else {
+    const proDir = join(out, '.pro-assets');
+    mkdirSync(proDir, { recursive: true });
+    for (const f of proFiles) renameSync(join(assetsDir, f), join(proDir, f));
+  }
 }
 const appIndex = join(out, 'index.html');
 if (existsSync(appIndex)) {
   const rawHtml = readFileSync(appIndex, 'utf8');
-  const cleanedHtml = STATIC ? rawHtml : rawHtml.replace(/<link\b[^>]*\bpro-lessons-[^>]*>\s*/g, '');
+  const cleanedHtml = STRIP_PUBLIC_PRO ? rawHtml.replace(/<link\b[^>]*\bpro-lessons-[^>]*>\s*/g, '') : rawHtml;
   writeFileSync(appIndex, withContentPolicy(cleanedHtml));
 }
 const MODEL_SCRIPT = existsSync(assetsDir)

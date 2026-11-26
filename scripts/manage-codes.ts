@@ -3,15 +3,24 @@
  * directly against SQLite — no payment gateway account required.
  *
  * Examples:
- *   npm run codes -- create --plan pro --count 10 --note "xiaohongshu-batch-1"
+ *   npm run codes -- create --plan pro --count 10 --note "xiaohongshu-batch-1" --expires-days 365
+ *   npm run codes -- create --plan pro --count 50 --raw > batch.txt
  *   npm run codes -- list
- *   npm run codes -- revoke TRST-XXXX-XXXX-XXXX
+ *   npm run codes -- inspect TRST-XXXX-XXXX-XXXX
+ *   npm run codes -- stats
+ *   npm run codes -- revoke TRST-XXXX-XXXX-XXXX --revoke-user
  *   npm run codes -- grant --email parent@example.com --plan pro
  */
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { openDb, transaction } from '../src/server/db.ts';
-import { grantEntitlement, issueRedemptionCodes, revokeRedemptionCode } from '../src/server/billing.ts';
+import {
+  getBillingStats,
+  grantEntitlement,
+  inspectRedemptionCode,
+  issueRedemptionCodes,
+  revokeRedemptionCode,
+} from '../src/server/billing.ts';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const dbPath = process.env.DB_PATH ?? join(root, 'data', 'terrastra.db');
@@ -23,8 +32,10 @@ function argVal(args: readonly string[], flag: string): string | undefined {
 
 function usage(): never {
   console.error(`Usage:
-  npm run codes -- create [--plan pro|classroom] [--count N] [--note TEXT]
+  npm run codes -- create [--plan pro|classroom] [--count N] [--note TEXT] [--expires-days N] [--raw]
   npm run codes -- list [--limit N]
+  npm run codes -- inspect <TRST-XXXX-XXXX-XXXX>
+  npm run codes -- stats
   npm run codes -- revoke <TRST-XXXX-XXXX-XXXX> [--revoke-user]
   npm run codes -- grant --email <EMAIL> [--plan pro|classroom]`);
   process.exit(1);
@@ -47,14 +58,29 @@ try {
       console.error('Error: --count must be an integer between 1 and 1000');
       process.exit(1);
     }
+    const expiresDaysRaw = argVal(args, '--expires-days');
+    let expiresAt: number | null = null;
+    if (expiresDaysRaw !== undefined) {
+      const days = Number(expiresDaysRaw);
+      if (!Number.isFinite(days) || days <= 0 || days > 3650) {
+        console.error('Error: --expires-days must be a number between 1 and 3650');
+        process.exit(1);
+      }
+      expiresAt = Date.now() + Math.round(days * 86_400_000);
+    }
     const note = argVal(args, '--note');
-    const codes = issueRedemptionCodes(db, { plan: planRaw, count, note });
-    console.log(`Created ${codes.length} ${planRaw.toUpperCase()} activation code(s)${note ? ` [${note}]` : ''}:`);
+    const rawOnly = args.includes('--raw');
+    const codes = issueRedemptionCodes(db, { plan: planRaw, count, note, expiresAt });
+    if (!rawOnly) {
+      const expSuffix = expiresAt ? ` (expires ${new Date(expiresAt).toISOString().slice(0, 10)})` : '';
+      console.log(`Created ${codes.length} ${planRaw.toUpperCase()} activation code(s)${note ? ` [${note}]` : ''}${expSuffix}:`);
+    }
     for (const c of codes) console.log(c);
   } else if (cmd === 'list') {
     const limit = Math.max(1, Math.min(500, Number(argVal(args, '--limit') ?? '50') || 50));
+    const now = Date.now();
     const rows = db.prepare(`
-      SELECT rc.code_hint, rc.plan, rc.note, rc.created_at, rc.redeemed_at, rc.revoked, u.email AS redeemed_email
+      SELECT rc.code_hint, rc.plan, rc.note, rc.created_at, rc.expires_at, rc.redeemed_at, rc.revoked, u.email AS redeemed_email
       FROM redemption_codes rc
       LEFT JOIN users u ON u.id = rc.redeemed_by
       ORDER BY rc.created_at DESC
@@ -64,6 +90,7 @@ try {
       plan: string;
       note: string | null;
       created_at: number;
+      expires_at: number | null;
       redeemed_at: number | null;
       revoked: number;
       redeemed_email: string | null;
@@ -76,10 +103,33 @@ try {
           ? 'REVOKED'
           : r.redeemed_at
             ? `REDEEMED (${r.redeemed_email ?? 'deleted-user'} at ${new Date(r.redeemed_at).toISOString()})`
-            : 'AVAILABLE';
+            : r.expires_at !== null && r.expires_at <= now
+              ? `EXPIRED (${new Date(r.expires_at).toISOString().slice(0, 10)})`
+              : r.expires_at !== null
+                ? `AVAILABLE (until ${new Date(r.expires_at).toISOString().slice(0, 10)})`
+                : 'AVAILABLE';
         console.log(`TRST-••••-••••-${r.code_hint} | ${r.plan.padEnd(9)} | ${status}${r.note ? ` | ${r.note}` : ''}`);
       }
     }
+  } else if (cmd === 'inspect') {
+    const raw = args[1] ?? '';
+    const info = inspectRedemptionCode(db, raw);
+    if (!info) {
+      console.error('Error: code is invalid or not found.');
+      process.exit(1);
+    }
+    console.log(`Code:       ${info.code}`);
+    console.log(`Plan:       ${info.plan.toUpperCase()}`);
+    console.log(`Status:     ${info.status.toUpperCase()}`);
+    console.log(`Created:    ${new Date(info.createdAt).toISOString()}`);
+    console.log(`Expires:    ${info.expiresAt ? new Date(info.expiresAt).toISOString() : 'Never'}`);
+    console.log(`Redeemed:   ${info.redeemedAt ? `${new Date(info.redeemedAt).toISOString()} (${info.redeemedEmail ?? 'deleted-user'})` : 'No'}`);
+    if (info.note) console.log(`Note:       ${info.note}`);
+  } else if (cmd === 'stats') {
+    const s = getBillingStats(db);
+    console.log(`Codes:      ${s.availableCodes} available · ${s.redeemedCodes} redeemed · ${s.expiredCodes} expired · ${s.revokedCodes} revoked`);
+    console.log(`Accounts:   ${s.proUsers} Explorer Pro · ${s.classroomUsers} Classroom`);
+    console.log(`Orders:     ${s.paidOrders} paid`);
   } else if (cmd === 'revoke') {
     const raw = args[1] ?? '';
     const revokeUser = args.includes('--revoke-user');

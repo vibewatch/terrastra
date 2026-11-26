@@ -4,7 +4,7 @@
  * stays live, so the user can turn it, zoom in and open the models while a lesson runs.
  */
 import { h, openModal, closeModal, confetti, toast } from '../ui/dom.ts';
-import { withBusy } from '../ui/lazy.ts';
+import { showLoadError, withBusy } from '../ui/lazy.ts';
 import { Select } from '../ui/select.ts';
 import { icon } from '../ui/icons.ts';
 import { openPaywall } from '../ui/paywall.ts';
@@ -109,7 +109,7 @@ export function nextForJournal(id: string): string {
   return nx?.id ?? id;
 }
 
-export function startLesson(id: string, host: LessonHost, opts?: { resume?: boolean }): void {
+export function startLesson(id: string, host: LessonHost, opts?: { resume?: boolean; attempt?: number }): void {
   const meta = lessonMetaById(id);
   if (!meta || host.blocked()) return;
   if (!isFreeLesson(id) && !canUsePro()) {
@@ -143,8 +143,16 @@ export function startLesson(id: string, host: LessonHost, opts?: { resume?: bool
     async () => {
       const st = HAS_API ? await api.billingStatus().catch(() => null) : null;
       if (st) setBilling(st);
-      if (isPaywallEnabled() && !canUsePro()) openPaywall(L(meta.title), () => startLesson(id, host, opts));
-      else toast('⚠️ ' + t('loadFail', { s: L(meta.title) }));
+      if (isPaywallEnabled() && !canUsePro()) {
+        openPaywall(L(meta.title), () => startLesson(id, host, opts));
+      } else {
+        showLoadError(
+          L(meta.title),
+          attempt => startLesson(id, host, { ...opts, attempt }),
+          'lesson:' + id,
+          opts?.attempt ?? 1,
+        );
+      }
     },
   );
 }

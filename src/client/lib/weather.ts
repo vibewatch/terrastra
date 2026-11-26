@@ -242,7 +242,7 @@ export async function fetchNightCloudForecast(lat: number, lon: number, startMs:
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), 4500);
   try {
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(2)}&longitude=${lon.toFixed(2)}&hourly=cloud_cover&timeformat=unixtime&timezone=GMT&forecast_days=2`;
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(2)}&longitude=${lon.toFixed(2)}&hourly=cloud_cover&timeformat=unixtime&timezone=GMT&past_days=1&forecast_days=2`;
     const res = await fetch(url, { signal: ctl.signal });
     if (!res.ok) return null;
     const parsed = parseNightCloudForecast(await res.json(), startMs, endMs);

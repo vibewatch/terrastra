@@ -24,8 +24,11 @@ test('paywall enforcement: gates Pro lessons & chunks until signed-in activation
   page.on('pageerror', e => errors.push(e.message));
 
   const distDir = join(process.cwd(), 'dist');
-  const proChunkName = readdirSync(join(distDir, '.pro-assets')).find(f => f.startsWith('pro-lessons-earth-'))!;
-  expect(proChunkName).toBeTruthy();
+  const proFiles = readdirSync(join(distDir, '.pro-assets'));
+  for (const prefix of ['pro-lessons-earth-', 'pro-lessons-china-', 'pro-lessons-world-', 'pro-lessons-astro-', 'pro-lessons-exams-']) {
+    expect(proFiles.some(f => f.startsWith(prefix)), `Missing ${prefix} chunk in dist/.pro-assets`).toBe(true);
+  }
+  const proChunkName = proFiles.find(f => f.startsWith('pro-lessons-earth-'))!;
 
   const port = await freePort();
   const origin = `http://localhost:${port}`;
@@ -41,6 +44,11 @@ test('paywall enforcement: gates Pro lessons & chunks until signed-in activation
       baseUrl: origin,
       secureCookies: false,
       enforcePaywall: true,
+      storefront: {
+        purchaseUrlPro: 'https://shop.example/terrastra-pro',
+        purchaseUrlClassroom: 'https://shop.example/terrastra-classroom',
+        purchaseContact: 'support@terrastra.example',
+      },
     });
     srv = await new Promise<Server>(r => { const s = app.listen(port, () => r(s)); });
 
@@ -53,6 +61,8 @@ test('paywall enforcement: gates Pro lessons & chunks until signed-in activation
     ).toBe(true);
     await expect(page.getByTestId('paywall')).toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId('tier-pro-price')).toContainText('49');
+    await expect(page.getByTestId('paywall-buy-pro')).toHaveAttribute('href', 'https://shop.example/terrastra-pro');
+    await expect(page.getByTestId('paywall-contact')).toContainText('support@terrastra.example');
     await page.keyboard.press('Escape');
 
     // Deep-linking to a historical Sky event (#sky/solar-eclipse-1999-08-11) is also gated on Free tier
@@ -157,11 +167,12 @@ test('paywall enforcement: gates Pro lessons & chunks until signed-in activation
     await expect(page.getByTestId('lesson')).toContainText(/Black holes|黑洞/i);
     await page.getByTestId('lesson-exit').click();
 
-    // Verify Account modal reflects Explorer Pro badge, and "Sign out & clear this device" wipes local mistakeBook
+    // Verify Account modal reflects Explorer Pro badge + order receipt, and "Sign out & clear this device" wipes local mistakeBook
     await page.getByTestId('btn-hub').click();
     await page.getByTestId('hub-tab-me').click();
     await page.getByTestId('menu-account').click();
     await expect(page.getByTestId('acct-plan-pill')).toContainText(/Explorer Pro/i);
+    await expect(page.getByTestId('acct-orders')).toContainText('ord_rdm_');
     await page.getByTestId('sign-out').click();
     await page.getByTestId('sign-out-clear').click();
     await expect.poll(() => page.evaluate(() => localStorage.getItem('pp.mistakeBook'))).toBe('{}');

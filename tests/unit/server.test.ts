@@ -547,9 +547,9 @@ describe('reaction rate limit', () => {
   });
 });
 
-describe('dev login default', () => {
-  it('is off unless explicitly enabled, including when NODE_ENV is unset', async () => {
-    const { devLoginFrom, isLocalOrigin } = await import('../../src/server/config.ts');
+describe('dev login default & storefront config', () => {
+  it('is off unless explicitly enabled, and validates HTTPS/local storefront links', async () => {
+    const { devLoginFrom, isLocalOrigin, storefrontFrom } = await import('../../src/server/config.ts');
     expect(devLoginFrom({})).toBe(false);
     expect(devLoginFrom({ NODE_ENV: 'production' })).toBe(false);
     expect(devLoginFrom({ NODE_ENV: 'test' })).toBe(false);
@@ -559,6 +559,23 @@ describe('dev login default', () => {
     expect(isLocalOrigin('http://127.0.0.1:1')).toBe(true);
     expect(isLocalOrigin('https://terrastra.example')).toBe(false);
     expect(isLocalOrigin('not a url')).toBe(false);
+
+    expect(storefrontFrom({
+      PURCHASE_URL_PRO: 'https://shop.example/pro',
+      PURCHASE_CONTACT: '  WeChat: terrastra_edu\n',
+    })).toEqual({
+      purchaseUrlPro: 'https://shop.example/pro',
+      purchaseUrlClassroom: 'https://shop.example/pro',
+      purchaseContact: 'WeChat: terrastra_edu',
+    });
+    expect(storefrontFrom({
+      PURCHASE_URL_PRO: 'javascript:alert(1)',
+      PURCHASE_URL_CLASSROOM: 'http://remote.example/insecure',
+    })).toEqual({
+      purchaseUrlPro: null,
+      purchaseUrlClassroom: null,
+      purchaseContact: null,
+    });
   });
 });
 
@@ -620,11 +637,20 @@ describe('billing, redemption codes, session caps, sync v2 & gated pro chunks', 
     mkdirSync(join(staticDir, 'assets'), { recursive: true });
     mkdirSync(join(staticDir, '.pro-assets'), { recursive: true });
     writeFileSync(join(staticDir, 'index.html'), '<!doctype html><html><head></head><body>ok</body></html>');
-    writeFileSync(join(staticDir, 'assets', 'public-test.js'), 'export const pub = 1;\n');
-    writeFileSync(join(staticDir, '.pro-assets', 'pro-lessons-earth-TEST123.js'), 'export const secretLesson = true;\n');
+    const largePublicJs = 'export const pub = 1;\n' + '// compressible padding\n'.repeat(100);
+    const largeProJs = 'export const secretLesson = true;\n' + '// pro lesson payload\n'.repeat(120);
+    writeFileSync(join(staticDir, 'assets', 'public-test.js'), largePublicJs);
+    writeFileSync(join(staticDir, '.pro-assets', 'pro-lessons-earth-TEST123.js'), largeProJs);
 
     const paywallDb = openDb(':memory:');
     const [proCode] = issueRedemptionCodes(paywallDb, { plan: 'pro', count: 1, note: 'unit-pro' });
+    const [expiredCode] = issueRedemptionCodes(paywallDb, {
+      plan: 'pro',
+      count: 1,
+      note: 'unit-expired',
+      now: Date.now() - 10_000,
+      expiresAt: Date.now() - 1_000,
+    });
     const [revokedCode] = issueRedemptionCodes(paywallDb, { plan: 'pro', count: 1, note: 'unit-revoked' });
     paywallDb.prepare('UPDATE redemption_codes SET revoked = 1 WHERE code_hash = ?').run(hashRedeemCode(revokedCode!));
 
@@ -637,6 +663,11 @@ describe('billing, redemption codes, session caps, sync v2 & gated pro chunks', 
         baseUrl: 'http://127.0.0.1',
         secureCookies: false,
         enforcePaywall: true,
+        storefront: {
+          purchaseUrlPro: 'https://shop.example/pro',
+          purchaseUrlClassroom: 'https://shop.example/classroom',
+          purchaseContact: 'support@terrastra.example',
+        },
       });
       srv = await new Promise<Server>(r => { const s = app.listen(0, '127.0.0.1', () => r(s)); });
       const srvBase = `http://127.0.0.1:${(srv.address() as { port: number }).port}`;
@@ -703,6 +734,9 @@ describe('billing, redemption codes, session caps, sync v2 & gated pro chunks', 
       expect((await redeem(proCode!)).status).toBe(401);
       expect((await redeem('bad-code', activeSid)).status).toBe(400);
       expect((await redeem(revokedCode!, activeSid)).status).toBe(404);
+      const expiredRes = await redeem(expiredCode!, activeSid);
+      expect(expiredRes.status).toBe(410);
+      expect(await expiredRes.json()).toMatchObject({ code: 'CODE_EXPIRED' });
 
       const okRedeem = await redeem(proCode!.toLowerCase().replace(/-/g, ' '), activeSid);
       expect(okRedeem.status).toBe(200);
@@ -713,13 +747,30 @@ describe('billing, redemption codes, session caps, sync v2 & gated pro chunks', 
       // Re-redeeming the same single-use code returns 409 Conflict
       expect((await redeem(proCode!, activeSid)).status).toBe(409);
 
-      // 5. Pro user now gets 200 OK on gated pro-lessons chunk (with Vary: Cookie) and URL-encoded /.pro-assets stays 404
+      // 5. Pro user now gets 200 OK on gated pro-lessons chunk (with Brotli/Gzip + ETag + Vary: Cookie, Accept-Encoding)
       expect((await fetch(srvBase + '/%2epro-assets/pro-lessons-earth-TEST123.js')).status).toBe(404);
-      const proChunk = await fetch(srvBase + '/assets/pro-lessons-earth-TEST123.js', { headers: { cookie: activeSid } });
+      const proChunk = await fetch(srvBase + '/assets/pro-lessons-earth-TEST123.js', {
+        headers: { cookie: activeSid, 'accept-encoding': 'br, gzip' },
+      });
       expect(proChunk.status).toBe(200);
       expect(proChunk.headers.get('cache-control')).toContain('private');
       expect(proChunk.headers.get('vary')).toContain('Cookie');
+      expect(proChunk.headers.get('vary')).toContain('Accept-Encoding');
+      expect(proChunk.headers.get('content-encoding')).toBe('br');
+      const proEtag = proChunk.headers.get('etag');
+      expect(proEtag).toBeTruthy();
       expect(await proChunk.text()).toContain('secretLesson = true');
+      const proNotMod = await fetch(srvBase + '/assets/pro-lessons-earth-TEST123.js', {
+        headers: { cookie: activeSid, 'if-none-match': proEtag! },
+      });
+      expect(proNotMod.status).toBe(304);
+
+      const pubGzip = await fetch(srvBase + '/assets/public-test.js', {
+        headers: { 'accept-encoding': 'br;q=0, gzip;q=0.9' },
+      });
+      expect(pubGzip.status).toBe(200);
+      expect(pubGzip.headers.get('content-encoding')).toBe('gzip');
+      expect(await pubGzip.text()).toContain('export const pub = 1;');
 
       // 5b. Redeeming another Pro code on an already-lifetime-Pro account returns 409 ALREADY_ENTITLED WITHOUT burning the code!
       const [spareProCode, singleUseDeleteTestCode] = issueRedemptionCodes(paywallDb, { plan: 'pro', count: 2, note: 'audit-regression' });
@@ -772,7 +823,29 @@ describe('billing, redemption codes, session caps, sync v2 & gated pro chunks', 
         await loginFreshSession(srvBase, 'learner@example.com');
       }
       const clsStatus = await (await fetch(srvBase + '/api/billing/status', { headers: { cookie: activeSid } })).json();
-      expect(clsStatus).toMatchObject({ plan: 'classroom', activeSessions: 8, maxSessions: 10 });
+      expect(clsStatus).toMatchObject({
+        plan: 'classroom',
+        activeSessions: 8,
+        maxSessions: 10,
+        storefront: {
+          purchaseUrlPro: 'https://shop.example/pro',
+          purchaseUrlClassroom: 'https://shop.example/classroom',
+          purchaseContact: 'support@terrastra.example',
+        },
+      });
+      expect(clsStatus.orders).toHaveLength(1);
+      expect(clsStatus.orders[0]).toMatchObject({ plan: 'pro', provider: 'redeem', status: 'paid' });
+
+      // 7. Self-service "Sign out other devices" revokes the other 7 sessions while keeping `activeSid` alive
+      const logoutOthers = await fetch(srvBase + '/api/auth/logout-others', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', origin: srvBase, cookie: activeSid },
+        body: '{}',
+      });
+      expect(logoutOthers.status).toBe(200);
+      expect(await logoutOthers.json()).toEqual({ ok: true, revoked: 7, activeSessions: 1 });
+      expect((await checkMe(activeSid))?.plan).toBe('classroom');
+      expect(await checkMe(sids[1]!)).toBeNull();
     } finally {
       if (srv) await new Promise<void>(r => srv!.close(() => r()));
       paywallDb.close();

@@ -21,3 +21,37 @@ export function isLocalOrigin(url: string): boolean {
     return host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host.endsWith('.localhost');
   } catch { return false; }
 }
+
+export interface StorefrontConfig {
+  purchaseUrlPro: string | null;
+  purchaseUrlClassroom: string | null;
+  purchaseContact: string | null;
+}
+
+function safePurchaseUrl(raw: string | undefined): string | null {
+  const s = raw?.trim();
+  if (!s) return null;
+  try {
+    const u = new URL(s);
+    if (u.username || u.password) return null;
+    if (u.protocol === 'https:') return u.toString();
+    if (u.protocol === 'http:' && isLocalOrigin(u.origin)) return u.toString();
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Optional external activation-code storefront links (e.g. Xiaohongshu / Taobao / WeChat Shop / Gumroad)
+ * and operator support contact while native payment APIs are not yet enabled.
+ */
+export function storefrontFrom(env: Record<string, string | undefined>): StorefrontConfig {
+  const contactRaw = env.PURCHASE_CONTACT?.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim() ?? '';
+  return {
+    purchaseUrlPro: safePurchaseUrl(env.PURCHASE_URL_PRO),
+    purchaseUrlClassroom: safePurchaseUrl(env.PURCHASE_URL_CLASSROOM) ?? safePurchaseUrl(env.PURCHASE_URL_PRO),
+    purchaseContact: contactRaw ? contactRaw.slice(0, 120) : null,
+  };
+}
+

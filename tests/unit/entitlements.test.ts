@@ -13,6 +13,7 @@ import {
   isFreeSkyYear,
   isFreeTimeStop,
   isFreeTour,
+  maskLicenseEmail,
   maxSessionsForPlan,
   normalizeRedeemCode,
   skyEventYear,
@@ -86,6 +87,28 @@ describe('entitlements & redemption code rules', () => {
     expect(isFreeTimeStop('dino')).toBe(true);
     expect(isFreeTimeStop(2000)).toBe(true);
     expect(isFreeTimeStop(1969)).toBe(false);
+
+    expect(maskLicenseEmail('teacher@school.edu')).toBe('t***r@school.edu');
+    expect(maskLicenseEmail('ab@x.cn')).toBe('a***@x.cn');
+  });
+
+  it('guarantees at least one free starter lesson in every curriculum view and routes all 122 lessons cleanly across packs', async () => {
+    const { ALL_GEO_META, ALL_ASTRO_META, VIEWS, ASTRO_VIEWS, geoCourseMeta, astroCourseMeta, loadLessonById } = await import('../../src/client/lessons/catalog.ts');
+    for (const v of Object.keys(VIEWS) as (keyof typeof VIEWS)[]) {
+      const geoFree = geoCourseMeta(v).flatMap(g => g.lessons).filter(m => isFreeLesson(m.id));
+      expect(geoFree.length, `Geography view ${v} must include a free starter`).toBeGreaterThanOrEqual(1);
+    }
+    for (const v of Object.keys(ASTRO_VIEWS) as (keyof typeof ASTRO_VIEWS)[]) {
+      const astroFree = astroCourseMeta(v).flatMap(g => g.lessons).filter(m => isFreeLesson(m.id));
+      expect(astroFree.length, `Astronomy view ${v} must include a free starter`).toBeGreaterThanOrEqual(1);
+    }
+
+    const allMeta = [...ALL_GEO_META, ...ALL_ASTRO_META];
+    expect(allMeta.length).toBeGreaterThanOrEqual(120);
+    for (const m of allMeta) {
+      const loaded = await loadLessonById(m.id);
+      expect(loaded?.id, `Lesson ${m.id} (${m.strand}) failed to resolve from its pack`).toBe(m.id);
+    }
   });
 });
 
@@ -205,11 +228,21 @@ describe('manage-codes CLI', () => {
       timeout: 10_000,
     });
     try {
-      const created = run('create', '--plan', 'pro', '--count', '2', '--note', 'batch-test');
+      const created = run('create', '--plan', 'pro', '--count', '2', '--note', 'batch-test', '--expires-days', '90');
       expect(created.status, created.stderr).toBe(0);
       const codes = created.stdout.trim().split('\n').filter(l => l.startsWith('TRST-'));
       expect(codes).toHaveLength(2);
       expect(normalizeRedeemCode(codes[0]!)).toBe(codes[0]);
+
+      const rawCreated = run('create', '--plan', 'pro', '--count', '1', '--raw');
+      expect(rawCreated.status, rawCreated.stderr).toBe(0);
+      expect(rawCreated.stdout.trim().split('\n')).toHaveLength(1);
+      expect(normalizeRedeemCode(rawCreated.stdout.trim())).toBeTruthy();
+
+      const inspected = run('inspect', codes[0]!);
+      expect(inspected.status, inspected.stderr).toBe(0);
+      expect(inspected.stdout).toContain('Status:     AVAILABLE');
+      expect(inspected.stdout).toContain('batch-test');
 
       const listed = run('list');
       expect(listed.status).toBe(0);
@@ -219,6 +252,11 @@ describe('manage-codes CLI', () => {
       const revoked = run('revoke', codes[0]!);
       expect(revoked.status).toBe(0);
       expect(run('list').stdout).toContain('REVOKED');
+      expect(run('inspect', codes[0]!).stdout).toContain('Status:     REVOKED');
+
+      const statsOut = run('stats');
+      expect(statsOut.status, statsOut.stderr).toBe(0);
+      expect(statsOut.stdout).toContain('Codes:');
 
       const granted = run('grant', '--email', 'teacher@school.edu', '--plan', 'classroom');
       expect(granted.status, granted.stderr).toBe(0);

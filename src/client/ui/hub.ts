@@ -1,12 +1,13 @@
 // The Explore hub: every activity in one place, sorted into four shelves (learn, observe, play, me).
 import { h } from './dom.ts';
 import { t } from '../lib/i18n.ts';
-import { store } from '../store.ts';
+import { store, canUsePro, effectivePlan, isPaywallEnabled } from '../store.ts';
 import { ANIMALS, CATALOGUE } from '../../shared/data/catalogue.ts';
 import { load, save } from '../lib/storage.ts';
 import { HAS_API, url } from '../lib/env.ts';
 import { classroom } from '../lib/classroom.ts';
 import { icon, type IconName } from './icons.ts';
+import { openPaywall } from './paywall.ts';
 import { sfx } from '../lib/sfx.ts';
 import { dayIndex } from '../../shared/games/daily.ts';
 import { ssbsOn } from '../lib/ssbs.ts';
@@ -80,11 +81,16 @@ function entries(tab: HubTab, a: HubActions): Entry[] {
     }
     case 'me': {
       const p = store.progress;
+      const plan = effectivePlan();
+      const acctStat = store.me && plan !== 'free' ? plan.toUpperCase() : '';
       return [
         { id: 'menu-passport', ic: 'passport', title: t('passport'), sub: t('passportSub'), stat: `${Object.keys(p.seen).length} / ${CATALOGUE.length}`, go: a.passport },
         { id: 'menu-collection', ic: 'paw', title: t('collection'), sub: t('hubDexSub'), stat: `${Object.keys(p.dex).length} / ${ANIMALS.length}`, go: a.collection },
         { id: 'menu-album', ic: 'camera', title: t('album'), sub: t('albumSub'), go: a.album },
-        ...(HAS_API ? [{ id: 'menu-account', ic: 'user' as IconName, title: store.me ? t('account') : t('signIn'), sub: store.me ? t('signedInAs', { e: store.me.handle ?? store.me.email }) : t('hubAccountSub'), go: a.account }] : []),
+        ...(isPaywallEnabled() && !canUsePro()
+          ? [{ id: 'menu-pro', ic: 'sparkle' as IconName, title: t('planPro'), sub: t('hubProSub'), stat: t('planBadgePro'), go: () => openPaywall() }]
+          : []),
+        ...(HAS_API ? [{ id: 'menu-account', ic: 'user' as IconName, title: store.me ? t('account') : t('signIn'), sub: store.me ? t('signedInAs', { e: store.me.handle ?? store.me.email }) : t('hubAccountSub'), stat: acctStat, go: a.account }] : []),
         ...(HAS_API && !classroom() ? [{ id: 'menu-guestbook', ic: 'chat' as IconName, title: t('guestbook'), sub: t('hubGuestbookSub'), go: a.guestbook }] : []),
       ];
     }

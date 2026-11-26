@@ -144,18 +144,44 @@ export function nextLessonMeta(id: string, view: string): LessonMeta | undefined
 export const ALL_GEO_META: readonly LessonMeta[] = GEO_META;
 export const ALL_ASTRO_META: readonly LessonMeta[] = ASTRO_META;
 
-/** Loads a full Lesson object; free starter lessons resolve from the public bundle, Pro lessons lazy-load from `pro-lessons-*.js`. */
+const GRADE_BANK_LESSON_IDS = new Set(['se-asia', 'china-hazards', 'prd', 'h-motion']);
+
+type GeoPack = 'china' | 'world' | 'earth' | 'exams';
+function geoPackForLessonId(id: string): GeoPack {
+  if (id.startsWith('exam-') || GRADE_BANK_LESSON_IDS.has(id)) return 'exams';
+  const meta = GEO_BY_ID.get(id);
+  if (!meta) return 'exams';
+  const isSenior = meta.grade === 'h1' || meta.grade === 'h2';
+  if (!isSenior && meta.strand === 'china') return 'china';
+  if (!isSenior && (meta.strand === 'world' || meta.strand === 'human')) return 'world';
+  return 'earth';
+}
+
+/** Loads a full Lesson object; free starter lessons resolve from the public bundle, Pro lessons lazy-load only their domain pack. */
 export async function loadLessonById(id: string): Promise<Lesson | undefined> {
   if (isFreeLesson(id)) return freeLessonById(id);
   if (id.startsWith('a-')) {
     const astro = await import('./pro-astro-bundle.ts');
     return astro.proAstroLessonById(id);
   }
+  const pack = geoPackForLessonId(id);
+  if (pack === 'china') {
+    const china = await import('./pro-china-bundle.ts');
+    return china.proChinaLessonById(id);
+  }
+  if (pack === 'world') {
+    const world = await import('./pro-world-bundle.ts');
+    return world.proWorldLessonById(id);
+  }
+  if (pack === 'earth') {
+    const earth = await import('./pro-earth-bundle.ts');
+    return earth.proEarthLessonById(id);
+  }
   const pro = await import('./pro-bundle.ts');
   return pro.proLessonById(id);
 }
 
-/** Loads a canonical Quiz object for Mistake Notebook review; checks free lessons first, then the matching Pro bundle if accessible. */
+/** Loads a canonical Quiz object for Mistake Notebook review; checks free lessons first, then only the matching Pro domain pack. */
 export async function loadCanonicalQuiz(lessonId: string, qEn: string, allowPro: boolean): Promise<Quiz | undefined> {
   const free = findFreeCanonicalQuiz(lessonId, qEn);
   if (free || !allowPro) return free;
@@ -164,6 +190,21 @@ export async function loadCanonicalQuiz(lessonId: string, qEn: string, allowPro:
       const astro = await import('./pro-astro-bundle.ts');
       const hit = astro.proFindAstroCanonicalQuiz(lessonId, qEn);
       if (hit) return hit;
+    } else {
+      const pack = geoPackForLessonId(lessonId);
+      if (pack === 'china') {
+        const china = await import('./pro-china-bundle.ts');
+        const hit = china.proFindChinaCanonicalQuiz(lessonId, qEn);
+        if (hit) return hit;
+      } else if (pack === 'world') {
+        const world = await import('./pro-world-bundle.ts');
+        const hit = world.proFindWorldCanonicalQuiz(lessonId, qEn);
+        if (hit) return hit;
+      } else if (pack === 'earth') {
+        const earth = await import('./pro-earth-bundle.ts');
+        const hit = earth.proFindEarthCanonicalQuiz(lessonId, qEn);
+        if (hit) return hit;
+      }
     }
     const pro = await import('./pro-bundle.ts');
     const geoHit = pro.proFindCanonicalQuiz(lessonId, qEn);

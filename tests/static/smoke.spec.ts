@@ -29,8 +29,8 @@ async function stubExternalFeeds(page: Page): Promise<void> {
           is_day: 1,
         },
         hourly: {
-          time: Array.from({ length: 48 }, (_, i) => Math.floor(Date.now() / 3600_000) * 3600 + i * 3600),
-          cloud_cover: Array.from({ length: 48 }, (_, i) => (i % 5) * 8),
+          time: Array.from({ length: 72 }, (_, i) => Math.floor(Date.now() / 3600_000) * 3600 + (i - 24) * 3600),
+          cloud_cover: Array.from({ length: 72 }, (_, i) => (i % 5) * 8),
         },
       }),
     }),

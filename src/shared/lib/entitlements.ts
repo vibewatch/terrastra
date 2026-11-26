@@ -96,11 +96,13 @@ export const FREE_LESSON_IDS = [
   'plates',
   'climate',
   'home',
-  // Astronomy starter modules (astro/l-earthmoon)
+  'h-history',
+  // Astronomy starter modules (astro/l-earthmoon, astro/free-solar)
   'a-sun-moon',
   'a-phases',
   'a-eclipses',
   'a-tides',
+  'a-systems',
 ] as const;
 
 const FREE_LESSON_SET = new Set<string>(FREE_LESSON_IDS);
@@ -135,3 +137,17 @@ export function skyEventYear(id: string): number | null {
 export function isFreeTimeStop(stop: number | 'now' | 'dino'): boolean {
   return stop === 'now' || stop === 'dino' || stop === 2000;
 }
+
+/** Masks an account email for subtle Pro handout attribution (`alice@example.com` -> `a***e@example.com`). */
+export function maskLicenseEmail(email: string): string {
+  const clean = email.trim();
+  const at = clean.indexOf('@');
+  if (at <= 0 || at === clean.length - 1) return clean;
+  const local = clean.slice(0, at);
+  const domain = clean.slice(at + 1);
+  const maskedLocal = local.length <= 2
+    ? local[0] + '***'
+    : local[0] + '***' + local[local.length - 1];
+  return `${maskedLocal}@${domain}`;
+}
+

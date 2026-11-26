@@ -887,6 +887,9 @@ html.classroom .lv-text b { font-size: .95rem; }
   background: rgba(8, 18, 32, .55); display: grid; gap: 8px;
 }
 .acct-plan-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.acct-orders { border-top: 1px solid var(--hud-line); padding-top: 6px; display: grid; gap: 4px; }
+.acct-order-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; }
+.acct-order-row .ok { color: #6ee7b7; }
 .redeem-row { display: flex; gap: 8px; flex-wrap: wrap; }
 .redeem-row input { flex: 1 1 190px; font-family: var(--font-mono, monospace); text-transform: uppercase; letter-spacing: .06em; }
 .paywall { display: grid; gap: 12px; }

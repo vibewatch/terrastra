@@ -15,12 +15,21 @@ export interface UserEntitlement {
   source: string | null;
 }
 
+export interface OrderSummary {
+  id: string;
+  plan: 'pro' | 'classroom';
+  provider: string;
+  status: 'pending' | 'paid' | 'refunded' | 'disputed';
+  createdAt: number;
+  paidAt: number | null;
+}
+
 export class RedeemError extends Error {
-  readonly status: 400 | 404 | 409;
-  readonly code: 'INVALID_CODE' | 'CODE_NOT_FOUND' | 'CODE_ALREADY_USED' | 'ALREADY_ENTITLED';
+  readonly status: 400 | 404 | 409 | 410;
+  readonly code: 'INVALID_CODE' | 'CODE_NOT_FOUND' | 'CODE_EXPIRED' | 'CODE_ALREADY_USED' | 'ALREADY_ENTITLED';
   constructor(
-    status: 400 | 404 | 409,
-    code: 'INVALID_CODE' | 'CODE_NOT_FOUND' | 'CODE_ALREADY_USED' | 'ALREADY_ENTITLED',
+    status: 400 | 404 | 409 | 410,
+    code: 'INVALID_CODE' | 'CODE_NOT_FOUND' | 'CODE_EXPIRED' | 'CODE_ALREADY_USED' | 'ALREADY_ENTITLED',
     message: string,
   ) {
     super(message);
@@ -127,18 +136,52 @@ export function countActiveSessions(db: DB, userId: number, now = Date.now()): n
   return Number(row.n);
 }
 
+/** Revokes all active sessions for `userId` except `keepSessionHash` ("Sign out other devices"). */
+export function revokeOtherSessions(db: DB, userId: number, keepSessionHash: string | null): number {
+  const r = keepSessionHash
+    ? db.prepare('DELETE FROM sessions WHERE user_id = ? AND hash != ?').run(userId, keepSessionHash)
+    : db.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);
+  return Number(r.changes);
+}
+
+export function listUserOrders(db: DB, userId: number): OrderSummary[] {
+  const rows = db.prepare(`
+    SELECT id, plan, provider, status, created_at, paid_at
+    FROM orders
+    WHERE user_id = ?
+    ORDER BY created_at DESC, rowid DESC
+    LIMIT 10
+  `).all(userId) as {
+    id: string;
+    plan: 'pro' | 'classroom';
+    provider: string;
+    status: 'pending' | 'paid' | 'refunded' | 'disputed';
+    created_at: number;
+    paid_at: number | null;
+  }[];
+  return rows.map(r => ({
+    id: r.id,
+    plan: r.plan,
+    provider: r.provider,
+    status: r.status,
+    createdAt: Number(r.created_at),
+    paidAt: r.paid_at === null ? null : Number(r.paid_at),
+  }));
+}
+
 /** Issues `count` single-use activation codes, storing only their SHA-256 hash and last-4 hint in SQLite. */
 export function issueRedemptionCodes(
   db: DB,
-  opts: { plan: 'pro' | 'classroom'; count: number; note?: string; now?: number },
+  opts: { plan: 'pro' | 'classroom'; count: number; note?: string; expiresAt?: number | null; now?: number },
 ): string[] {
   const count = Math.max(1, Math.min(1000, Math.floor(opts.count)));
   const now = opts.now ?? Date.now();
   const note = opts.note?.trim() ? opts.note.trim().slice(0, 120) : null;
+  const expiresAt = opts.expiresAt ?? null;
   return transaction(db, () => {
     const ins = db.prepare(`
-      INSERT INTO redemption_codes (code_hash, code_hint, plan, note, created_at)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO redemption_codes (code_hash, code_hint, plan, note, created_at, expires_at)
+      VALUES (?, ?, ?, ?, ?, ?)
     `);
     const created: string[] = [];
     while (created.length < count) {
@@ -146,7 +189,7 @@ export function issueRedemptionCodes(
       const hash = hashRedeemCode(code);
       const exists = db.prepare('SELECT 1 FROM redemption_codes WHERE code_hash = ?').get(hash);
       if (exists) continue;
-      ins.run(hash, code.slice(-4), opts.plan, note, now);
+      ins.run(hash, code.slice(-4), opts.plan, note, now, expiresAt);
       created.push(code);
     }
     return created;
@@ -162,9 +205,10 @@ export function redeemCodeForUser(db: DB, userId: number, rawCode: string, now =
   const hash = hashRedeemCode(normalized);
   return transaction(db, () => {
     const row = db.prepare(
-      'SELECT plan, redeemed_by, redeemed_at, revoked FROM redemption_codes WHERE code_hash = ?',
+      'SELECT plan, expires_at, redeemed_by, redeemed_at, revoked FROM redemption_codes WHERE code_hash = ?',
     ).get(hash) as {
       plan: 'pro' | 'classroom';
+      expires_at: number | null;
       redeemed_by: number | null;
       redeemed_at: number | null;
       revoked: number;
@@ -174,6 +218,9 @@ export function redeemCodeForUser(db: DB, userId: number, rawCode: string, now =
     }
     if (row.redeemed_by !== null || row.redeemed_at !== null) {
       throw new RedeemError(409, 'CODE_ALREADY_USED', 'This activation code has already been redeemed');
+    }
+    if (row.expires_at !== null && row.expires_at <= now) {
+      throw new RedeemError(410, 'CODE_EXPIRED', 'This activation code has expired');
     }
     const current = getUserEntitlement(db, userId, now);
     if (current.plan !== 'free' && current.expiresAt === null && PLAN_RANK[row.plan] <= PLAN_RANK[current.plan]) {
@@ -269,3 +316,95 @@ export function revokeRedemptionCode(
     return { code, redeemedBy: row.redeemed_by, userPlanAfter };
   });
 }
+
+export interface InspectedRedemptionCode {
+  code: string;
+  plan: 'pro' | 'classroom';
+  note: string | null;
+  createdAt: number;
+  expiresAt: number | null;
+  redeemedAt: number | null;
+  redeemedEmail: string | null;
+  status: 'available' | 'redeemed' | 'expired' | 'revoked';
+}
+
+export function inspectRedemptionCode(db: DB, rawCode: string, now = Date.now()): InspectedRedemptionCode | null {
+  const code = normalizeRedeemCode(rawCode);
+  if (!code) return null;
+  const hash = hashRedeemCode(code);
+  const row = db.prepare(`
+    SELECT rc.plan, rc.note, rc.created_at, rc.expires_at, rc.redeemed_at, rc.revoked, u.email AS redeemed_email
+    FROM redemption_codes rc
+    LEFT JOIN users u ON u.id = rc.redeemed_by
+    WHERE rc.code_hash = ?
+  `).get(hash) as {
+    plan: 'pro' | 'classroom';
+    note: string | null;
+    created_at: number;
+    expires_at: number | null;
+    redeemed_at: number | null;
+    revoked: number;
+    redeemed_email: string | null;
+  } | undefined;
+  if (!row) return null;
+  const status: InspectedRedemptionCode['status'] = row.revoked
+    ? 'revoked'
+    : row.redeemed_at !== null
+      ? 'redeemed'
+      : row.expires_at !== null && row.expires_at <= now
+        ? 'expired'
+        : 'available';
+  return {
+    code,
+    plan: row.plan,
+    note: row.note,
+    createdAt: Number(row.created_at),
+    expiresAt: row.expires_at === null ? null : Number(row.expires_at),
+    redeemedAt: row.redeemed_at === null ? null : Number(row.redeemed_at),
+    redeemedEmail: row.redeemed_email,
+    status,
+  };
+}
+
+export interface BillingStats {
+  availableCodes: number;
+  redeemedCodes: number;
+  expiredCodes: number;
+  revokedCodes: number;
+  proUsers: number;
+  classroomUsers: number;
+  paidOrders: number;
+}
+
+export function getBillingStats(db: DB, now = Date.now()): BillingStats {
+  const codes = db.prepare(`
+    SELECT
+      SUM(CASE WHEN revoked = 1 THEN 1 ELSE 0 END) AS revoked_n,
+      SUM(CASE WHEN revoked = 0 AND redeemed_at IS NOT NULL THEN 1 ELSE 0 END) AS redeemed_n,
+      SUM(CASE WHEN revoked = 0 AND redeemed_at IS NULL AND expires_at IS NOT NULL AND expires_at <= ? THEN 1 ELSE 0 END) AS expired_n,
+      SUM(CASE WHEN revoked = 0 AND redeemed_at IS NULL AND (expires_at IS NULL OR expires_at > ?) THEN 1 ELSE 0 END) AS available_n
+    FROM redemption_codes
+  `).get(now, now) as {
+    revoked_n: number | null;
+    redeemed_n: number | null;
+    expired_n: number | null;
+    available_n: number | null;
+  };
+  const ents = db.prepare(`
+    SELECT
+      SUM(CASE WHEN plan = 'pro' AND (expires_at IS NULL OR expires_at > ?) THEN 1 ELSE 0 END) AS pro_n,
+      SUM(CASE WHEN plan = 'classroom' AND (expires_at IS NULL OR expires_at > ?) THEN 1 ELSE 0 END) AS classroom_n
+    FROM entitlements
+  `).get(now, now) as { pro_n: number | null; classroom_n: number | null };
+  const orders = db.prepare("SELECT COUNT(*) AS n FROM orders WHERE status = 'paid'").get() as { n: number };
+  return {
+    availableCodes: Number(codes.available_n ?? 0),
+    redeemedCodes: Number(codes.redeemed_n ?? 0),
+    expiredCodes: Number(codes.expired_n ?? 0),
+    revokedCodes: Number(codes.revoked_n ?? 0),
+    proUsers: Number(ents.pro_n ?? 0),
+    classroomUsers: Number(ents.classroom_n ?? 0),
+    paidOrders: Number(orders.n ?? 0),
+  };
+}
+

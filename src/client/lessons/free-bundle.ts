@@ -2,7 +2,9 @@
 import { EARTH_A } from './l-earth.ts';
 import { LAND } from './l-land.ts';
 import { HOME } from './l-home.ts';
+import { SENIOR_FREE } from './free-senior.ts';
 import { A_EARTHMOON } from './astro/l-earthmoon.ts';
+import { A_SOLAR_FREE } from './astro/free-solar.ts';
 import { SSBS_LESSONS } from './ssbs/index.ts';
 import { ssbsOn } from '../lib/ssbs.ts';
 import { isFreeLesson } from '../../shared/lib/entitlements.ts';
@@ -12,7 +14,9 @@ const FREE_LESSONS: Lesson[] = [
   ...EARTH_A,
   ...LAND,
   ...HOME,
+  ...SENIOR_FREE,
   ...A_EARTHMOON,
+  ...A_SOLAR_FREE,
 ].filter(l => isFreeLesson(l.id));
 
 export function freeLessonById(id: string): Lesson | undefined {
