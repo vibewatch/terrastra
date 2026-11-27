@@ -51,5 +51,32 @@ export function radecToGal(ra: number, dec: number): [number, number] {
   return [(l + 360) % 360, Math.asin(Math.max(-1, Math.min(1, g[2]))) / D2R];
 }
 
+/** Galactic l, b (degrees) → equatorial J2000 RA (0..360°) and Dec (−90..+90°). */
+export function galToRadec(l: number, b: number): [number, number] {
+  const e = galToEq(galVec(l, b, 1));
+  const ra = (Math.atan2(e[1], e[0]) / D2R + 360) % 360;
+  const dec = Math.asin(Math.max(-1, Math.min(1, e[2]))) / D2R;
+  return [ra, dec];
+}
+
+/** Numerically stable angular separation (0..180°) between two non-zero 3D direction vectors. */
+export function angularSepDeg(a: Vec3, b: Vec3): number {
+  const la = Math.hypot(a[0], a[1], a[2]), lb = Math.hypot(b[0], b[1], b[2]);
+  if (!(la > 0) || !(lb > 0)) return 0;
+  const ax = a[0] / la, ay = a[1] / la, az = a[2] / la;
+  const bx = b[0] / lb, by = b[1] / lb, bz = b[2] / lb;
+  const cx = ay * bz - az * by, cy = az * bx - ax * bz, cz = ax * by - ay * bx;
+  return Math.atan2(Math.hypot(cx, cy, cz), ax * bx + ay * by + az * bz) / D2R;
+}
+
+/** Formats J2000 RA/Dec degrees as compact astronomical coordinates ("05h 35m · −05.4°"). */
+export function fmtRadec(raDeg: number, decDeg: number): string {
+  const totalMin = Math.round((((raDeg % 360) + 360) % 360) / 15 * 60) % (24 * 60);
+  const hh = String(Math.floor(totalMin / 60)).padStart(2, '0');
+  const mm = String(totalMin % 60).padStart(2, '0');
+  const sign = decDeg >= 0 ? '+' : '−';
+  return `${hh}h ${mm}m · ${sign}${Math.abs(decDeg).toFixed(1)}°`;
+}
+
 /** The north celestial pole in galactic coordinates (for sky "north" when orienting galaxy discs). */
 export const NCP_GAL: Vec3 = eqToGal([0, 0, 1]);

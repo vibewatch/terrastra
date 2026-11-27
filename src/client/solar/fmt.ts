@@ -1,6 +1,18 @@
 import { fmtNum } from '../lib/i18n.ts';
 import type { Lang } from '../../shared/data/types.ts';
 
+export const LY_PER_PC = 3.26156378;
+
+/** Scientific distance in parsecs ("1.30 pc" / "8.18 kpc" / "16.5 Mpc" / "4.2 Gpc"). */
+export function fmtParsec(ly: number, l: Lang): string {
+  const pc = Math.max(0, ly) / LY_PER_PC;
+  const n = (v: number, d: number) => fmtNum(+v.toFixed(d), l);
+  if (pc < 1e3) return `${n(pc, pc < 10 ? 2 : pc < 100 ? 1 : 0)} pc`;
+  if (pc < 1e6) return `${n(pc / 1e3, pc < 1e4 ? 2 : 1)} kpc`;
+  if (pc < 1e9) return `${n(pc / 1e6, pc < 1e7 ? 2 : 1)} Mpc`;
+  return `${n(pc / 1e9, 2)} Gpc`;
+}
+
 /** "4.2 light-years" / "250 万光年" / "13.8 billion light-years". */
 export function fmtLy(ly: number, l: Lang): string {
   const n = (v: number, d: number) => fmtNum(+v.toFixed(d), l);

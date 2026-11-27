@@ -315,3 +315,19 @@ export function constellationText(c: Constellation): { desc: { en: string; zh: s
     },
   };
 }
+
+/**
+ * Earth latitude band `[southLat, northLat]` (degrees, −90..+90) from which the entire constellation figure
+ * clears at least 5° above the horizon at culmination.
+ */
+export function constellationLatBand(c: Constellation): [number, number] {
+  if (!c.stars.length) return [-90, 90];
+  let minDec = 90, maxDec = -90;
+  for (const [, dec] of c.stars) {
+    if (dec < minDec) minDec = dec;
+    if (dec > maxDec) maxDec = dec;
+  }
+  const south = Math.max(-90, Math.min(90, Math.round(maxDec - 85)));
+  const north = Math.max(-90, Math.min(90, Math.round(minDec + 85)));
+  return south <= north ? [south, north] : [Math.round((south + north) / 2), Math.round((south + north) / 2)];
+}

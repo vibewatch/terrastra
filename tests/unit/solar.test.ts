@@ -111,4 +111,31 @@ describe('distance meter', () => {
       expect(km).toBeLessThan(402e6);
     }
   });
+
+  it('computes escape velocity, orbital speed, Hohmann windows and explorer Earth distance', async () => {
+    const { escapeVelocityKms, orbitalSpeedKms, hohmannTransferHours } = await import('../../src/shared/lib/orbits.ts');
+    const { siteEarthDistKm } = await import('../../src/client/solar/sites.ts');
+    const { SOLAR_SITES } = await import('../../src/shared/data/solar-sites.ts');
+    expect(escapeVelocityKms('earth')!).toBeCloseTo(11.18, 1);
+    expect(escapeVelocityKms('moon')!).toBeCloseTo(2.38, 1);
+    expect(escapeVelocityKms('jupiter')!).toBeGreaterThan(58);
+    expect(escapeVelocityKms('sun')!).toBeCloseTo(617.7, 0);
+
+    const d = daysJ2000(Date.UTC(2026, 6, 1));
+    expect(orbitalSpeedKms('earth', d)!).toBeCloseTo(29.3, 0);
+    expect(orbitalSpeedKms('mercury', d)!).toBeGreaterThan(38);
+    expect(orbitalSpeedKms('neptune', d)!).toBeCloseTo(5.45, 1);
+    expect(orbitalSpeedKms('moon', d)!).toBeGreaterThan(0.95);
+    expect(orbitalSpeedKms('moon', d)!).toBeLessThan(1.10);
+    expect(orbitalSpeedKms('sun', d)).toBeNull();
+
+    // Earth -> Mars Hohmann transfer is ~259 days; Earth -> Moon ~5 days
+    expect(hohmannTransferHours('earth', 'mars')! / 24).toBeCloseTo(258.9, 0);
+    expect(hohmannTransferHours('earth', 'venus')! / 24).toBeCloseTo(146.1, 0);
+    expect(hohmannTransferHours('earth', 'moon')! / 24).toBeCloseTo(5.0, 1);
+    expect(hohmannTransferHours('earth', 'earth')).toBe(0);
+
+    const voyager = SOLAR_SITES.find(s => s.helio)!;
+    expect(siteEarthDistKm(voyager, Date.UTC(2026, 0, 1))).toBeGreaterThan(15e9);
+  });
 });

@@ -14,19 +14,20 @@ import { tr, type Lang } from '../../shared/data/types.ts';
 import { BODIES, BODY, type BodyId, type SolarBody } from '../../shared/data/solar.ts';
 import { BODY_TEXT } from '../../shared/data/solar-text.ts';
 import { SOLAR_FEATURES } from '../../shared/data/solar-features.ts';
-import { AU_KM, LIGHT_KMS, apparentArcsec, daysJ2000, distanceKm, lightDelaySec, probeTransitHours, relativePosition } from '../../shared/lib/orbits.ts';
+import { AU_KM, LIGHT_KMS, apparentArcsec, daysJ2000, distanceKm, escapeVelocityKms, hohmannTransferHours, lightDelaySec, orbitalSpeedKms, probeTransitHours, relativePosition } from '../../shared/lib/orbits.ts';
+import { fmtRadec, galToRadec } from '../../shared/lib/sky.ts';
 import type { Quality } from '../globe/quality.ts';
 import type { Reader, Readable } from '../ui/reader.ts';
 import { SolarView, SPEEDS, featuresOf, type SolarSelection } from './view.ts';
-import { sitesOf, helioAU } from './sites.ts';
+import { sitesOf, helioAU, siteEarthDistKm } from './sites.ts';
 import { deepThumb } from './deep.ts';
-import { fmtLy, fmtYears } from './fmt.ts';
+import { fmtLy, fmtParsec, fmtYears } from './fmt.ts';
 import { invalidateUI } from '../ui/occluders.ts';
 import { foldable, foldButton } from '../ui/fold.ts';
-import { drawConstellation, constellationText } from './constellations.ts';
+import { drawConstellation, constellationLatBand, constellationText } from './constellations.ts';
 import { SOLAR_SITES } from '../../shared/data/solar-sites.ts';
-import { starClass } from '../../shared/data/nearby-stars.ts';
-import { DEEP_OBJECTS, MESSIER, SCALE_INFO, lookbackEarthEra, type DeepObject, type DeepKind, type DeepScale, type ScaleId } from '../../shared/data/cosmos.ts';
+import { starClass, starTempK } from '../../shared/data/nearby-stars.ts';
+import { DEEP_OBJECTS, MESSIER, SCALE_INFO, hubbleFlowKms, lookbackEarthEra, type DeepObject, type DeepKind, type DeepScale, type ScaleId } from '../../shared/data/cosmos.ts';
 import { messierGroup, type MessierGroup } from '../../shared/data/messier.ts';
 import type { CatalogueItem } from '../../shared/data/types.ts';
 
@@ -131,6 +132,7 @@ export class SolarUI {
   private messierBtn = h('button', { class: 'icon-btn cst-toggle', 'data-testid': 'solar-messier', 'data-i18n-tip': 'messier', title: t('messier'), 'aria-pressed': 'false', html: icon('telescope', 15) });
   private messierEl = h('div', { class: 'solar-messier hidden', role: 'group', 'data-testid': 'messier-panel', 'data-occludes': true });
   private mFilter: MessierGroup | 'all' = 'all';
+  private mQuery = '';
   /** Telemetry in the HUD corner: target, coordinates/field of view, range. */
   private readout = h('dl', { class: 'hud-readout', 'data-occludes': true, 'aria-hidden': 'true' });
   private sel: Sel | null = null;
@@ -194,10 +196,33 @@ export class SolarUI {
     this.view.setEarthCanvas(host.earthCanvas());
     onLang(() => this.relabel());
     document.addEventListener('keydown', e => {
-      if (!this.view.isActive || e.key !== 'Escape') return;
-      if (this.readerOpen) void this.toggleReader(false);
-      else if (this.sel) this.showCard(null);
-      else this.overview();
+      if (!this.view.isActive) return;
+      if (e.key === 'Escape') {
+        if (this.readerOpen) void this.toggleReader(false);
+        else if (this.sel) this.showCard(null);
+        else this.overview();
+        return;
+      }
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const tgt = e.target as HTMLElement | null;
+      if (tgt instanceof HTMLInputElement || tgt instanceof HTMLTextAreaElement || tgt instanceof HTMLSelectElement || tgt?.isContentEditable) return;
+      if (document.querySelector('dialog[open], .modal:not(.hidden)')) return;
+      if (this.view.scale !== 'solar') return;
+      if (e.key === ' ') {
+        if (tgt?.closest('button, a, summary, [role="button"], [role="radio"]')) return;
+        e.preventDefault();
+        this.setSpeed(this.speedIdx === 0 ? 2 : 0);
+      } else if (e.key === '[' || e.key === '-') {
+        e.preventDefault();
+        this.setSpeed(Math.max(1, this.speedIdx - 1));
+      } else if (e.key === ']' || e.key === '=' || e.key === '+') {
+        e.preventDefault();
+        this.setSpeed(Math.min(SPEEDS.length - 1, this.speedIdx + 1));
+      } else if (e.key === '0') {
+        e.preventDefault();
+        this.view.resetTime();
+        this.renderDate(this.view.simMs);
+      }
     });
   }
 
@@ -283,8 +308,10 @@ export class SolarUI {
       [t('meterAU'), (km / AU_KM).toFixed(km / AU_KM < 0.1 ? 4 : 2) + ' AU'],
       [t('meterLight'), light],
       [t('meterProbe'), fmtDur(a === b ? 0 : probeTransitHours(a, b, d))],
-      [t('meterCar'), fmtDur(carH)],
     ];
+    const hohmannH = hohmannTransferHours(a, b);
+    if (hohmannH && hohmannH > 0) rows.push([t('meterHohmann'), fmtDur(hohmannH)]);
+    rows.push([t('meterCar'), fmtDur(carH)]);
     this.showMeterRows(rows);
     this.view.meterLabel.textContent = a === b ? '' : fmtKm(km, l);
   }
@@ -297,12 +324,13 @@ export class SolarUI {
     this.meterOut.replaceChildren(...rows.map(([k, v]) => stat(k, v)));
   }
 
-  /** Light-years between two deep objects, light travel time, and how long Voyager 1 (17 km/s) or a car would take. */
+  /** Light-years between two deep objects, parsecs, light travel time, and how long Voyager 1 (17 km/s) or a car would take. */
   private renderDeepMeter(): void {
     const l = lang(), a = this.meterA.value, b = this.meterB.value;
     const ly = a === b ? 0 : sepLy(DEEP_OBJECTS.find(o => o.key === a), DEEP_OBJECTS.find(o => o.key === b));
     const rows: [string, string][] = [
       [t('meterDist'), fmtLy(ly, l)],
+      [t('meterParsec'), fmtParsec(ly, l)],
       [t('meterLight'), fmtYears(ly, l)],
       [t('meterProbe'), fmtYears(ly * LIGHT_KMS / 17, l)],
       [t('meterCar'), fmtYears(ly * LY_KM / 100 / 8766, l)],
@@ -322,29 +350,47 @@ export class SolarUI {
     if (on) this.renderMessier();
   }
 
-  private renderMessier(): void {
+  private renderMessier(rebuildShell = false): void {
     if (this.messierEl.classList.contains('hidden')) return;
-    const l = lang(), f = this.mFilter;
-    const list = MESSIER.filter(o => f === 'all' || messierGroup(o.kind) === f);
+    const l = lang(), f = this.mFilter, q = this.mQuery.trim().toLowerCase();
+    const numQ = q.replace(/^m\s*0*/, '');
+    const list = MESSIER.filter(o => {
+      if (f !== 'all' && messierGroup(o.kind) !== f) return false;
+      if (!q) return true;
+      if (`m${o.messier}` === q || (/^\d+$/.test(numQ) && String(o.messier).startsWith(numQ))) return true;
+      return o.name.en.toLowerCase().includes(q) || (o.name.zh ?? '').toLowerCase().includes(q);
+    });
     const groups: (MessierGroup | 'all')[] = ['all', 'galaxy', 'nebula', 'open', 'globular'];
     const short = (o: DeepObject) => {
       const n = tr(o.name, l).replace(/ ?[(（]M\d+[)）]$/, '');
       return /^(Messier |梅西耶)\d+$/.test(n) ? t('dk_' + o.kind) : n;
     };
     this.messierEl.setAttribute('aria-label', t('messier'));
-    this.messierEl.replaceChildren(
-      h('div', { class: 'messier-head' },
-        h('b', {}, t('messier')),
-        h('span', { class: 'messier-n', 'data-testid': 'messier-count' }, String(list.length)),
-        h('button', { class: 'icon-btn', 'data-testid': 'messier-close', 'aria-label': t('close'), html: icon('close', 14), onclick: () => this.setMessier(false) })),
-      h('div', { class: 'messier-filters', role: 'radiogroup' }, ...groups.map(g => h('button', {
-        class: 'tag-chip' + (g === f ? ' on' : ''), role: 'radio', 'aria-checked': String(g === f), 'data-testid': 'mf-' + g,
-        onclick: () => { sfx.tap(); this.mFilter = g; this.renderMessier(); } }, g === 'all' ? t('messierAll') : t('mg_' + g)))),
-      h('div', { class: 'messier-list', role: 'list' }, ...list.map(o => h('button', {
-        class: 'messier-item', role: 'listitem', 'data-testid': 'mx-' + o.messier, 'data-key': o.key, title: tr(o.name, l),
-        onclick: () => { sfx.tap(); this.goTo(o.key); } },
-        h('b', {}, 'M' + o.messier), h('span', { class: 'chip-emoji', 'aria-hidden': 'true' }, o.emoji), h('span', {}, short(o))))),
-      h('p', { class: 'messier-note' }, t('messierNote')));
+    if (rebuildShell || !this.messierEl.querySelector('.messier-list')) {
+      const search = h('input', {
+        type: 'search', class: 'messier-search', 'data-testid': 'messier-search',
+        placeholder: t('messierSearch'), 'aria-label': t('messierSearch'), value: this.mQuery,
+        oninput: (e: Event) => { this.mQuery = (e.target as HTMLInputElement).value; this.renderMessier(); },
+      }) as HTMLInputElement;
+      this.messierEl.replaceChildren(
+        h('div', { class: 'messier-head' },
+          h('b', {}, t('messier')),
+          h('span', { class: 'messier-n', 'data-testid': 'messier-count' }),
+          h('button', { class: 'icon-btn', 'data-testid': 'messier-close', 'aria-label': t('close'), html: icon('close', 14), onclick: () => this.setMessier(false) })),
+        search,
+        h('div', { class: 'messier-filters', role: 'radiogroup' }),
+        h('div', { class: 'messier-list', role: 'list' }),
+        h('p', { class: 'messier-note' }, t('messierNote')));
+    }
+    this.messierEl.querySelector('.messier-n')!.textContent = String(list.length);
+    this.messierEl.querySelector('.messier-filters')!.replaceChildren(...groups.map(g => h('button', {
+      class: 'tag-chip' + (g === f ? ' on' : ''), role: 'radio', 'aria-checked': String(g === f), 'data-testid': 'mf-' + g,
+      onclick: () => { sfx.tap(); this.mFilter = g; this.renderMessier(); } }, g === 'all' ? t('messierAll') : t('mg_' + g))));
+    this.messierEl.querySelector('.messier-list')!.replaceChildren(...(list.length ? list.map(o => h('button', {
+      class: 'messier-item', role: 'listitem', 'data-testid': 'mx-' + o.messier, 'data-key': o.key, title: tr(o.name, l),
+      onclick: () => { sfx.tap(); this.goTo(o.key); } },
+      h('b', {}, 'M' + o.messier), h('span', { class: 'chip-emoji', 'aria-hidden': 'true' }, o.emoji), h('span', {}, short(o))))
+      : [h('p', { class: 'messier-empty', 'data-testid': 'messier-empty' }, t('messierEmpty'))]));
     this.syncMessier();
   }
 
@@ -525,7 +571,7 @@ export class SolarUI {
     this.syncDock();
     this.fillMeter();
     this.renderMeter();
-    this.renderMessier();
+    this.renderMessier(true);
     this.setSpeed(this.speedIdx);
     if (this.sel) this.renderCard();
     this.reader?.relang();
@@ -665,6 +711,10 @@ export class SolarUI {
       }
       if (f.moons !== undefined && body.kind !== 'star') extra.push([t('moonsN'), fmtNum(f.moons)]);
       if (f.gravity !== undefined) extra.push([t('gravity'), t('xEarth', { n: f.gravity })]);
+      const vEsc = escapeVelocityKms(body.id);
+      if (vEsc !== null) extra.push([t('escapeVel'), t('kmsVal', { n: fmtNum(vEsc, l) })]);
+      const vOrb = orbitalSpeedKms(body.id, d);
+      if (vOrb !== null) extra.push([t('orbitalSpeed'), t('kmsVal', { n: fmtNum(vOrb, l) })]);
       if (f.tempC) extra.push([t('temperature'), f.tempC[0] === f.tempC[1] ? `${fmtNum(f.tempC[0])} °C` : `${fmtNum(f.tempC[0])} ~ ${fmtNum(f.tempC[1])} °C`]);
     } else {
       const f = s.f;
@@ -736,6 +786,22 @@ export class SolarUI {
       if (x.agency) key.push([t('agency'), x.agency]);
       if (x.helio) key.push([t('fromSun'), t('fromSunAU', { n: fmtNum(Math.round(helioAU(x, this.view.simMs))) })]);
       else if (!x.orbit) key.push([t('where'), `${Math.abs(x.lat).toFixed(1)}°${x.lat >= 0 ? 'N' : 'S'} · ${Math.abs(x.lon).toFixed(1)}°${x.lon >= 0 ? 'E' : 'W'}`]);
+      const siteKm = siteEarthDistKm(x, this.view.simMs);
+      if (siteKm > 100_000) {
+        const delayS = siteKm / LIGHT_KMS;
+        const delayTxt = delayS < 90
+          ? t('secondsN', { n: fmtNum(+delayS.toFixed(1)) })
+          : delayS < 5400
+            ? t('minutesN', { n: fmtNum(+(delayS / 60).toFixed(1)) })
+            : t('hoursN', { n: fmtNum(+(delayS / 3600).toFixed(1)) });
+        extra.push([t('fromEarth'), fmtKm(siteKm, l)]);
+        extra.push([t('earthLightDelay'), delayTxt]);
+      }
+      if (x.year && !x.future) {
+        const simYear = new Date(this.view.simMs).getUTCFullYear();
+        const spanY = simYear - x.year;
+        if (spanY >= 1) extra.push([t('missionElapsed'), t('yearsN', { n: fmtNum(spanY) })]);
+      }
       hero = h('div', { class: 'site-hero' });
       if (x.model) {
         const recipe = x.model;
@@ -746,18 +812,32 @@ export class SolarUI {
       if (!x.helio) footer.push(h('button', { class: 'pill pill-sm', 'data-testid': 'solar-back-body', onclick: () => this.view.select(x.body) }, t('backTo', { p: tr(body.name, l) })));
     } else if (s.kind === 'cst') {
       const b = constellationText(s.c).brightest;
+      const [southLat, northLat] = constellationLatBand(s.c);
+      const fmtLat = (deg: number) => deg === 0 ? '0°' : `${Math.abs(deg)}°${deg > 0 ? 'N' : 'S'}`;
       eyebrow = t('cst_kind');
       chip = t('cst_kind');
       key.push([t('cst_stars'), fmtNum(s.c.stars.length)]);
       if (b) key.push([t('cst_brightest'), tr(b, l)]);
+      extra.push([t('cst_latBand'), `${fmtLat(northLat)} – ${fmtLat(southLat)}`]);
     } else if (s.kind === 'deep') {
       const o = s.o;
       eyebrow = t('dk_' + o.kind) + (o.morph && o.kind !== 'dwarf' ? ' · ' + t('mo_' + o.morph) : '');
       chip = t('dk_' + o.kind);
       key.push([t('lightYears'), fmtLy(o.distLy, l)]);
-      if (o.spec) key.push([t('starType'), t('stc_' + starClass(o.spec))]);
+      if (o.spec) {
+        key.push([t('starType'), t('stc_' + starClass(o.spec))]);
+        const tempK = starTempK(o.spec);
+        if (tempK) extra.push([t('starTemp'), t('kelvinVal', { n: fmtNum(tempK, l) })]);
+      }
       if (o.messier) key.push([t('messierNo'), 'M' + o.messier]);
       if (o.sizeLy) key.push([t('across'), fmtLy(o.sizeLy, l)]);
+      if (o.distLy > 0) extra.push([t('meterParsec'), fmtParsec(o.distLy, l)]);
+      if (o.kind !== 'cmb' && o.kind !== 'arm') {
+        const [ra, dec] = galToRadec(o.l, o.b);
+        extra.push([t('skyCoord'), fmtRadec(ra, dec)]);
+      }
+      const hubble = hubbleFlowKms(o.distLy);
+      if (hubble) extra.push([t('hubbleFlow'), t('kmsVal', { n: fmtNum(hubble, l) })]);
       if (o.distLy >= 1 && o.distLy < 1e9) extra.push([t('lookback'), t('yearsAgo', { n: fmtLy(o.distLy, l).replace(/ ?(light-years|光年)$/, '') })]);
       const era = lookbackEarthEra(o.distLy);
       if (era) extra.push([t('lookbackEra'), tr(era, l)]);

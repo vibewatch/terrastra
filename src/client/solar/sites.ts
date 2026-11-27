@@ -8,7 +8,7 @@ import { textW, underUI } from '../ui/occluders.ts';
 import type { BodyId } from '../../shared/data/solar.ts';
 import { SOLAR_SITES, type SolarSite } from '../../shared/data/solar-sites.ts';
 import { latLonToVec } from '../../shared/lib/geo.ts';
-import { displayOrbit, type Vec3 } from '../../shared/lib/orbits.ts';
+import { AU_KM, daysJ2000, displayOrbit, distanceKm, helioKm, type Vec3 } from '../../shared/lib/orbits.ts';
 import { tr } from '../../shared/data/types.ts';
 import { lang } from '../lib/i18n.ts';
 import { buildModel, whenModelReady } from '../models/library.ts';
@@ -28,6 +28,19 @@ const FAR_CRAFT = SOLAR_SITES.filter(s => s.helio);
 export function helioAU(s: SolarSite, ms: number): number {
   const h = s.helio!;
   return Math.max(1, h.au + h.auPerYear * ((ms - Date.UTC(2026, 0, 1)) / 3.15576e10));
+}
+
+/** Approximate straight-line distance from Earth (km) to an explorer site or deep-space probe at epoch `ms`. */
+export function siteEarthDistKm(s: SolarSite, ms: number): number {
+  const d = daysJ2000(ms);
+  if (s.helio) {
+    const rKm = helioAU(s, ms) * AU_KM;
+    const la = (s.helio.lat * Math.PI) / 180, lo = (s.helio.lon * Math.PI) / 180;
+    const craft: Vec3 = [Math.cos(la) * Math.cos(lo) * rKm, Math.cos(la) * Math.sin(lo) * rKm, Math.sin(la) * rKm];
+    const earth = helioKm('earth', d);
+    return Math.hypot(craft[0] - earth[0], craft[1] - earth[1], craft[2] - earth[2]);
+  }
+  return s.body === 'earth' ? 0 : distanceKm(s.body, 'earth', d);
 }
 
 /** Is point `p` hidden from the camera by the world's disc (centre `o`, radius `R`)? */

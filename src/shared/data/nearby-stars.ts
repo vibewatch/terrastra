@@ -235,3 +235,33 @@ export function starColor(spec: string): string {
   const c = spec[0];
   return ({ O: '#9bb0ff', B: '#aabfff', A: '#cad7ff', F: '#f8f7ff', G: '#fff1d8', K: '#ffcf9a', M: '#ffad66', L: '#d9805a', T: '#c06b5a', D: '#e4ecff' } as Record<string, string>)[c] ?? '#ffffff';
 }
+
+const SPEC_TEMP: Record<string, [number, number]> = {
+  O: [50_000, 30_000],
+  B: [30_000, 10_000],
+  A: [10_000, 7_500],
+  F: [7_500, 6_000],
+  G: [5_960, 5_200],
+  K: [5_200, 3_700],
+  M: [3_700, 2_400],
+  L: [2_400, 1_300],
+  T: [1_300, 550],
+  Y: [550, 250],
+};
+
+/** Approximate photospheric effective temperature (Kelvin) from MK spectral classification `spec`. */
+export function starTempK(spec: string): number | null {
+  if (!spec) return null;
+  const c = spec[0].toUpperCase();
+  const numMatch = spec.slice(1).match(/^([A-Z]*)(\d+(?:\.\d+)?)/i);
+  if (c === 'D') {
+    const idx = numMatch ? Number(numMatch[2]) : 5;
+    const raw = idx > 0 ? 50_400 / idx : 10_000;
+    return Math.round(Math.max(4_000, Math.min(45_000, raw)) / 100) * 100;
+  }
+  const band = SPEC_TEMP[c];
+  if (!band) return null;
+  const sub = Math.max(0, Math.min(9.9, numMatch && !numMatch[1] ? Number(numMatch[2]) : 5));
+  const raw = band[0] + (band[1] - band[0]) * (sub / 10);
+  return Math.round(raw / 50) * 50;
+}

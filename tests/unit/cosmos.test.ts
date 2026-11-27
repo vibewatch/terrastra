@@ -1,13 +1,16 @@
 import { describe, it, expect } from 'vitest';
-import { radecToGal, eclToGal, galToEcl, galVec } from '../../src/shared/lib/sky.ts';
-import { DEEP_OBJECTS, MESSIER, SCALE_INFO, SCALES } from '../../src/shared/data/cosmos.ts';
+import { radecToGal, galToRadec, angularSepDeg, fmtRadec, eclToGal, galToEcl, galVec } from '../../src/shared/lib/sky.ts';
+import { DEEP_OBJECTS, MESSIER, SCALE_INFO, SCALES, hubbleFlowKms } from '../../src/shared/data/cosmos.ts';
 import { messierGroup } from '../../src/shared/data/messier.ts';
 import { SOLAR_SITES } from '../../src/shared/data/solar-sites.ts';
 import { BODY } from '../../src/shared/data/solar.ts';
 import { WIKI } from '../../src/shared/data/wiki.ts';
 import { hasKey } from '../../src/client/lib/i18n.ts';
-import { starClass } from '../../src/shared/data/nearby-stars.ts';
+import { starClass, starTempK } from '../../src/shared/data/nearby-stars.ts';
 import { LEVELS } from '../../src/client/solar/deep.ts';
+import { fmtParsec } from '../../src/client/solar/fmt.ts';
+import { CONSTELLATIONS } from '../../src/shared/data/constellations.ts';
+import { constellationLatBand } from '../../src/client/solar/constellations.ts';
 
 const angDiff = (a: number, b: number) => Math.abs(((a - b + 540) % 360) - 180);
 
@@ -25,6 +28,18 @@ describe('sky frames', () => {
     const v = galVec(77, -33);
     const back = eclToGal(galToEcl(v));
     for (let i = 0; i < 3; i++) expect(back[i]).toBeCloseTo(v[i], 9);
+  });
+
+  it('round-trips RA/Dec ↔ galactic and computes angular separation & sky format', () => {
+    for (const [ra, dec] of [[266.4168, -29.0078], [83.8221, -5.3911], [10.6847, 41.269]] as const) {
+      const [l, b] = radecToGal(ra, dec);
+      const [ra2, dec2] = galToRadec(l, b);
+      expect(angDiff(ra, ra2)).toBeLessThan(1e-6);
+      expect(dec2).toBeCloseTo(dec, 6);
+    }
+    expect(angularSepDeg([1, 0, 0], [0, 1, 0])).toBeCloseTo(90, 9);
+    expect(angularSepDeg([1, 0, 0], [-1, 0, 0])).toBeCloseTo(180, 9);
+    expect(fmtRadec(83.8221, -5.3911)).toBe('05h 35m · −5.4°');
   });
 });
 
@@ -65,6 +80,10 @@ describe('deep-space content', () => {
     expect(starClass('K1.5III')).toBe('giant');
     expect(starClass('F5IV')).toBe('white_star');
     expect(starClass('DZ8')).toBe('white_dwarf');
+    expect(starTempK('G2V')).toBe(5800);
+    expect(starTempK('A1V')!).toBeGreaterThan(9500);
+    expect(starTempK('M5.5V')!).toBeLessThan(3200);
+    expect(starTempK('DA2')).toBe(25200);
   });
 
   it('lists all 110 Messier objects, each once, on the scale its distance puts it', () => {
@@ -90,6 +109,21 @@ describe('deep-space content', () => {
     expect(m31.scale).toBe('group');
     expect(m31.distLy).toBeGreaterThan(2.3e6);
     expect(m31.distLy).toBeLessThan(2.7e6);
+    expect(hubbleFlowKms(m31.distLy)).toBeNull(); // Local Group is gravitationally bound
+    expect(hubbleFlowKms(53.8e6)!).toBeCloseTo(1150, -2); // Virgo Cluster ~1,150 km/s
+    expect(fmtParsec(4.246, 'en')).toBe('1.3 pc');
+    expect(fmtParsec(26_670, 'en')).toBe('8.18 kpc');
+    expect(fmtParsec(53.8e6, 'en')).toBe('16.5 Mpc');
+
+    const crux = CONSTELLATIONS.find(c => c.id === 'cru')!;
+    const umi = CONSTELLATIONS.find(c => c.id === 'umi')!;
+    const [cruS, cruN] = constellationLatBand(crux);
+    const [umiS, umiN] = constellationLatBand(umi);
+    expect(cruS).toBe(-90);
+    expect(cruN).toBeGreaterThan(15);
+    expect(cruN).toBeLessThan(30);
+    expect(umiN).toBe(90);
+    expect(umiS).toBeGreaterThanOrEqual(0);
   });
 });
 

@@ -642,6 +642,19 @@ const en = {
   dexFilterFound: "Collected",
   dexFilterMissing: "Unfound",
   dexEmptyFilter: "No items match this filter.",
+  escapeVel: "Escape speed",
+  orbitalSpeed: "Orbital speed",
+  kmsVal: "{n} km/s",
+  meterHohmann: "Hohmann orbit",
+  meterParsec: "Parsecs",
+  starTemp: "Surface temp",
+  kelvinVal: "~{n} K",
+  skyCoord: "Sky (J2000)",
+  hubbleFlow: "Hubble flow",
+  messierSearch: "Search M1–M110 or name…",
+  messierEmpty: "No Messier objects match.",
+  missionElapsed: "Mission duration",
+  cst_latBand: "Visible latitudes",
 } as const;
 
 export type I18nKey = keyof typeof en;
@@ -1285,6 +1298,19 @@ const zh: Record<I18nKey, string> = {
   dexFilterFound: "已解锁",
   dexFilterMissing: "待探索",
   dexEmptyFilter: "没有符合当前筛选条件的图鉴条目。",
+  escapeVel: "逃逸速度",
+  orbitalSpeed: "公转速度",
+  kmsVal: "{n} 公里/秒",
+  meterHohmann: "霍曼转移窗口",
+  meterParsec: "秒差距",
+  starTemp: "表面有效温度",
+  kelvinVal: "约 {n} K",
+  skyCoord: "天球坐标 (J2000)",
+  hubbleFlow: "哈勃退行速度",
+  messierSearch: "搜索 M1–M110 或天体名称…",
+  messierEmpty: "没有匹配的梅西耶天体。",
+  missionElapsed: "在轨时间",
+  cst_latBand: "完整可见纬度",
 };
 
 const DICTS: Record<Lang, Dict> = { en, zh };

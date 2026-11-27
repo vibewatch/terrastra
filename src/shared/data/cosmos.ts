@@ -839,3 +839,13 @@ export function lookbackEarthEra(distLy: number): I18n | null {
   if (distLy < 4_540_000_000) return { en: 'Precambrian Earth — microbial life only', zh: '前寒武纪地球——仅有微生物' };
   return { en: 'Before Earth and the Sun even existed', zh: '太阳和地球尚未诞生之前' };
 }
+
+/**
+ * Linear-to-moderate Hubble recession speed (km/s, H0 ≈ 70 km/s/Mpc) for extragalactic structures
+ * beyond the gravitationally bound Local Group (`distLy >= 10 million ly`) up to `3 billion ly`.
+ */
+export function hubbleFlowKms(distLy: number): number | null {
+  if (!Number.isFinite(distLy) || distLy < 1e7 || distLy > 3e9) return null;
+  const mpc = distLy / 3_261_563.78;
+  return Math.round((mpc * 70) / 10) * 10;
+}

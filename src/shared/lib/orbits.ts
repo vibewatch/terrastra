@@ -109,6 +109,72 @@ export function distanceKm(a: BodyId, b: BodyId, d: number): number {
 
 /** Typical interstellar cruise speed of Voyager 1 (~17.0 km/s). */
 export const PROBE_KMS = 17.0;
+const GM_SUN_KM3_S2 = 1.32712440018e11;
+const G_EARTH_MS2 = 9.80665;
+
+/** Surface escape velocity (km/s) derived from surface gravity and mean radius, or null when unknown. */
+export function escapeVelocityKms(id: BodyId): number | null {
+  const b = BODY[id];
+  if (!b || !(b.radiusKm > 0)) return null;
+  if (id === 'sun') return +(Math.sqrt((2 * GM_SUN_KM3_S2) / b.radiusKm)).toFixed(1);
+  if (b.facts.gravity === undefined || !(b.facts.gravity > 0)) return null;
+  const vMs = Math.sqrt(2 * b.facts.gravity * G_EARTH_MS2 * b.radiusKm * 1000);
+  const vKms = vMs / 1000;
+  return vKms >= 1 ? +vKms.toFixed(2) : +vKms.toFixed(3);
+}
+
+/** Instantaneous orbital speed (km/s) around the Sun (planets/dwarfs via vis-viva) or parent planet (moons) on day `d` since J2000. */
+export function orbitalSpeedKms(id: BodyId, d: number): number | null {
+  const b = BODY[id];
+  if (!b || id === 'sun') return null;
+  if (b.kepler) {
+    const p = keplerPosition(b.kepler, d);
+    const rKm = Math.hypot(p[0], p[1], p[2]) * AU_KM;
+    const T = d / 36525;
+    const aKm = (b.kepler.a[0] + b.kepler.a[1] * T) * AU_KM;
+    if (!(rKm > 0) || !(aKm > 0)) return null;
+    return +Math.sqrt(GM_SUN_KM3_S2 * Math.max(0, 2 / rKm - 1 / aKm)).toFixed(2);
+  }
+  if (b.kind === 'moon' && b.parent) {
+    const dtDays = 0.01;
+    const p0 = relativePosition(id, d - dtDays);
+    const p1 = relativePosition(id, d + dtDays);
+    const v = Math.hypot(p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]) / (2 * dtDays * 86400);
+    return +v.toFixed(2);
+  }
+  return null;
+}
+
+/**
+ * Minimum-energy Hohmann transfer duration (hours) between two Solar System bodies,
+ * either heliocentric (planet/dwarf ↔ planet/dwarf) or planet ↔ moon from a 300 km parking orbit.
+ */
+export function hohmannTransferHours(a: BodyId, b: BodyId): number | null {
+  if (a === b) return 0;
+  const ba = BODY[a], bb = BODY[b];
+  if (!ba || !bb || a === 'sun' || b === 'sun') return null;
+  const cislunar = (planet: BodyId, moon: BodyId): number | null => {
+    const p = BODY[planet], m = BODY[moon];
+    if (p.facts.gravity === undefined || !(p.facts.gravity > 0)) return null;
+    const r1 = p.radiusKm + 300;
+    const r2 = moon === 'moon' ? 384_400 : m.moon?.aKm ?? 0;
+    if (!(r2 > r1)) return null;
+    const gmKm3S2 = p.facts.gravity * (G_EARTH_MS2 / 1000) * p.radiusKm * p.radiusKm;
+    return (Math.PI * Math.sqrt(Math.pow((r1 + r2) / 2, 3) / gmKm3S2)) / 3600;
+  };
+  if (ba.parent === b && ba.kind === 'moon') return cislunar(b, a);
+  if (bb.parent === a && bb.kind === 'moon') return cislunar(a, b);
+  const auOf = (id: BodyId): number | null => {
+    const x = BODY[id];
+    if (x.kepler) return x.kepler.a[0];
+    if (x.parent && BODY[x.parent]?.kepler) return BODY[x.parent].kepler!.a[0];
+    return null;
+  };
+  const r1AU = auOf(a), r2AU = auOf(b);
+  if (!r1AU || !r2AU || Math.abs(r1AU - r2AU) < 1e-4) return null;
+  const years = 0.5 * Math.pow((r1AU + r2AU) / 2, 1.5);
+  return years * 365.25 * 24;
+}
 
 /** One-way light / radio travel delay (seconds) between two Solar System bodies on day `d` since J2000. */
 export function lightDelaySec(a: BodyId, b: BodyId, d: number): number {
