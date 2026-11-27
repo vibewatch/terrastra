@@ -719,6 +719,15 @@ async function boot(): Promise<void> {
     if (head === 'tonight') { history.replaceState(null, '', location.pathname + location.search); tonightMod(m => m.openTonight(navTo, Date.now(), () => ({ lat: globe.lat, lon: globe.lon }))); return; }
     if (head === 'live' || head === 'live-earth') { history.replaceState(null, '', location.pathname + location.search); openLiveEarth(); return; }
     if (head === 'daily' || head === 'placeit' || head === 'quiz') { history.replaceState(null, '', location.pathname + location.search); openGame(head); return; }
+    if (head === 'search') {
+      const q = hsh.slice('search'.length).replace(/^\/+/, '');
+      history.replaceState(null, '', location.pathname + location.search);
+      shell.openSearch(q);
+      return;
+    }
+    if (head === 'passport') { history.replaceState(null, '', location.pathname + location.search); showPassport(); return; }
+    if (head === 'collection') { history.replaceState(null, '', location.pathname + location.search); showCollection(); return; }
+    if (head === 'bookmarks') { history.replaceState(null, '', location.pathname + location.search); openBookmarks(); return; }
     const scale = SCALE_ROUTES[head];
     if (scale) {
       const focus = rest || (scale === 'solar' ? 'overview' : '');
@@ -737,7 +746,7 @@ async function boot(): Promise<void> {
       } else if (place) {
         const showP = () => { if (cam && sceneMode.inMap) closeMap(false); shell.showPlace(place, !cam); if (cam) globe.flyTo(cam.lat, cam.lon, cam.h, 1400); };
         if (sceneMode.inSolar) leaveSolar(place.lat, place.lon, showP); else showP();
-      } else if (hsh.startsWith('state:') && !adminData) {
+      } else if (/^state:/i.test(hsh) && !adminData) {
         void loadAdmin().then(data => {
           adminData = data;
           globe.setAdminData(data);

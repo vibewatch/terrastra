@@ -25,7 +25,7 @@ import { HAS_API, url } from '../lib/env.ts';
 import { load, save, sessionOnly } from '../lib/storage.ts';
 import type { SpaceHit } from '../solar/space-index.ts';
 import type { AdminArea } from '../globe/admin.ts';
-import { resolvePlaceByKey, searchAll, type PlaceHit, type SearchFilter } from '../lib/search.ts';
+import { coordToPlaceHit, resolvePlaceByKey, searchAll, type PlaceHit, type SearchFilter } from '../lib/search.ts';
 import { isRecentSearchEntry, pushRecentSearch, type RecentSearchEntry } from '../../shared/lib/search.ts';
 import { groupOf } from '../lib/compare.ts';
 import { narrate, narrationSupported, splitSentences, stopNarration, type Narration } from '../lib/narrate.ts';
@@ -240,10 +240,10 @@ export class Shell {
     if (pick) this.showItem(pick, true);
   }
 
-  private openSearch(initialQuery = ''): void {
+  openSearch(initialQuery = '', initialFilter: SearchFilter = 'all'): void {
     const l = lang();
     let query = initialQuery;
-    let filter: SearchFilter = 'all';
+    let filter: SearchFilter = initialFilter;
     let activeIdx = 0;
     let kbdMoved = Boolean(initialQuery.trim());
     const recentWrap = h('div', { class: 'search-recent hidden', 'data-testid': 'search-recent' });
@@ -941,6 +941,11 @@ export class Shell {
           antiInfo ? h('div', { class: 'antipode-actions', 'data-testid': 'info-antipode' },
             h('button', {
               class: 'pill pill-sm',
+              'data-testid': 'info-fly-antipode',
+              onclick: () => { sfx.tap(); this.showPlace(coordToPlaceHit(antiInfo.aLat, antiInfo.aLon), true); },
+            }, '🌐 ', t('antipode.fly')),
+            h('button', {
+              class: 'pill pill-sm',
               'data-testid': 'info-measure-dist',
               onclick: () => this.hooks.openCompare('dist:' + it.key),
             }, h('span', { html: icon('compass', 13) }), ' ', t('antipode.measure')),
@@ -1099,6 +1104,11 @@ export class Shell {
           h('summary', { html: icon('chevron', 14) }, h('span', {}, t('moreDetails'))),
           h('dl', { class: 'facts' }, ...extra.map(([k, v]) => h('div', {}, h('dt', {}, k), h('dd', {}, v)))),
           h('div', { class: 'antipode-actions', 'data-testid': 'info-antipode' },
+            h('button', {
+              class: 'pill pill-sm',
+              'data-testid': 'info-fly-antipode',
+              onclick: () => { sfx.tap(); this.showPlace(coordToPlaceHit(aLat, aLon), true); },
+            }, '🌐 ', t('antipode.fly')),
             h('button', {
               class: 'pill pill-sm',
               'data-testid': 'info-measure-dist',

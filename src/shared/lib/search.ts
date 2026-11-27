@@ -15,6 +15,10 @@ const TRAD_TO_SIMP: Record<string, string> = {
   宮: '宫', 廟: '庙', 聖: '圣', 凱: '凯', 鐘: '钟', 樓: '楼', 橋: '桥', 園: '园', 館: '馆', 場: '场',
   剛: '刚', 盧: '卢', 薩: '萨', 麥: '麦', 頓: '顿', 諾: '诺', 貝: '贝', 裡: '里', 鹹: '咸',
   瀾: '澜', 滄: '沧', 魯: '鲁', 連: '连', 韓: '韩', 鮮: '鲜', 緬: '缅',
+  愛: '爱', 達: '达', 萬: '万', 鄭: '郑', 張: '张', 時: '时', 圓: '圆', 紐: '纽', 開: '开',
+  熱: '热', 溫: '温', 帶: '带', 陸: '陆', 嶼: '屿', 濕: '湿', 鹽: '盐', 峯: '峰', 澤: '泽', 濱: '滨',
+  瀋: '沈', 廣: '广', 慶: '庆', 陝: '陕', 寧: '宁', 貴: '贵', 瓊: '琼', 粵: '粤', 贛: '赣', 閩: '闽', 滬: '沪', 遼: '辽',
+  恆: '恒', 團: '团', 蝕: '蚀', 隕: '陨', 殼: '壳', 塊: '块', 層: '层', 環: '环',
 };
 const TRAD_RE = new RegExp(`[${Object.keys(TRAD_TO_SIMP).join('')}]`, 'g');
 
@@ -22,12 +26,17 @@ function toSimplified(s: string): string {
   return s.replace(TRAD_RE, ch => TRAD_TO_SIMP[ch] ?? ch);
 }
 
-/** Chinese numerals 1–99 (三, 十一, 二十, 四十七) → number. */
+/** Chinese numerals 1–999 (三, 十一, 四十七, 一百零五, 三百六十五) → number. */
 function cnNum(s: string): number | null {
   if (s.length === 1 && s in CN_DIGIT) return CN_DIGIT[s];
-  const m = /^([一二三四五六七八九])?十([一二三四五六七八九])?$/.exec(s);
-  if (!m) return null;
-  return (m[1] ? CN_DIGIT[m[1]] : 1) * 10 + (m[2] ? CN_DIGIT[m[2]] : 0);
+  const m10 = /^([一二两三四五六七八九])?十([一二三四五六七八九])?$/.exec(s);
+  if (m10) return (m10[1] ? CN_DIGIT[m10[1]] : 1) * 10 + (m10[2] ? CN_DIGIT[m10[2]] : 0);
+  const m100 = /^([一二两三四五六七八九])百(?:[零〇]([一二三四五六七八九])|([一二三四五六七八九])(?:十([一二三四五六七八九])?)?)?$/.exec(s);
+  if (!m100) return null;
+  const h = CN_DIGIT[m100[1]] * 100;
+  if (m100[2]) return h + CN_DIGIT[m100[2]];
+  if (m100[3]) return h + CN_DIGIT[m100[3]] * 10 + (m100[4] ? CN_DIGIT[m100[4]] : 0);
+  return h;
 }
 
 /**
@@ -37,10 +46,10 @@ function cnNum(s: string): number | null {
  */
 export function norm(s: string): string {
   let x = toSimplified(s).normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-  x = x.replace(/([零〇一二两三四五六七八九十]+)号/g, (all, n: string) => { const v = cnNum(n); return v == null ? all : v + '号'; });
+  x = x.replace(/([零〇一二两三四五六七八九十百]+)号/g, (all, n: string) => { const v = cnNum(n); return v == null ? all : v + '号'; });
   x = x.replace(/[\s\p{P}\p{S}]+/gu, '');
-  x = x.replace(/(?:messier|梅西耶)(?=\d)/g, 'm');
-  return x.replace(/\b(m|ngc|ic)0+(\d)/g, '$1$2').replace(/^(m|ngc|ic)0+(\d)/, '$1$2');
+  x = x.replace(/(?:messier|梅西耶)(?=\d)/g, 'm').replace(/caldwell(?=\d)/g, 'c');
+  return x.replace(/\b(m|ngc|ic|c)0+(\d)/g, '$1$2').replace(/^(m|ngc|ic|c)0+(\d)/, '$1$2');
 }
 
 /** Split a raw user query into normalized whitespace tokens (2..5 tokens) for out-of-order matching. */
@@ -51,11 +60,11 @@ export function queryTokens(raw: string): string[] {
 
 interface Terms {
   /** Display names in every language. */
-  names: string[];
+  names: readonly string[];
   /** Curated aliases, catalogue numbers, related people/missions. */
-  aliases?: string[];
+  aliases?: readonly string[];
   /** Weaker context: country, category. */
-  other?: string[];
+  other?: readonly string[];
 }
 
 /** 0 = no match; higher is better. `q` must already be normalised; `tokens` optional from `queryTokens(raw)`. */
@@ -65,12 +74,27 @@ export function scoreTerms(q: string, terms: Terms, tokens?: readonly string[]):
   const normNames: string[] = [];
   const normAliases: string[] = [];
   const normOther: string[] = [];
-  const test = (list: string[] | undefined, w: number, bucket: string[]) => {
+  const hasWordPrefix = (raw: string): boolean => {
+    const parts = raw.split(/[\s\p{P}\p{S}]+/u);
+    if (parts.length <= 1) return false;
+    for (let i = 1; i < parts.length; i++) {
+      const w = norm(parts[i]);
+      if (w && w.startsWith(q)) return true;
+    }
+    return false;
+  };
+  const test = (list: readonly string[] | undefined, w: number, bucket: string[]) => {
     for (const raw of list ?? []) {
       const t = norm(raw);
       if (!t) continue;
       bucket.push(t);
-      const s = t === q ? 100 : t.startsWith(q) ? 75 : t.includes(q) ? 50 : 0;
+      const s = t === q
+        ? 100
+        : t.startsWith(q)
+          ? 75
+          : t.includes(q)
+            ? (hasWordPrefix(raw) ? 64 : 50)
+            : 0;
       if (s * w > best) best = s * w;
     }
   };
@@ -102,7 +126,7 @@ function parseSingleCoordPart(part: string): { val: number; axis: 'lat' | 'lon' 
   else if (/^(?:南纬|s\b)/i.test(s) || /[sS]$/.test(s)) { axis = 'lat'; sign = -1; }
   else if (/^(?:东经|e\b)/i.test(s) || /[eE]$/.test(s)) { axis = 'lon'; sign = 1; }
   else if (/^(?:西经|w\b)/i.test(s) || /[wW]$/.test(s)) { axis = 'lon'; sign = -1; }
-  s = s.replace(/^(?:北纬|南纬|东经|西经|[nNsSeEwW])\s*/, '').replace(/\s*[nNsSeEwW]$/, '').trim();
+  s = s.replace(/^(?:北纬|南纬|东经|西经|[nNsSeEwW])\s*/, '').replace(/\s*(?:[nNsSeEwW]|[北南]纬|[东西]经)$/, '').trim();
   const dms = /^([+-]?\d+(?:\.\d+)?)\s*[°度]\s*(?:(\d+(?:\.\d+)?)\s*[′'分]\s*)?(?:(\d+(?:\.\d+)?)\s*[″"秒]\s*)?$/.exec(s);
   if (dms) {
     const deg = Number(dms[1]);
@@ -123,11 +147,25 @@ function parseSingleCoordPart(part: string): { val: number; axis: 'lat' | 'lon' 
 }
 
 /**
- * Parses coordinate queries such as `35.68, 139.76`, `23.5°N 113.2°E`,
- * `48°51'N, 2°17'E`, or `北纬30度 东经120度`. Returns null for non-coordinate text.
+ * Parses coordinate queries such as `35.68, 139.76`, `(23.5°N, 113.2°E)`,
+ * `geo:35.68,139.76?z=10`, `@48.858,2.294,15z`, or `北纬30度 东经120度`.
+ * Returns null for non-coordinate text.
  */
 export function parseCoordinateQuery(raw: string): ParsedCoordinate | null {
-  const trimmed = raw.trim();
+  let trimmed = raw.trim();
+  if (trimmed.length < 3 || trimmed.length > 96) return null;
+  if (/^geo:[+-]?\d/i.test(trimmed)) {
+    trimmed = trimmed.slice(4).replace(/[;?].*$/, '').trim();
+  } else if (/^@[+-]?\d/.test(trimmed)) {
+    trimmed = trimmed.slice(1).replace(/,\s*\d+(?:\.\d+)?z$/i, '').trim();
+  }
+  if (
+    (trimmed.startsWith('(') && trimmed.endsWith(')')) ||
+    (trimmed.startsWith('（') && trimmed.endsWith('）')) ||
+    (trimmed.startsWith('[') && trimmed.endsWith(']'))
+  ) {
+    trimmed = trimmed.slice(1, -1).trim();
+  }
   if (trimmed.length < 3 || trimmed.length > 64) return null;
   let parts = trimmed.split(/\s*[,，;；/]\s*/).filter(Boolean);
   if (parts.length !== 2) {
@@ -172,18 +210,33 @@ export function parseCoordinateQuery(raw: string): ParsedCoordinate | null {
  * Returns the best-matching alias when the query matched via `aliases` rather
  * than the primary display `names` (`q` must already be normalised).
  */
-export function matchedAlias(q: string, names: readonly string[], aliases?: readonly string[]): string | undefined {
+export function matchedAlias(
+  q: string,
+  names: readonly string[],
+  aliases?: readonly string[],
+  tokens?: readonly string[],
+): string | undefined {
   if (!q || !aliases?.length) return undefined;
+  const normNames: string[] = [];
   for (const raw of names) {
     const t = norm(raw);
-    if (t && t.includes(q)) return undefined;
+    if (!t) continue;
+    normNames.push(t);
+    if (t.includes(q)) return undefined;
+  }
+  if (tokens && tokens.length >= 2) {
+    const namesBlob = normNames.join(' ');
+    if (tokens.every(tok => namesBlob.includes(tok))) return undefined;
   }
   let bestScore = 0;
   let bestRaw: string | undefined;
   for (const raw of aliases) {
     const t = norm(raw);
     if (!t) continue;
-    const s = t === q ? 100 : t.startsWith(q) ? 75 : t.includes(q) ? 50 : 0;
+    let s = t === q ? 100 : t.startsWith(q) ? 75 : t.includes(q) ? 50 : 0;
+    if (s === 0 && tokens && tokens.length >= 2 && tokens.every(tok => t.includes(tok))) {
+      s = 45;
+    }
     if (s > bestScore) { bestScore = s; bestRaw = raw; }
   }
   return bestRaw;

@@ -276,4 +276,49 @@ describe('search', () => {
     expect(searchAll('UK', 'en', space, 'all', places).some(h => h.kind === 'place' && h.hit.key === 'country:GB')).toBe(true);
     expect(searchAll('USA', 'en', space, 'all', places).some(h => h.kind === 'place' && h.hit.key === 'country:US')).toBe(true);
   });
+
+  it('supports 100-999 Chinese numerals, expanded Traditional Chinese, URI/parenthesized coords, city nicknames, and coord timezone facts', async () => {
+    const { resolvePlaceByKey } = await import('../../src/client/lib/search.ts');
+
+    // #121: 100-999 Chinese numerals & expanded Traditional Chinese + Caldwell leading-zero
+    expect(norm('一百零五号')).toBe('105号');
+    expect(norm('三百六十五号')).toBe('365号');
+    expect(norm('Caldwell 014')).toBe('c14');
+    expect(norm('愛因斯坦')).toBe(norm('爱因斯坦'));
+    expect(norm('萬里長城')).toBe(norm('万里长城'));
+    expect(norm('珠穆朗瑪峯')).toBe(norm('珠穆朗玛峰'));
+    expect(keyOf(searchAll('愛因斯坦', 'zh', space)[0])).toBe('pp_einstein');
+
+    // #122: parenthesized textbook coordinates, RFC 5870 geo: URIs, and Google Maps @lat,lon,z fragments
+    expect(parseCoordinateQuery('(23.5°N, 113.2°E)')).toEqual({ lat: 23.5, lon: 113.2 });
+    expect(parseCoordinateQuery('（北纬30度，东经120度）')).toEqual({ lat: 30, lon: 120 });
+    expect(parseCoordinateQuery('geo:35.68,139.76?z=11')).toEqual({ lat: 35.68, lon: 139.76 });
+    expect(parseCoordinateQuery('@48.8584,2.2945,17z')).toEqual({ lat: 48.8584, lon: 2.2945 });
+
+    // #123: multi-token out-of-order alias surfacing
+    const eagle = searchAll('Creation Pillars', 'en', space).find(h => keyOf(h) === 'dp_eagle_nebula');
+    expect(eagle?.alias).toBe('Pillars of Creation');
+
+    // #124: new Gaokao/curriculum gazetteer entries
+    expect(keyOf(searchAll('巴塔哥尼亚沙漠', 'zh', space)[0])).toBe('geo:patagonian-desert');
+    expect(keyOf(searchAll('马尾藻海', 'zh', space)[0])).toBe('geo:sargasso-sea');
+    expect(keyOf(searchAll('珠江三角洲', 'zh', space)[0])).toBe('geo:pearl-river-delta');
+    expect(keyOf(searchAll('马来半岛', 'zh', space)[0])).toBe('geo:malay-peninsula');
+    expect(keyOf(searchAll('河西走廊', 'zh', space)[0])).toBe('geo:hexi-corridor');
+
+    // #126: Chinese city historic nicknames & world city historical/abbreviation aliases
+    expect(searchAll('海参崴', 'zh', space).some(h => h.kind === 'place' && h.hit.key === 'city:vladivostok' && h.alias === '海参崴')).toBe(true);
+    expect(searchAll('羊城', 'zh', space).some(h => h.kind === 'place' && h.hit.key === 'capital:CN-GD' && h.alias === '羊城')).toBe(true);
+    expect(searchAll('NYC', 'en', space).some(h => h.kind === 'place' && h.hit.key === 'city:newyork')).toBe(true);
+
+    // #127 & #128: case-insensitive resolvePlaceByKey + fallback country lookup + coord latitude band & timezone fact
+    expect(resolvePlaceByKey('GEO:MARIANA-TRENCH')?.key).toBe('geo:mariana-trench');
+    expect(resolvePlaceByKey('city:New-York')?.key).toBe('city:newyork');
+    expect(resolvePlaceByKey('country:jp')?.key).toBe('country:JP');
+    const bjCoord = resolvePlaceByKey('coord:39.9000,116.4000');
+    expect(bjCoord?.fact?.zh).toContain('中纬度地区');
+    expect(bjCoord?.fact?.zh).toContain('东八区');
+    expect(bjCoord?.fact?.en).toContain('Middle Latitudes');
+    expect(bjCoord?.fact?.en).toContain('UTC+8');
+  });
 });
