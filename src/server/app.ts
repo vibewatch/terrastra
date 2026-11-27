@@ -3,7 +3,7 @@ import { createHash, createHmac, randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { extname, join, resolve } from 'node:path';
 import { brotliCompressSync, constants as zlibConstants, gzipSync } from 'node:zlib';
-import { transaction, type DB } from './db.ts';
+import { pruneExpiredState, transaction, type DB } from './db.ts';
 import {
   countActiveSessions,
   enforceSessionCap,
@@ -195,12 +195,27 @@ export function createApp(o: AppOptions): express.Express {
   const progressSelectStmt = db.prepare('SELECT json FROM progress WHERE user_id = ?');
   const extrasSelectStmt = db.prepare('SELECT json FROM learning_sync WHERE user_id = ?');
   const reactionCountsStmt = db.prepare('SELECT kind, COUNT(*) AS n FROM reactions WHERE item = ? GROUP BY kind');
+  const pruneTokensStmt = db.prepare('DELETE FROM login_tokens WHERE expires <= ? OR used = 1');
+  const pruneSessionsStmt = db.prepare('DELETE FROM sessions WHERE expires <= ?');
+  const pruneRateLimitsStmt = db.prepare('DELETE FROM rate_limits WHERE reset <= ?');
+
+  const PRUNE_INTERVAL_MS = 15 * 60_000;
+  let lastPruneAt = Date.now();
+  pruneExpiredState(db, lastPruneAt);
+  const maybePrune = (now: number) => {
+    if (now - lastPruneAt < PRUNE_INTERVAL_MS) return;
+    lastPruneAt = now;
+    pruneTokensStmt.run(now);
+    pruneSessionsStmt.run(now);
+    pruneRateLimitsStmt.run(now);
+  };
 
   type User = { id: number; email: string; handle: string | null; plan: Plan };
   const currentUser = (req: Request): User | null => {
+    const now = Date.now();
+    maybePrune(now);
     const sid = cookies(req).pp_sid;
     if (!sid) return null;
-    const now = Date.now();
     const row = sessionUserStmt.get(sha(sid), now) as { id: number; email: string; handle: string | null } | undefined;
     if (!row) return null;
     const ent = getUserEntitlement(db, row.id, now);
@@ -266,9 +281,10 @@ export function createApp(o: AppOptions): express.Express {
     const token = randomBytes(24).toString('base64url');
     // housekeeping, at most a few times an hour per visitor thanks to the limit above
     const now = Date.now();
-    db.prepare('DELETE FROM login_tokens WHERE expires < ?').run(now);
-    db.prepare('DELETE FROM sessions WHERE expires < ?').run(now);
-    db.prepare('DELETE FROM rate_limits WHERE reset <= ?').run(now);
+    pruneTokensStmt.run(now);
+    pruneSessionsStmt.run(now);
+    pruneRateLimitsStmt.run(now);
+    lastPruneAt = now;
     db.prepare('INSERT INTO login_tokens (hash, email, expires) VALUES (?, ?, ?)').run(sha(token), email, now + TOKEN_TTL);
     const link = `${baseOrigin}/api/auth/verify?token=${token}`;
     if (o.sendMail) {

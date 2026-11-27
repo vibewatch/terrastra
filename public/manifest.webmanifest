@@ -1,15 +1,47 @@
 {
-  "name": "Terrastra",
+  "id": "./",
+  "name": "Terrastra · 寰星",
   "short_name": "Terrastra",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "background_color": "#05070d",
   "theme_color": "#09090b",
-  "description": "A 3D toy globe, Solar System and night sky for curious kids.",
+  "categories": ["education", "reference", "kids"],
+  "description": "A bilingual 3D globe, physical geography & astronomy classroom, Solar System and night sky.",
   "icons": [
-    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
-    { "src": "favicon.svg", "sizes": "any", "type": "image/svg+xml" }
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ],
+  "shortcuts": [
+    {
+      "name": "Geography Class · 地理课",
+      "short_name": "Lessons",
+      "description": "Interactive 3D geography & curriculum lessons",
+      "url": "./#lesson",
+      "icons": [{ "src": "icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Solar System · 太阳系",
+      "short_name": "Solar",
+      "description": "Explore the planets, moons, stars and galaxies",
+      "url": "./#solar",
+      "icons": [{ "src": "icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Tonight's Sky · 今夜观星",
+      "short_name": "Tonight",
+      "description": "Live observing planner for planets, Moon and ISS",
+      "url": "./#tonight",
+      "icons": [{ "src": "icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Daily Challenge · 每日挑战",
+      "short_name": "Daily",
+      "description": "Play today's geography mystery challenge",
+      "url": "./#daily",
+      "icons": [{ "src": "icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    }
   ]
 }

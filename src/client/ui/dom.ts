@@ -170,3 +170,8 @@ export function confetti(n = 60): void {
   document.body.append(host);
   setTimeout(() => host.remove(), 2200);
 }
+
+export async function copyText(text: string, okMsg: string, promptLabel = okMsg): Promise<void> {
+  try { await navigator.clipboard.writeText(text); toast(okMsg); }
+  catch { prompt(promptLabel, text); }
+}

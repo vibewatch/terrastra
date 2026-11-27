@@ -19,7 +19,7 @@ import { HANDLE_PATTERN } from '../../shared/lib/profile.ts';
 import { emptyProgress, fitProgress, MAX_SYNC_REQUEST_BYTES, mergeProgress } from '../../shared/lib/progress.ts';
 import { fitSyncExtras } from '../../shared/lib/sync-extras.ts';
 import { maskRedeemCode } from '../../shared/lib/entitlements.ts';
-import { getPendingRedeemCode, openPaywall, planLabel, redeemAndRefresh, redeemErrorMessage } from './paywall.ts';
+import { getPendingRedeemCode, openPaywall, planLabel, redeemAndRefresh, redeemErrorMessage, wireRedeemInput } from './paywall.ts';
 
 export async function syncNow(quiet = false): Promise<boolean> {
   if (!store.me) return false;
@@ -91,7 +91,7 @@ export function openAccount(): void {
     const curPlan = effectivePlan();
     const otherDevices = Math.max(0, store.billing.activeSessions - 1);
     const orders = store.billing.orders ?? [];
-    const codeInput = h('input', {
+    const codeInput = wireRedeemInput(h('input', {
       type: 'text',
       required: true,
       maxlength: 32,
@@ -101,7 +101,7 @@ export function openAccount(): void {
       placeholder: t('redeemPlaceholder'),
       'aria-label': t('redeemTitle'),
       'data-testid': 'acct-redeem-input',
-    }) as HTMLInputElement;
+    }) as HTMLInputElement);
     const redeemBtn = h('button', { class: 'pill', type: 'submit', 'data-testid': 'acct-redeem-btn' }, t('redeemBtn')) as HTMLButtonElement;
     const codeOut = h('small', { class: 'error', 'data-testid': 'acct-redeem-error', hidden: true });
     let redeeming = false;
@@ -185,6 +185,7 @@ export function openAccount(): void {
         h('small', { class: 'muted' }, t('handleRule'))),
       h('div', { class: 'acct-actions' },
         h('button', { class: 'cta', 'data-testid': 'sync-now', onclick: () => void syncNow() }, h('span', { html: icon('reset', 15) }), t('syncNow')),
+        h('button', { class: 'pill', 'data-testid': 'acct-export-backup', onclick: () => void import('./backup.ts').then(m => m.exportProgress()) }, h('span', { html: icon('download', 15) }), t('backup')),
         h('button', { class: 'pill', 'data-testid': 'sign-out', 'aria-expanded': 'false', onclick: (e: Event) => {
           // On a shared device the next child's sign-in would merge this child's stamps into their account, so ask.
           const btn = e.currentTarget as HTMLButtonElement;

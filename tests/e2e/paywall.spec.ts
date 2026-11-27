@@ -176,7 +176,13 @@ test('paywall enforcement: gates Pro lessons & chunks until signed-in activation
     await page.getByTestId('paywall-code-input').fill('TRST-0000-0000-0000');
     await page.getByTestId('paywall-redeem-btn').click();
     await expect(page.getByTestId('paywall-feedback')).toBeVisible();
-    await page.getByTestId('paywall-code-input').fill(proCode!);
+    // Smart paste extracts canonical TRST code from a full storefront / WeChat message > 32 chars
+    await page.getByTestId('paywall-code-input').evaluate((el, code) => {
+      const dt = new DataTransfer();
+      dt.setData('text/plain', `【寰星发货】您的专业版激活码为：${code}，点击或粘贴即可解锁全部课程！`);
+      el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+    }, proCode!);
+    await expect(page.getByTestId('paywall-code-input')).toHaveValue(proCode!);
     await page.getByTestId('paywall-redeem-btn').click();
 
     // 5. Pro lesson dynamically imports gated pro-lessons-earth-*.js chunk with session cookie and starts immediately!
@@ -190,12 +196,13 @@ test('paywall enforcement: gates Pro lessons & chunks until signed-in activation
     await expect(page.getByTestId('lesson')).toContainText(/Black holes|黑洞/i);
     await page.getByTestId('lesson-exit').click();
 
-    // Verify Account modal reflects Explorer Pro badge + order receipt, and "Sign out & clear this device" wipes local mistakeBook
+    // Verify Account modal reflects Explorer Pro badge + order receipt + backup button, and "Sign out & clear this device" wipes local mistakeBook
     await page.getByTestId('btn-hub').click();
     await page.getByTestId('hub-tab-me').click();
     await page.getByTestId('menu-account').click();
     await expect(page.getByTestId('acct-plan-pill')).toContainText(/Explorer Pro/i);
     await expect(page.getByTestId('acct-orders')).toContainText('ord_rdm_');
+    await expect(page.getByTestId('acct-export-backup')).toBeVisible();
     await page.getByTestId('sign-out').click();
     await page.getByTestId('sign-out-clear').click();
     await expect.poll(() => page.evaluate(() => localStorage.getItem('pp.mistakeBook'))).toBe('{}');

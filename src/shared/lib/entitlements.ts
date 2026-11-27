@@ -68,6 +68,7 @@ export function maxSessionsForPlan(plan: Plan | null | undefined): number {
 /** Unambiguous 32-character alphabet (omits 0, O, 1, I) for human-typed activation codes. */
 export const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const CODE_BODY_RE = /^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{12}$/;
+const EMBEDDED_CODE_RE = /(?:^|[^A-Z0-9])(TRST[\s-]*(?:[ABCDEFGHJKLMNPQRSTUVWXYZ23456789][\s-]*){12})(?=$|[^A-Z0-9])/i;
 
 /**
  * Normalizes a user-entered redemption code into canonical `TRST-XXXX-XXXX-XXXX` form,
@@ -79,6 +80,39 @@ export function normalizeRedeemCode(raw: string): string | null {
   const body = compact.startsWith('TRST') ? compact.slice(4) : null;
   if (!body || !CODE_BODY_RE.test(body)) return null;
   return `TRST-${body.slice(0, 4)}-${body.slice(4, 8)}-${body.slice(8, 12)}`;
+}
+
+/**
+ * Extracts a canonical `TRST-XXXX-XXXX-XXXX` code from a pasted URL (`#redeem=TRST-...`),
+ * delivery email/chat message, or bare code string. Returns `null` if none is present.
+ */
+export function extractRedeemCode(raw: string): string | null {
+  if (typeof raw !== 'string') return null;
+  const direct = normalizeRedeemCode(raw);
+  if (direct) return direct;
+  let decoded = raw;
+  try {
+    if (raw.includes('%')) decoded = decodeURIComponent(raw);
+  } catch { /* keep raw */ }
+  const hit = EMBEDDED_CODE_RE.exec(decoded);
+  return hit ? normalizeRedeemCode(hit[1]) : null;
+}
+
+/**
+ * Formats progressive `TRST-...` typing with standard 4-character hyphen groups
+ * while extracting full codes if the user pasted a link or receipt line.
+ */
+export function formatRedeemCodeInput(raw: string): string {
+  const extracted = extractRedeemCode(raw);
+  if (extracted) return extracted;
+  const alnum = raw.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (!alnum.startsWith('TRST') || alnum.length <= 4 || alnum.length > 16) {
+    return raw.toUpperCase();
+  }
+  const body = alnum.slice(4);
+  const parts = ['TRST'];
+  for (let i = 0; i < body.length; i += 4) parts.push(body.slice(i, i + 4));
+  return parts.join('-');
 }
 
 /** Masks a valid activation code as `TRST-••••-••••-XXXX` for safe UI confirmation. */

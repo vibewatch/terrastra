@@ -87,6 +87,24 @@ export function openDb(path: string): DB {
   return db;
 }
 
+export interface PruneSummary {
+  loginTokens: number;
+  sessions: number;
+  rateLimits: number;
+}
+
+/** Deletes expired or already-used login tokens, expired sessions, and expired rate-limit windows. */
+export function pruneExpiredState(db: DB, now = Date.now()): PruneSummary {
+  const tok = db.prepare('DELETE FROM login_tokens WHERE expires <= ? OR used = 1').run(now);
+  const ses = db.prepare('DELETE FROM sessions WHERE expires <= ?').run(now);
+  const rl = db.prepare('DELETE FROM rate_limits WHERE reset <= ?').run(now);
+  return {
+    loginTokens: Number(tok.changes),
+    sessions: Number(ses.changes),
+    rateLimits: Number(rl.changes),
+  };
+}
+
 export function transaction<T>(db: DB, run: () => T): T {
   db.exec('BEGIN IMMEDIATE');
   try {

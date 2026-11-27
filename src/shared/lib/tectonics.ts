@@ -131,3 +131,71 @@ export function summarizeQuakeFeed(
   };
 }
 
+/**
+ * Identifies shallow (<= 70 km), strong (M >= 6.0) oceanic-trench events —
+ * the textbook subduction megathrust setting associated with seafloor uplift and tsunami hazard.
+ */
+export function isSubductionMegathrustCandidate(
+  mag: number,
+  depthKm: number,
+  boundaryKind: TectonicSettingKind,
+): boolean {
+  return boundaryKind === 'trench' && mag >= 6.0 && depthKm <= 70;
+}
+
+export interface LiveEarthBriefInput {
+  lang: 'en' | 'zh';
+  kp: number;
+  issCoord: string;
+  issVelocityKmh: number;
+  subsolarCoord: string;
+  declinationDeg: number;
+  events: readonly { mag: number; depthKm: number; place: string; lat: number; lon: number }[];
+}
+
+/** Formats a bilingual Markdown classroom lab briefing from Live Earth telemetry. */
+export function formatLiveEarthBriefMarkdown(input: LiveEarthBriefInput): string {
+  const { lang: l, kp, issCoord, issVelocityKmh, subsolarCoord, declinationDeg, events } = input;
+  const sum = summarizeQuakeFeed(events);
+  const decl = (declinationDeg >= 0 ? '+' : '') + declinationDeg.toFixed(1) + '°';
+  const top = [...events].sort((a, b) => b.mag - a.mag).slice(0, 5);
+  if (l === 'zh') {
+    const lines = [
+      '# 实时地球科学监测简报',
+      `- **行星地磁 Kp 指数**：Kp ${kp.toFixed(1)}`,
+      `- **国际空间站 (ISS)**：${issCoord}（${Math.round(issVelocityKmh).toLocaleString('zh-CN')} km/h）`,
+      `- **太阳直射点**：${subsolarCoord}（赤纬 ${decl}）`,
+    ];
+    if (sum) {
+      lines.push(
+        `- **地震统计（共 ${sum.count} 次）**：最大 M${sum.maxMag.toFixed(1)} · 总辐射能量 ${sum.energyLabel}（约 ${sum.tntTons.toLocaleString('zh-CN')} 吨 TNT）· ${sum.plateBoundaryPct}% 位于板块边界带`,
+      );
+      lines.push('', '## 显著地震事件');
+      for (const q of top) {
+        const tec = analyzeQuakeTectonics(q.lat, q.lon);
+        const tag = isSubductionMegathrustCandidate(q.mag, q.depthKm, tec.boundaryKind) ? ' · 🌊 浅源俯冲带警示' : '';
+        lines.push(`- **M${q.mag.toFixed(1)}** ${q.place}（震源深度 ${Math.round(q.depthKm)} km · ${tec.boundaryName}${tag}）`);
+      }
+    }
+    return lines.join('\n');
+  }
+  const lines = [
+    '# Live Earth Telemetry Briefing',
+    `- **Planetary geomagnetic index**: Kp ${kp.toFixed(1)}`,
+    `- **ISS orbital position**: ${issCoord} (${Math.round(issVelocityKmh).toLocaleString('en-US')} km/h)`,
+    `- **Subsolar zenith**: ${subsolarCoord} (declination ${decl})`,
+  ];
+  if (sum) {
+    lines.push(
+      `- **Seismic feed (${sum.count} events)**: Peak M${sum.maxMag.toFixed(1)} · Radiated energy ${sum.energyLabel} (~${sum.tntTons.toLocaleString('en-US')} t TNT) · ${sum.plateBoundaryPct}% near plate boundaries`,
+    );
+    lines.push('', '## Notable Seismic Events');
+    for (const q of top) {
+      const tec = analyzeQuakeTectonics(q.lat, q.lon);
+      const tag = isSubductionMegathrustCandidate(q.mag, q.depthKm, tec.boundaryKind) ? ' · 🌊 Shallow subduction zone' : '';
+      lines.push(`- **M${q.mag.toFixed(1)}** ${q.place} (depth ${Math.round(q.depthKm)} km · ${tec.boundaryName}${tag})`);
+    }
+  }
+  return lines.join('\n');
+}
+

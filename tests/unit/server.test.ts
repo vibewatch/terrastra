@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import type { Server } from 'node:http';
-import { openDb, transaction } from '../../src/server/db.ts';
+import { openDb, pruneExpiredState, transaction } from '../../src/server/db.ts';
 import { createApp, cleanText, isBlocked } from '../../src/server/app.ts';
 import { HANDLE_RE } from '../../src/shared/lib/profile.ts';
 import { emptyProgress } from '../../src/shared/lib/progress.ts';
@@ -388,6 +388,29 @@ describe('SQLite storage', () => {
       })).toThrow('injected failure');
       expect(db.prepare('SELECT COUNT(*) AS n FROM users').get()).toMatchObject({ n: 0 });
     } finally { db.close(); }
+  });
+
+  it('prunes expired or consumed login tokens, expired sessions, and expired rate limits while retaining active ones', () => {
+    const db = openDb(':memory:');
+    try {
+      const now = 10_000;
+      db.prepare('INSERT INTO users (id, email) VALUES (1, ?)').run('active@example.com');
+      db.prepare('INSERT INTO login_tokens (hash, email, expires, used) VALUES (?, ?, ?, ?)').run('tok-exp', 'a@b.co', 9_000, 0);
+      db.prepare('INSERT INTO login_tokens (hash, email, expires, used) VALUES (?, ?, ?, ?)').run('tok-used', 'a@b.co', 20_000, 1);
+      db.prepare('INSERT INTO login_tokens (hash, email, expires, used) VALUES (?, ?, ?, ?)').run('tok-live', 'a@b.co', 20_000, 0);
+      db.prepare('INSERT INTO sessions (hash, user_id, expires) VALUES (?, 1, ?)').run('sess-exp', 10_000);
+      db.prepare('INSERT INTO sessions (hash, user_id, expires) VALUES (?, 1, ?)').run('sess-live', 20_000);
+      db.prepare('INSERT INTO rate_limits (scope, key, count, reset) VALUES (?, ?, 1, ?)').run('auth', 'ip-old', 9_999);
+      db.prepare('INSERT INTO rate_limits (scope, key, count, reset) VALUES (?, ?, 1, ?)').run('auth', 'ip-live', 20_000);
+
+      const pruned = pruneExpiredState(db, now);
+      expect(pruned).toEqual({ loginTokens: 2, sessions: 1, rateLimits: 1 });
+      expect(db.prepare('SELECT hash FROM login_tokens').all()).toEqual([{ hash: 'tok-live' }]);
+      expect(db.prepare('SELECT hash FROM sessions').all()).toEqual([{ hash: 'sess-live' }]);
+      expect(db.prepare('SELECT key FROM rate_limits').all()).toEqual([{ key: 'ip-live' }]);
+    } finally {
+      db.close();
+    }
   });
 
   it('backs up a live WAL database without overwriting an existing snapshot', async () => {

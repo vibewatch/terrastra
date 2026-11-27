@@ -427,6 +427,7 @@ export function listRedemptionCodes(
     limit?: number;
     status?: RedemptionCodeStatus;
     plan?: 'pro' | 'classroom';
+    note?: string;
     now?: number;
   } = {},
 ): ListedRedemptionCode[] {
@@ -437,6 +438,11 @@ export function listRedemptionCodes(
   if (opts.plan === 'pro' || opts.plan === 'classroom') {
     clauses.push('rc.plan = ?');
     params.push(opts.plan);
+  }
+  if (opts.note?.trim()) {
+    const escaped = opts.note.trim().toLowerCase().replace(/[\\%_]/g, m => `\\${m}`);
+    clauses.push("rc.note IS NOT NULL AND LOWER(rc.note) LIKE ? ESCAPE '\\'");
+    params.push(`%${escaped}%`);
   }
   if (opts.status === 'revoked') {
     clauses.push('rc.revoked = 1');

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { haversineKm, bearingDeg, arrow8, latLonToVec, vecToLatLon, formatKm } from '../../src/shared/lib/geo.ts';
+import { haversineKm, bearingDeg, arrow8, latLonToVec, vecToLatLon, formatKm, slerpLatLon } from '../../src/shared/lib/geo.ts';
 import { mulberry32 } from '../../src/shared/lib/rng.ts';
 import { DIFFS, scoreFor, effectiveKm, verdict, pickRounds, updateRecord, ROUNDS, summarizePlaceItRun } from '../../src/shared/games/placeit.ts';
 import { generateQuiz, applyAnswer, ranking, LEVEL_OPTIONS, QUIZ_SETS } from '../../src/shared/games/quiz.ts';
@@ -16,7 +16,7 @@ import { AURA_PRESETS } from '../../src/client/globe/scene.ts';
 import { parseExtract, articleUrl } from '../../src/client/lib/wikipedia.ts';
 import { WIKI } from '../../src/shared/data/wiki.ts';
 import { graticuleStep } from '../../src/client/globe/layers.ts';
-import { antipodeOf, greatCircleSummary, nearestCatalogueItem, solarTimeOffsetHours, wrapLon, altitudePhysics } from '../../src/shared/lib/geodesic.ts';
+import { antipodeOf, formatGeodesicBriefMarkdown, greatCircleSummary, nearestCatalogueItem, solarTimeOffsetHours, wrapLon, altitudePhysics } from '../../src/shared/lib/geodesic.ts';
 import { lightDelaySec, probeTransitHours, apparentArcsec } from '../../src/shared/lib/orbits.ts';
 import { projDistortion } from '../../src/client/map/proj.ts';
 import { skyEventsToIcs } from '../../src/client/sky/panel.ts';
@@ -24,7 +24,7 @@ import { countryCatalogueCount } from '../../src/client/globe/overlay.ts';
 import { lookbackEarthEra } from '../../src/shared/data/cosmos.ts';
 import { formatTourStudyGuideMarkdown, TOURS } from '../../src/client/ui/tours.ts';
 import { stationSolarBadge } from '../../src/client/ui/radio.ts';
-import { analyzeQuakeTectonics, pointToSegmentKm, quakeEnergyJoules, summarizeQuakeFeed } from '../../src/shared/lib/tectonics.ts';
+import { analyzeQuakeTectonics, formatLiveEarthBriefMarkdown, isSubductionMegathrustCandidate, pointToSegmentKm, quakeEnergyJoules, summarizeQuakeFeed } from '../../src/shared/lib/tectonics.ts';
 import { computeExplorerStats, formatFieldLogMarkdown } from '../../src/shared/lib/field-log.ts';
 import { STOPS, eraNote } from '../../src/shared/lib/timeline.ts';
 import { dayLengthHours, solarNoonAltitudeDeg, earthSolarSummary } from '../../src/shared/lib/sun.ts';
@@ -52,6 +52,17 @@ describe('geo', () => {
     expect(latLonToVec(90, 0)[1]).toBeCloseTo(1);
     const [la, lo] = vecToLatLon(...latLonToVec(37.5, -122.3));
     expect(la).toBeCloseTo(37.5); expect(lo).toBeCloseTo(-122.3);
+
+    // Antimeridian midpoint stays over the Pacific (±180°), never flipping to 0° (Atlantic/Africa)
+    const [midLat, midLon] = slerpLatLon([10, 175], [10, -175], 0.5);
+    expect(midLat).toBeCloseTo(10.04, 1);
+    expect(Math.abs(midLon)).toBeCloseTo(180, 3);
+
+    // Exact antipodes remain numerically finite and equidistant (90° = ~10,007 km) from both endpoints
+    const antiMid = slerpLatLon([0, 0], [0, 180], 0.5);
+    expect(Number.isFinite(antiMid[0]) && Number.isFinite(antiMid[1])).toBe(true);
+    expect(haversineKm(0, 0, antiMid[0], antiMid[1])).toBeCloseTo(haversineKm(0, 180, antiMid[0], antiMid[1]), 1);
+    expect(haversineKm(0, 0, antiMid[0], antiMid[1])).toBeGreaterThan(9900);
   });
   it('formatKm', () => { expect(formatKm(1234.4)).toMatch(/1,234 km/); expect(formatKm(0.4)).toMatch(/km|m/); });
 });
@@ -778,6 +789,31 @@ describe('static i18n key coverage, geodesic lab, quake tectonics & explorer fie
     expect(sum.travelHours.jet).toBeCloseTo(sum.distanceKm / 900, 4);
     expect(sum.travelHours.walk).toBeGreaterThan(sum.travelHours.train);
     expect(sum.lightMs).toBeGreaterThan(19);
+    expect(sum.chordKm).toBeGreaterThan(5500);
+    expect(sum.chordKm).toBeLessThan(sum.distanceKm);
+    const antiSum = greatCircleSummary({ lat: 0, lon: 0 }, { lat: 0, lon: 180 });
+    expect(antiSum.chordKm).toBeCloseTo(12742, 0);
+
+    const briefEn = formatGeodesicBriefMarkdown({
+      nameA: 'Eiffel Tower',
+      coordA: [eiffel.lat, eiffel.lon],
+      nameB: 'Statue of Liberty',
+      coordB: [liberty.lat, liberty.lon],
+      summary: sum,
+      lang: 'en',
+    });
+    const briefZh = formatGeodesicBriefMarkdown({
+      nameA: '埃菲尔铁塔',
+      coordA: [eiffel.lat, eiffel.lon],
+      nameB: '自由女神像',
+      coordB: [liberty.lat, liberty.lon],
+      summary: sum,
+      lang: 'zh',
+    });
+    expect(briefEn).toContain('# Great-Circle & Antipode Lab Brief');
+    expect(briefEn).toContain('Straight interior chord');
+    expect(briefZh).toContain('# 大圆测距与对跖点实验简报');
+    expect(briefZh).toContain('地壳内部直线弦长');
 
     const nearSelf = nearestCatalogueItem(eiffel.lat, eiffel.lon, CATALOGUE);
     expect(nearSelf?.item.key).toBe('eiffel');
@@ -807,6 +843,35 @@ describe('static i18n key coverage, geodesic lab, quake tectonics & explorer fie
     const oz = analyzeQuakeTectonics(-25, 134);
     expect(oz.boundaryKind).toBe('intraplate');
     expect(oz.boundaryDistanceKm).toBeGreaterThan(650);
+
+    // Subduction shallow megathrust / tsunami candidate detection + Live Earth Markdown brief
+    expect(isSubductionMegathrustCandidate(6.4, 24, honshu.boundaryKind)).toBe(true);
+    expect(isSubductionMegathrustCandidate(5.8, 24, honshu.boundaryKind)).toBe(false);
+    expect(isSubductionMegathrustCandidate(6.5, 180, honshu.boundaryKind)).toBe(false);
+    expect(isSubductionMegathrustCandidate(6.5, 15, mar.boundaryKind)).toBe(false);
+
+    const liveMdEn = formatLiveEarthBriefMarkdown({
+      lang: 'en',
+      kp: 4.3,
+      issCoord: '18.4°N · 42.6°E',
+      issVelocityKmh: 27582,
+      subsolarCoord: '14.8°N · 0.0°E',
+      declinationDeg: 14.8,
+      events: [{ mag: 6.4, depthKm: 24, place: 'Off Honshu, Japan', lat: 38.1, lon: 142.9 }],
+    });
+    const liveMdZh = formatLiveEarthBriefMarkdown({
+      lang: 'zh',
+      kp: 4.3,
+      issCoord: '18.4°N · 42.6°E',
+      issVelocityKmh: 27582,
+      subsolarCoord: '14.8°N · 0.0°E',
+      declinationDeg: 14.8,
+      events: [{ mag: 6.4, depthKm: 24, place: '日本本州东岸近海', lat: 38.1, lon: 142.9 }],
+    });
+    expect(liveMdEn).toContain('# Live Earth Telemetry Briefing');
+    expect(liveMdEn).toContain('Shallow subduction zone');
+    expect(liveMdZh).toContain('# 实时地球科学监测简报');
+    expect(liveMdZh).toContain('浅源俯冲带警示');
   });
 
   it('explorer field log: computes continent/country reach and exports bilingual Markdown', () => {

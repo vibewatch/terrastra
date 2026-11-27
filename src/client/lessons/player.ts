@@ -674,8 +674,48 @@ function run(lesson: Lesson, host: LessonHost, resume = false, reviewKeys?: stri
     if (answers.filter(Boolean).length >= quiz.length - 1) confetti(40);
   };
 
+  const onKey = (e: KeyboardEvent) => {
+    if (stopped || e.isComposing || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (document.querySelector('.modal:not(.hidden), .sky')) return;
+    const tgt = e.target instanceof HTMLElement ? e.target : null;
+    if (tgt?.closest('input, textarea, select, [contenteditable]')) return;
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      stop();
+      return;
+    }
+    const onCanvas = tgt?.tagName === 'CANVAS';
+    if (!onCanvas && e.key === 'ArrowLeft') {
+      const backBtn = card.querySelector<HTMLButtonElement>('[data-testid="lesson-back"]:not([disabled])');
+      if (backBtn) { e.preventDefault(); backBtn.click(); }
+      return;
+    }
+    if (!onCanvas && e.key === 'ArrowRight') {
+      const nextBtn = card.querySelector<HTMLButtonElement>('[data-testid="lesson-next"]:not([disabled])');
+      if (nextBtn) { e.preventDefault(); nextBtn.click(); }
+      return;
+    }
+    if (!picking && i >= steps.length && i < steps.length + quiz.length) {
+      const k = e.key.toLowerCase();
+      const idx = k >= '1' && k <= '6' ? Number(k) - 1 : k >= 'a' && k <= 'f' ? k.charCodeAt(0) - 97 : -1;
+      if (idx >= 0) {
+        const opts = card.querySelectorAll<HTMLButtonElement>('[data-testid="lesson-opt"]:not([disabled])');
+        if (idx < opts.length) {
+          e.preventDefault();
+          opts[idx]!.click();
+          return;
+        }
+      }
+    }
+    if (e.key === 'Enter' && !tgt?.closest('button, a')) {
+      const action = card.querySelector<HTMLButtonElement>('[data-testid="lesson-check"]:not([disabled]), [data-testid="lesson-next"]:not([disabled])');
+      if (action) { e.preventDefault(); action.click(); }
+    }
+  };
+
   const stop = () => {
     stopped = true;
+    document.removeEventListener('keydown', onKey);
     offLang();
     g.captureTaps = false; g.ev.onGlobeTap = undefined;
     stage.dispose();
@@ -687,6 +727,7 @@ function run(lesson: Lesson, host: LessonHost, resume = false, reviewKeys?: stri
     document.body.classList.remove('lessoning');
     if (active === self) active = null;
   };
+  document.addEventListener('keydown', onKey);
   const offLang = onLang(() => { stage.relabel(); astro?.relabel(); render(); });
   const self = { stop };
   active = self;

@@ -72,7 +72,7 @@ describe('greetings', () => {
 });
 
 describe('render quality tiers', async () => {
-  const { pickTier, AdaptiveResolution, lowFxFrom } = await import('../../src/client/globe/quality.ts');
+  const { pickTier, AdaptiveResolution, lowFxFrom, isSoftwareRendererName } = await import('../../src/client/globe/quality.ts');
   it('lowfx=0 overrides the reduced-motion preference, lowfx forces it on', () => {
     const p = (s: string) => new URLSearchParams(s);
     expect(lowFxFrom(p('lowfx=0'), true)).toBe(false);
@@ -81,14 +81,19 @@ describe('render quality tiers', async () => {
     expect(lowFxFrom(p(''), true)).toBe(true);
     expect(lowFxFrom(p(''), false)).toBe(false);
   });
-  it('treats phones and small-memory devices as medium, very weak ones as low, and honours ?q / ?lowfx', () => {
+  it('treats phones and small-memory devices as medium, very weak or software-WebGL ones as low, and honours ?q / ?lowfx', () => {
     expect(pickTier({ coarse: false, screenMin: 1080, memoryGB: 8, cores: 8 })).toBe('high');
     expect(pickTier({ coarse: true, screenMin: 390, memoryGB: 8, cores: 8 })).toBe('medium');
     expect(pickTier({ mobileUA: true, cores: 8 })).toBe('medium');
     expect(pickTier({ coarse: false, screenMin: 1080, memoryGB: 4, cores: 8 })).toBe('medium');
     expect(pickTier({ coarse: true, screenMin: 390, memoryGB: 2, cores: 8 })).toBe('low');
     expect(pickTier({ lowfx: true })).toBe('low');
+    expect(pickTier({ softwareGL: true, memoryGB: 16, cores: 16 })).toBe('low');
+    expect(pickTier({ query: 'high', softwareGL: true })).toBe('high');
     expect(pickTier({ query: 'high', mobileUA: true })).toBe('high');
+    expect(isSoftwareRendererName('ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)')).toBe(true);
+    expect(isSoftwareRendererName('llvmpipe (LLVM 15.0.7, 256 bits)')).toBe(true);
+    expect(isSoftwareRendererName('ANGLE (Apple, ANGLE Metal Renderer: Apple M2, Unspecified Version)')).toBe(false);
   });
   it('lowers the pixel ratio under sustained slow frames, ignores stalls, and recovers with headroom', () => {
     const a = new AdaptiveResolution(1, 2);

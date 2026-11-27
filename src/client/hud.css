@@ -91,12 +91,12 @@
   100% { background-position: 8% 0; opacity: 0; }
 }
 
-/* panels unfold top-down along the slab outline */
-.info:not(.solar-info), .menu, .modal-panel, .tut-card, .tour-card, .solar-ui .solar-info { animation: pp-unfold .36s var(--ease-out); }
-.modal-panel { animation-duration: .42s; }
+/* panels unfold top-down along the slab outline (compositor-only so hit-testing stays live from frame 0) */
+.info:not(.solar-info), .menu, .modal-panel, .tut-card, .tour-card, .solar-ui .solar-info { animation: pp-unfold .3s var(--ease-out); }
+body.q-low :is(.info:not(.solar-info), .menu, .modal-panel, .tut-card, .tour-card, .solar-ui .solar-info) { animation: none; }
 @keyframes pp-unfold {
-  from { opacity: .3; clip-path: polygon(var(--cut) 0, 100% 0, 100% 0, 100% 0, 0 0, 0 0); }
-  to { opacity: 1; clip-path: var(--pp-clip); }
+  from { opacity: 0; translate: 0 -6px; }
+  to { opacity: 1; translate: 0 0; }
 }
 
 /* ---- type: display / data / reading ---- */

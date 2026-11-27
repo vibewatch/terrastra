@@ -37,6 +37,13 @@ export function slerpLatLon(a: [number, number], b: [number, number], t: number)
   const dot = Math.max(-1, Math.min(1, va[0] * vb[0] + va[1] * vb[1] + va[2] * vb[2]));
   const om = Math.acos(dot);
   if (om < 1e-6) return a;
+  if (Math.PI - om < 1e-5) {
+    // Exact antipodes: rotate around any orthogonal axis (prefer east-west along the equator when not at poles).
+    const rawPerp: [number, number, number] = Math.abs(va[1]) < 0.9 ? [va[2], 0, -va[0]] : [0, -va[2], va[1]];
+    const plen = Math.hypot(rawPerp[0], rawPerp[1], rawPerp[2]) || 1;
+    const ca = Math.cos(t * Math.PI), sa = Math.sin(t * Math.PI) / plen;
+    return vecToLatLon(va[0] * ca + rawPerp[0] * sa, va[1] * ca + rawPerp[1] * sa, va[2] * ca + rawPerp[2] * sa);
+  }
   const s = Math.sin(om), ka = Math.sin((1 - t) * om) / s, kb = Math.sin(t * om) / s;
   return vecToLatLon(va[0] * ka + vb[0] * kb, va[1] * ka + vb[1] * kb, va[2] * ka + vb[2] * kb);
 }

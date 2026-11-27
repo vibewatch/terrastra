@@ -8,7 +8,7 @@ import { CONTINENT_NAMES } from '../../shared/data/iso.ts';
 import { tr, type CatalogueItem } from '../../shared/data/types.ts';
 import { sfx } from '../lib/sfx.ts';
 import { load, save } from '../lib/storage.ts';
-import { formatKm } from '../../shared/lib/geo.ts';
+import { formatKm, slerpLatLon } from '../../shared/lib/geo.ts';
 import type { Globe } from '../globe/scene.ts';
 import { createModelPreview } from '../models/preview.ts';
 import { icon } from './icons.ts';
@@ -87,7 +87,7 @@ async function runPlaceIt(host: GameHost, diff: Difficulty, rnd: () => number = 
       results.push({ item: it, km, score });
       g.addPin(it.lat, it.lon, '#3ad07a');
       g.addArc(guess, [it.lat, it.lon]);
-      const mid: [number, number] = [(guess[0] + it.lat) / 2, (guess[1] + it.lon) / 2];
+      const mid = slerpLatLon(guess, [it.lat, it.lon], 0.5);
       g.flyTo(mid[0], mid[1], Math.max(0.8, Math.min(4, km / 2500 + 0.8)));
       const v = verdict(score);
       if (score >= 700) sfx.good(); else if (score === 0) sfx.bad(); else sfx.pop();

@@ -5,16 +5,49 @@ import { t } from '../lib/i18n.ts';
 import { FULL_APP_URL, HAS_API } from '../lib/env.ts';
 import { ApiError, api } from '../lib/api.ts';
 import { store, setMe, setBilling, effectivePlan } from '../store.ts';
-import { PLANS, maskRedeemCode, normalizeRedeemCode, type Plan, type PlanSpec } from '../../shared/lib/entitlements.ts';
+import {
+  PLANS,
+  extractRedeemCode,
+  formatRedeemCodeInput,
+  maskRedeemCode,
+  normalizeRedeemCode,
+  type Plan,
+  type PlanSpec,
+} from '../../shared/lib/entitlements.ts';
 
 const PENDING_REDEEM_KEY = 'pp.pendingRedeem';
 
 /** Saves a validated activation code in `sessionStorage` so it survives an email magic-link sign-in roundtrip. */
 export function savePendingRedeemCode(raw: string): string | null {
-  const norm = normalizeRedeemCode(raw);
+  const norm = extractRedeemCode(raw);
   if (!norm) return null;
   try { sessionStorage.setItem(PENDING_REDEEM_KEY, norm); } catch { /* private mode */ }
   return norm;
+}
+
+/** Wires smart clipboard extraction (for full `#redeem=...` links/messages) and hyphen auto-formatting onto a code input. */
+export function wireRedeemInput(input: HTMLInputElement): HTMLInputElement {
+  input.addEventListener('paste', (e: ClipboardEvent) => {
+    const pasted = e.clipboardData?.getData('text') ?? '';
+    const extracted = extractRedeemCode(pasted);
+    if (extracted) {
+      e.preventDefault();
+      input.value = extracted;
+    }
+  });
+  input.addEventListener('input', (e: Event) => {
+    const ie = e as InputEvent;
+    if (ie.inputType && ie.inputType.startsWith('delete')) return;
+    const formatted = formatRedeemCodeInput(input.value);
+    if (formatted !== input.value && formatted.length <= 32) {
+      input.value = formatted;
+    }
+  });
+  input.addEventListener('blur', () => {
+    const extracted = extractRedeemCode(input.value);
+    if (extracted) input.value = extracted;
+  });
+  return input;
 }
 
 export function getPendingRedeemCode(): string | null {
@@ -58,7 +91,7 @@ export function redeemErrorMessage(err: unknown): string {
 }
 
 export async function redeemAndRefresh(rawCode: string): Promise<Plan> {
-  const trimmed = rawCode.trim();
+  const trimmed = extractRedeemCode(rawCode) ?? rawCode.trim();
   let res;
   try {
     res = await api.redeemCode(trimmed);
@@ -92,7 +125,7 @@ export async function redeemAndRefresh(rawCode: string): Promise<Plan> {
 
 export function openPaywall(featureReason?: string, onUnlocked?: () => void): void {
   const pendingCode = getPendingRedeemCode();
-  const codeInput = h('input', {
+  const codeInput = wireRedeemInput(h('input', {
     type: 'text',
     required: true,
     maxlength: 32,
@@ -102,7 +135,7 @@ export function openPaywall(featureReason?: string, onUnlocked?: () => void): vo
     placeholder: t('redeemPlaceholder'),
     'aria-label': t('redeemTitle'),
     'data-testid': 'paywall-code-input',
-  }) as HTMLInputElement;
+  }) as HTMLInputElement);
   const submitBtn = h('button', { class: 'cta', type: 'submit', 'data-testid': 'paywall-redeem-btn' }, t('redeemBtn')) as HTMLButtonElement;
   const feedback = h('p', { class: 'small', 'aria-live': 'polite', 'data-testid': 'paywall-feedback', hidden: true });
   let busy = false;

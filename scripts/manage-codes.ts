@@ -14,7 +14,7 @@
  */
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
-import { openDb, transaction } from '../src/server/db.ts';
+import { openDb, pruneExpiredState, transaction } from '../src/server/db.ts';
 import {
   formatCodesCsv,
   getBillingStats,
@@ -37,9 +37,10 @@ function argVal(args: readonly string[], flag: string): string | undefined {
 function usage(): never {
   console.error(`Usage:
   npm run codes -- create [--plan pro|classroom] [--count N] [--note TEXT] [--expires-days N] [--raw] [--links] [--csv] [--base-url URL]
-  npm run codes -- list [--limit N] [--status available|redeemed|expired|revoked] [--plan pro|classroom]
+  npm run codes -- list [--limit N] [--status available|redeemed|expired|revoked] [--plan pro|classroom] [--note QUERY]
   npm run codes -- inspect <TRST-XXXX-XXXX-XXXX>
   npm run codes -- stats
+  npm run codes -- prune
   npm run codes -- revoke <TRST-XXXX-XXXX-XXXX> [--revoke-user]
   npm run codes -- grant --email <EMAIL> [--plan pro|classroom]`);
   process.exit(1);
@@ -106,6 +107,7 @@ try {
       limit,
       status: statusRaw as RedemptionCodeStatus | undefined,
       plan: planFilter as 'pro' | 'classroom' | undefined,
+      note: argVal(args, '--note'),
     });
     if (!rows.length) {
       console.log('No activation codes found.');
@@ -142,6 +144,9 @@ try {
     console.log(`Codes:      ${s.availableCodes} available · ${s.redeemedCodes} redeemed · ${s.expiredCodes} expired · ${s.revokedCodes} revoked`);
     console.log(`Accounts:   ${s.proUsers} Explorer Pro · ${s.classroomUsers} Classroom`);
     console.log(`Orders:     ${s.paidOrders} paid`);
+  } else if (cmd === 'prune') {
+    const r = pruneExpiredState(db);
+    console.log(`Pruned ${r.loginTokens} login token(s), ${r.sessions} expired session(s), and ${r.rateLimits} rate-limit bucket(s).`);
   } else if (cmd === 'revoke') {
     const raw = args[1] ?? '';
     const revokeUser = args.includes('--revoke-user');

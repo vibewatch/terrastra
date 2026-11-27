@@ -52,6 +52,8 @@ export const QUALITY: Record<Tier, Quality> = {
 interface DeviceHints {
   query?: string | null;
   lowfx?: boolean;
+  /** True when WebGL is backed by a CPU software rasterizer (SwiftShader, llvmpipe, Basic Render Driver). */
+  softwareGL?: boolean;
   coarse?: boolean;
   /** shorter side of the screen in CSS px */
   screenMin?: number;
@@ -60,9 +62,31 @@ interface DeviceHints {
   mobileUA?: boolean;
 }
 
+export function isSoftwareRendererName(renderer: string | null | undefined): boolean {
+  if (!renderer) return false;
+  return /swiftshader|llvmpipe|softpipe|software rasterizer|basic render driver/i.test(renderer);
+}
+
+function probeSoftwareWebGL(): boolean {
+  try {
+    const c = document.createElement('canvas');
+    c.width = c.height = 1;
+    const gl = c.getContext('webgl2') || c.getContext('webgl');
+    if (!gl) return false;
+    const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+    const renderer = String(
+      (dbg && gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL)) || gl.getParameter(gl.RENDERER) || '',
+    );
+    gl.getExtension('WEBGL_lose_context')?.loseContext();
+    return isSoftwareRendererName(renderer);
+  } catch {
+    return false;
+  }
+}
+
 export function pickTier(d: DeviceHints): Tier {
   if (d.query === 'high' || d.query === 'medium' || d.query === 'low') return d.query;
-  if (d.lowfx) return 'low';
+  if (d.lowfx || d.softwareGL) return 'low';
   if ((d.memoryGB !== undefined && d.memoryGB <= 2) || (d.cores !== undefined && d.cores <= 2)) return 'low';
   const handheld = d.mobileUA || (d.coarse && (d.screenMin ?? Infinity) <= 1024);
   if (handheld || (d.memoryGB !== undefined && d.memoryGB <= 4)) return 'medium';
@@ -75,9 +99,11 @@ export const currentQuality = (): Quality => active;
 
 export function detectQuality(params: URLSearchParams, lowfx: boolean): Quality {
   const nav = navigator as Navigator & { deviceMemory?: number; userAgentData?: { mobile?: boolean } };
+  const query = params.get('q');
   const tier = pickTier({
-    query: params.get('q'),
+    query,
     lowfx,
+    softwareGL: !lowfx && !query ? probeSoftwareWebGL() : false,
     coarse: matchMedia('(pointer: coarse)').matches,
     screenMin: Math.min(screen.width, screen.height),
     memoryGB: nav.deviceMemory,

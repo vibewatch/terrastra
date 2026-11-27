@@ -110,6 +110,7 @@ body::after{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;opa
 radial-gradient(1px 1px at 12% 18%,#fff,transparent),radial-gradient(1px 1px at 72% 9%,#dbeafe,transparent),radial-gradient(1.4px 1.4px at 38% 64%,#fff,transparent),radial-gradient(1px 1px at 88% 52%,#e0f2fe,transparent),
 radial-gradient(1px 1px at 22% 86%,#fff,transparent),radial-gradient(1.2px 1.2px at 58% 34%,#fde68a,transparent),radial-gradient(1px 1px at 94% 88%,#fff,transparent),radial-gradient(1px 1px at 4% 48%,#bae6fd,transparent);background-size:420px 420px,530px 530px,610px 610px,470px 470px,380px 380px,690px 690px,560px 560px,500px 500px}
 a{color:inherit}html[data-l=zh] .en,html:not([data-l=zh]) .zh{display:none!important}
+.skip{position:fixed;left:16px;top:12px;z-index:20;padding:8px 14px;background:#040b14;border:1px solid var(--sig);color:var(--sig);font:600 .78rem var(--mono);text-decoration:none;transform:translateY(-180%);transition:transform .15s}.skip:focus{transform:translateY(0);outline:2px solid var(--sig);outline-offset:2px}
 .ico{flex:none}
 .wrap{max-width:1160px;margin:0 auto;padding:0 28px}
 /* slab silhouette: two opposed cut corners with hairline cuts */
@@ -215,7 +216,8 @@ footer nav{display:flex;gap:4px}footer nav a{display:inline-flex;align-items:cen
 @media (prefers-reduced-motion:reduce){*,::before,::after{animation:none!important;transition:none!important}}
 @media (max-width:900px){.item{grid-template-columns:1fr;gap:28px}.side{position:static}.hero{height:230px}main{padding-top:28px}
 .top .wrap{flex-wrap:wrap;gap:10px 14px;padding-top:10px}.top nav{order:3;flex-basis:100%;margin:0 -10px}.lang{margin-left:auto}}
-@media (max-width:560px){.wrap{padding:0 16px}.top .btn{display:none}.brand{font-size:.9rem;letter-spacing:.1em}.reticle{transform:scale(.8)}.hc.tr,.hc.br{display:none}.pager{grid-template-columns:1fr}footer nav{flex-wrap:wrap}}`;
+@media (max-width:560px){.wrap{padding:0 16px}.top .btn{display:none}.brand{font-size:.9rem;letter-spacing:.1em}.reticle{transform:scale(.8)}.hc.tr,.hc.br{display:none}.pager{grid-template-columns:1fr}footer nav{flex-wrap:wrap}}
+@media print{html{color-scheme:light}body{background:#fff!important;color:#111!important}body::before,body::after,.top,.skip,.hero,.search,.pager,footer,.panel .btn{display:none!important}.item{grid-template-columns:1fr;gap:20px}main{padding:0!important}h1,h2,.stats dd,.card b{color:#000!important;text-shadow:none!important}.lead,.prose p,.stats dt,.fun,.near a{color:#222!important}.slab,.card,.panel,.stats,.fun,.rules li,.credit{clip-path:none!important;background:#fff!important;border:1px solid #cbd5e1!important}}`;
 
 const LANG_JS = `(function(){var d=document.documentElement,k='pp.lang',l,s=function(v){d.dataset.l=v;d.lang=v==='zh'?'zh-CN':'en'};try{l=JSON.parse(localStorage.getItem(k))}catch(e){}if(l!=='en'&&l!=='zh')l=(navigator.language||'').slice(0,2)==='zh'?'zh':'en';s(l);
 document.addEventListener('click',function(e){var b=e.target.closest&&e.target.closest('[data-set]');if(!b)return;s(b.dataset.set);try{localStorage.setItem(k,JSON.stringify(b.dataset.set))}catch(e){}});})();`;
@@ -252,21 +254,21 @@ function page(
   title: string,
   desc: string,
   body: string,
-  opts: { jsonld?: Record<string, unknown>; crumbs?: readonly [string, string][]; current?: string; script?: string; moduleScript?: string } = {},
+  opts: { jsonld?: Record<string, unknown>; crumbs?: readonly [string, string][]; current?: string; script?: string; moduleScript?: string; noindex?: boolean } = {},
 ): void {
   const cur = (k: string) => (opts.current === k ? ' aria-current="page"' : '');
   const ld = buildJsonLd(opts.jsonld, opts.crumbs);
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${esc(title)}</title><meta name="description" content="${esc(desc)}"><link rel="canonical" href="${SITE}${path}"><meta name="theme-color" content="#02060c">
+<title>${esc(title)}</title><meta name="description" content="${esc(desc)}">${opts.noindex ? '<meta name="robots" content="noindex">' : `<link rel="canonical" href="${SITE}${path}">`}<meta name="theme-color" content="#02060c">
 <meta property="og:type" content="website"><meta property="og:site_name" content="Terrastra"><meta property="og:url" content="${SITE}${path}">
 <meta property="og:title" content="${esc(title)}"><meta property="og:description" content="${esc(desc)}"><meta name="twitter:card" content="summary"><link rel="icon" href="/favicon.svg">
 <link rel="preload" href="/fonts/chakra-petch-600.woff2" as="font" type="font/woff2" crossorigin><link rel="preload" href="/fonts/geist-mono.woff2" as="font" type="font/woff2" crossorigin><script>${LANG_JS}</script>
 <style>${CSS}</style>${ld ? `<script type="application/ld+json">${JSON.stringify(ld).replace(/</g, '\\u003c')}</script>` : ''}</head>
-<body><header class="top"><div class="wrap"><a class="brand" href="/">${MARK}${bi(BRAND)}</a>
+<body><a class="skip" href="#main">${bi(T('Skip to content', '跳至正文'))}</a><header class="top"><div class="wrap"><a class="brand" href="/">${MARK}${bi(BRAND)}</a>
 <nav aria-label="Encyclopedia"><a href="/encyclopedia/"${cur('hub')}>${bi(T('All', '全部'))}</a>${SECTIONS.map(s => `<a href="/${s.dir}/"${cur(s.dir)}>${bi(s.title)}</a>`).join('')}<a href="/${GEO_DIR}/"${cur(GEO_DIR)}>${bi(GEO_TITLE)}</a></nav>
 <div class="lang" role="group" aria-label="Language"><button data-set="en">EN</button><button data-set="zh">中文</button></div>
 <a class="btn" href="/">${icon('globe', 16)}${bi(T('Open globe', '打开地球'))}</a></div></header>
-<main><div class="wrap">${body}</div></main>
+<main id="main" tabindex="-1"><div class="wrap">${body}</div></main>
 <footer><div class="wrap"><span class="fbrand">${MARK}${bi(T('Terrastra — an original 3D planet toy for curious kids.', '寰星——为好奇的孩子打造的原创 3D 星球玩具。'))}</span>
 <nav aria-label="Site">${FOOT.map(([href, ic, label, key]) => `<a href="${href}"${cur(key)}>${icon(ic, 14)}${bi(label)}</a>`).join('')}</nav></div></footer>
 ${opts.script ? `<script>${opts.script}</script>` : ''}${opts.moduleScript ? `<script type="module" src="${opts.moduleScript}"></script>` : ''}</body></html>`;
@@ -443,7 +445,7 @@ ${feat('passport', T('Collect, snap and play', '收集、拍照与游戏'), T('S
 </div>
 <div class="prose"><h2>${bi(T('Your data', '你的数据'))}</h2>
 ${STATIC ? bi(T('This edition runs entirely in your browser: your collection, photos and game records stay on this device.', '这个版本完全在浏览器中运行：你的收藏、照片和游戏记录都保存在这台设备上。'), 'p')
-  : bi(T('Everything works without an account. Signing in with an email link simply keeps your collection in sync across devices.', '不登录也能使用全部功能。用邮箱链接登录只是为了在多台设备之间同步收藏。'), 'p')}
+  : bi(T('Core exploration works without an account. Signing in with an email link syncs your collection, study journal and mistake notebook across devices, and lets you redeem an Explorer Pro or Classroom activation code.', '基础探索功能无需登录即可使用。使用邮箱链接登录可在多台设备之间同步你的收藏、学习进度与错题本，并可兑换“探索者专业版”或“课堂版”激活码。'), 'p')}
 <p><a href="/privacy/">${bi(T('Read the privacy notes →', '查看隐私说明 →'))}</a></p></div>
 <h2>${bi(T('Credits', '致谢'))}</h2><div class="credits">
 ${credit(T('Original 3D models', '原创 3D 模型'), T('Every model, planet and nebula is generated procedurally in code — no downloaded meshes or photos.', '所有模型、行星和星云都由代码程序化生成，没有下载任何网格或照片。'), 'Terrastra')}
@@ -464,7 +466,7 @@ ${bi(T('Short version: Terrastra shows no ads and has no third-party trackers. Y
 <h2>${bi(T('The details', '具体说明'))}</h2><ol class="rules">
 ${li('Progress, settings and photos are stored on your device (localStorage and IndexedDB). Photos are only sent somewhere if you use Share or Save yourself. You can export your progress to a file from the menu.', '进度、设置和照片保存在你的设备上（localStorage 和 IndexedDB）。只有你自己点“分享”或“保存”时，照片才会离开这个页面。你可以在菜单中把进度导出为文件。')}
 ${STATIC ? li('This edition has no server: there are no accounts, cookies or uploads. Clearing site data removes everything.', '这个版本没有服务器：没有账户、Cookie 或上传。清除网站数据即可删除一切。')
-  : li('If you choose to sign in, we store your email address, an optional nickname and a copy of your progress so it can sync.', '如果你选择登录，我们会保存你的邮箱、可选的昵称以及进度副本，以便同步。')
+  : li('If you choose to sign in, we store your email address, an optional nickname, synced study progress (collection, lesson journal, mistake notebook and saved views), and any redeemed Explorer Pro or Classroom activation records.', '如果你选择登录，我们会保存你的邮箱、可选的昵称、同步的学习进度（收藏、课堂记录、错题本和保存视角），以及已兑换的“探索者专业版”或“课堂版”激活记录。')
   + li('Likes and “I’ve been here” use an anonymous random cookie so each device counts once.', '“喜欢”和“我去过”使用匿名随机 Cookie，每台设备只计一次。')
   + li('Guestbook messages are public, limited to 200 characters, filtered for links and unkind words, and hidden after reports.', '留言板消息是公开的，最多 200 字，会过滤链接和不友善的词语，被举报后会隐藏。')
   + li('Reports use an anonymous cookie; signed-out reports also store a per-message keyed hash of your IP address to deter duplicates. Signed-in reports are associated with your account, and that association is removed if you delete it. Report markers are removed when the message is deleted.', '举报使用匿名 Cookie；未登录时还会保存针对该留言计算的 IP 地址带密钥哈希，以防重复举报。登录后的举报会关联你的账户，删除账户时会移除该关联。删除留言时会移除举报记录。')
@@ -474,9 +476,9 @@ ${li('Optional live Earth and space telemetry — local weather and cloud foreca
 ${li('Listening to the radio connects straight to that station’s own server, which sees your IP address like any website. Stations choose what they broadcast — including news, adverts and talk meant for adults — and we cannot check it. The app asks before the first station plays, shuffle only picks music stations, and you can hide any station on your device. Classroom mode switches live radio, Wikipedia and all external telemetry feeds off completely.', '收听电台时会直接连接该电台自己的服务器，它会像任何网站一样看到你的 IP 地址。电台播放什么（包括新闻、广告和面向成人的谈话）由电台决定，我们无法检查。应用会在第一次播放前询问你；随机播放只选音乐电台；你也可以在设备上隐藏任何电台。课堂模式会完全关闭直播电台、维基百科以及所有外部遥测数据请求。')}
 ${li('Terrastra itself shows no ads and uses no third-party trackers or analytics. (Radio stations may broadcast their own adverts.)', '寰星本身不投放广告，也不使用第三方追踪或统计工具。（电台可能会播放它们自己的广告。）')}</ol></div>`, { current: 'privacy' });
 page('/404/', 'Not found — Terrastra', 'Page not found.', `<div class="prose" style="padding:40px 0"><p class="eyebrow">404</p><h1>${bi(T('Lost in space?', '迷失在太空了吗？'))}</h1>
-${bi(T('We couldn’t find that page.', '我们找不到这个页面。'), 'p', 'lead')}<div class="actions"><a class="btn sig" href="/">${icon('globe', 16)}${bi(T('Back to the globe', '回到地球'))}</a></div></div>`);
+${bi(T('We couldn’t find that page.', '我们找不到这个页面。'), 'p', 'lead')}<div class="actions"><a class="btn sig" href="/">${icon('globe', 16)}${bi(T('Back to the globe', '回到地球'))}</a></div></div>`, { noindex: true });
 writeFileSync(join(out, '404.html'), readFileSync(join(out, '404', 'index.html'), 'utf8'));
 
 writeFileSync(join(out, 'sitemap.xml'), `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.map(u => `  <url><loc>${SITE}${u}</loc></url>`).join('\n')}\n</urlset>\n`);
-writeFileSync(join(out, 'robots.txt'), `User-agent: *\nAllow: /\n${STATIC ? '' : 'Disallow: /api/\n'}Sitemap: ${SITE}/sitemap.xml\n`);
+writeFileSync(join(out, 'robots.txt'), `User-agent: *\nAllow: /\nDisallow: /404/\n${STATIC ? '' : 'Disallow: /api/\n'}Sitemap: ${SITE}/sitemap.xml\n`);
 console.log(`build-pages: wrote ${urls.length} URLs to ${out}`);

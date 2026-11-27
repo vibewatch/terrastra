@@ -3,7 +3,7 @@
  * magnitude/depth filters synced to the 3D globe, depth legend, refresh controls,
  * and explicit live / cached (stale) / empty / offline-sample status indicators.
  */
-import { h, openModal, closeModal } from './dom.ts';
+import { copyText, h, openModal, closeModal } from './dom.ts';
 import { icon } from './icons.ts';
 import { t, lang, fmtNum } from '../lib/i18n.ts';
 import { tr } from '../../shared/data/types.ts';
@@ -22,7 +22,12 @@ import {
   type QuakeEvent,
   type QuakeFilter,
 } from '../lib/earthquakes.ts';
-import { analyzeQuakeTectonics, summarizeQuakeFeed } from '../../shared/lib/tectonics.ts';
+import {
+  analyzeQuakeTectonics,
+  formatLiveEarthBriefMarkdown,
+  isSubductionMegathrustCandidate,
+  summarizeQuakeFeed,
+} from '../../shared/lib/tectonics.ts';
 import { earthSolarSummary } from '../../shared/lib/sun.ts';
 import { currentKpStatus, fetchKpStatus } from '../lib/weather.ts';
 import { propagateIss, refreshIssTelemetry } from '../lib/iss.ts';
@@ -137,6 +142,9 @@ export function openLiveEarth(globe: Globe, onIss: () => void): void {
           ? boundaryLabel
           : `${boundaryLabel} · ${tec.boundaryName} (${fmtNum(tec.boundaryDistanceKm)} km)`,
       ];
+      if (isSubductionMegathrustCandidate(q.mag, q.depthKm, tec.boundaryKind)) {
+        tecParts.push(`🌊 ${t('quake.subductionAlert')}`);
+      }
       if (tec.nearestVolcano) {
         tecParts.push(t('quake.nearVolcano', {
           name: `${tec.nearestVolcano.item.emoji} ${tr(tec.nearestVolcano.item.name, l)}`,
@@ -189,6 +197,23 @@ export function openLiveEarth(globe: Globe, onIss: () => void): void {
               render();
             },
           }, h('span', { html: icon('mountain', 14) }), h('span', {}, t('tectonics'))),
+          h('button', {
+            class: 'pill pill-sm',
+            'data-testid': 'live-earth-export',
+            onclick: () => {
+              sfx.tap();
+              const md = formatLiveEarthBriefMarkdown({
+                lang: lang(),
+                kp: kp.kp,
+                issCoord: formatCoord(iss.lat, iss.lon),
+                issVelocityKmh: iss.velocityKmh,
+                subsolarCoord: formatCoord(sun.subsolarLat, sun.subsolarLon),
+                declinationDeg: sun.declinationDeg,
+                events: filtered,
+              });
+              void copyText(md, t('liveEarth.exported'), t('liveEarth.exportBrief'));
+            },
+          }, h('span', { html: icon('copy', 14) }), h('span', {}, t('liveEarth.exportBrief'))),
           !isClass ? h('button', {
             class: 'pill pill-sm',
             'data-testid': 'quake-refresh',

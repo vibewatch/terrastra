@@ -40,8 +40,12 @@ export function importProgress(): void {
     const after = summary(merged);
     const curDone = load<string[]>('lessonsDone', []);
     const afterDoneCount = new Set([...curDone, ...parsed.lessonsDone]).size;
+    const curTours = load<string[]>('toursDone', []);
+    const afterTourCount = new Set([...curTours, ...parsed.toursDone]).size;
     const curMistakes = load<MistakeBook>('mistakeBook', {});
     const afterMistakeCount = Object.keys(mergeMistakeBook(curMistakes, parsed.mistakeBook)).length;
+    const curBm = bookmarks();
+    const afterBmCount = mergeBookmarks(curBm, parsed.bookmarks).length;
     const row = (label: string, beforeVal: number, afterVal: number) =>
       h('tr', {}, h('th', {}, label), h('td', {}, String(beforeVal)), h('td', {}, String(afterVal)));
     const line = (k: 'seen' | 'found' | 'stickers' | 'likes') => row(t('bk_' + k), now[k], after[k]);
@@ -54,7 +58,9 @@ export function importProgress(): void {
         line('stickers'),
         line('likes'),
         row(t('bk_lessons'), curDone.length, afterDoneCount),
-        row(t('bk_mistakes'), Object.keys(curMistakes).length, afterMistakeCount)),
+        row(t('bk_tours'), curTours.length, afterTourCount),
+        row(t('bk_mistakes'), Object.keys(curMistakes).length, afterMistakeCount),
+        row(t('bk_bookmarks'), curBm.length, afterBmCount)),
       h('div', { class: 'row' },
         h('button', { class: 'cta', 'data-testid': 'backup-merge', onclick: () => {
           const current = mergeProgress(store.progress, p);

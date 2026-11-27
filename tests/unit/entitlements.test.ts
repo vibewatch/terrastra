@@ -8,6 +8,8 @@ import {
   FREE_MISTAKE_LIMIT,
   FREE_TOUR_IDS,
   PLANS,
+  extractRedeemCode,
+  formatRedeemCodeInput,
   hasProAccess,
   isFreeLesson,
   isFreeSkyYear,
@@ -52,6 +54,16 @@ describe('entitlements & redemption code rules', () => {
     expect(normalizeRedeemCode('TRST-IIII-2345-HJKL')).toBeNull();
     expect(normalizeRedeemCode('ABCD-2345-HJKL-6789')).toBeNull();
     expect(normalizeRedeemCode('TRST-ABCD-2345')).toBeNull();
+
+    // Smart paste extraction from URLs, storefront/WeChat messages, and unhyphenated typing
+    expect(extractRedeemCode('https://terrastra.example/#redeem=trst-abcd-2345-hjkl')).toBe('TRST-ABCD-2345-HJKL');
+    expect(extractRedeemCode('【寰星发货】您的专业版激活码为：TRST-ABCD-2345-HJKL，打开网页粘贴即可解锁。')).toBe('TRST-ABCD-2345-HJKL');
+    expect(extractRedeemCode('Code: trstabcd2345hjkl!')).toBe('TRST-ABCD-2345-HJKL');
+    expect(extractRedeemCode('ABCD-2345-HJKL-6789')).toBeNull();
+    expect(extractRedeemCode('TRST-0000-2345-HJKL')).toBeNull();
+
+    expect(formatRedeemCodeInput('trstabcd2345')).toBe('TRST-ABCD-2345');
+    expect(formatRedeemCodeInput('https://terrastra.example/#redeem=trst-abcd-2345-hjkl')).toBe('TRST-ABCD-2345-HJKL');
   });
 
   it('computes Free vs Pro access across paywall states and feature gates', () => {
@@ -316,6 +328,11 @@ describe('manage-codes CLI', () => {
       expect(run('list', '--status', 'revoked').stdout).not.toContain('AVAILABLE');
       expect(run('list', '--status', 'available', '--plan', 'classroom').stdout).toContain('classroom');
       expect(run('list', '--status', 'available', '--plan', 'classroom').stdout).not.toContain(' pro ');
+      expect(run('list', '--note', 'BATCH-TEST').stdout).toContain('batch-test');
+      expect(run('list', '--note', 'BATCH-TEST').stdout).not.toContain('classroom');
+      expect(run('list', '--note', 'school, "a"').stdout).toContain('classroom');
+      expect(run('prune').status).toBe(0);
+      expect(run('prune').stdout).toContain('Pruned ');
       expect(run('inspect', codes[0]!).stdout).toContain('Status:     REVOKED');
 
       const statsOut = run('stats');
@@ -355,5 +372,5 @@ describe('manage-codes CLI', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
-  });
+  }, 30_000);
 });

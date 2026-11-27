@@ -121,6 +121,7 @@ test('static build works below a sub-path', async ({ page }) => {
   await page.getByTestId('menu-live-earth').click();
   await expect(page.getByTestId('live-earth')).toBeVisible();
   await expect(page.getByTestId('quake-feed-status')).toBeVisible();
+  await expect(page.getByTestId('live-earth-export')).toBeVisible();
   await expect(page.getByTestId('live-earth-tectonics-toggle')).toBeVisible();
   await expect(page.getByTestId('live-earth-sun-card')).toBeVisible();
   await expect(page.getByTestId('quake-summary-stats')).toContainText(/TNT/);
@@ -139,6 +140,9 @@ test('static build works below a sub-path', async ({ page }) => {
   await expect(page.getByTestId('cmp-g-dist')).toBeVisible();
   await page.getByTestId('cmp-g-dist').click();
   await expect(page.getByTestId('cmp-travel-grid')).toBeVisible();
+  await expect(page.getByTestId('cmp-midpoint-line')).toContainText(/km/);
+  await expect(page.getByTestId('cmp-fly-midpoint')).toBeVisible();
+  await expect(page.getByTestId('cmp-dist-copy')).toBeVisible();
   await expect(page.getByTestId('cmp-antipode-card')).toBeVisible();
   await expect(page.getByTestId('cmp-ratio')).toContainText(/km/);
   await page.getByTestId('cmp-dist-swap').click();
@@ -168,11 +172,13 @@ test('static build works below a sub-path', async ({ page }) => {
   await expect(page.getByTestId('lesson-exam-g7a')).toBeVisible();
   await page.getByTestId('lesson-se-asia').click();
   await expect(page.getByTestId('lesson')).toBeVisible();
-  for (let s = 0; s < 3; s++) await page.getByTestId('lesson-next').click();
+  // Keyboard navigation in Lesson Player: ArrowRight steps forward through explanation steps
+  for (let s = 0; s < 3; s++) await page.keyboard.press('ArrowRight');
   // Purposely pick a wrong option on Question 1 so it is recorded into the Mistake Notebook
   await page.locator('[data-testid="lesson-opt"][data-right="false"]').first().click();
   await expect(page.getByTestId('lesson-why')).toHaveClass(/no/);
-  await page.getByTestId('lesson-exit').click();
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('lesson')).toHaveCount(0);
 
   // Open Geography Class again and verify the Mistake Notebook recorded the wrong question
   await page.locator('#btn-hub').click();
@@ -319,6 +325,8 @@ test('static build works below a sub-path', async ({ page }) => {
 
   // the generated encyclopedia and its way back into the app
   await page.goto('encyclopedia/');
+  await expect(page.locator('a.skip[href="#main"]')).toHaveCount(1);
+  await expect(page.locator('main#main')).toBeVisible();
   await expect(page.locator('h1')).toBeVisible();
   await page.locator('a[href="/terrastra/animals/"]').first().click();
   await expect(page).toHaveURL(/\/terrastra\/animals\/$/);
@@ -352,5 +360,9 @@ test('static build works below a sub-path', async ({ page }) => {
   await expect(page.getByTestId('hero-3d-canvas')).toBeVisible();
   const app = page.locator('a[href^="/terrastra/?"], a[href^="/terrastra/#"]').first();
   if (await app.count()) await expect(app).toHaveAttribute('href', /^\/terrastra\//);
+  // 404 page carries noindex robots directive
+  const res404 = await page.request.get('404/');
+  expect(res404.ok()).toBe(true);
+  expect(await res404.text()).toContain('<meta name="robots" content="noindex">');
   expect(bad).toEqual([]);
 });

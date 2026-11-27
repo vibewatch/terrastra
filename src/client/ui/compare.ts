@@ -1,5 +1,5 @@
 /** The compare bench modal: one measure per group, true scale or clearly-marked enlarged view. */
-import { h, openModal } from './dom.ts';
+import { copyText, h, openModal } from './dom.ts';
 import { Select } from './select.ts';
 import { icon } from './icons.ts';
 import { t, lang, fmtNum } from '../lib/i18n.ts';
@@ -8,7 +8,7 @@ import { CATALOGUE, BY_KEY } from '../../shared/data/catalogue.ts';
 import { sfx } from '../lib/sfx.ts';
 import { compareGroups, earthPlaces, groupOf, ratio, drawn, type Group, type Thing } from '../lib/compare.ts';
 import { resolvePlaceByKey, type SearchPlaces } from '../lib/search.ts';
-import { antipodeOf, formatCoordPair, greatCircleSummary, nearestCatalogueItem } from '../../shared/lib/geodesic.ts';
+import { antipodeOf, formatCoordPair, formatGeodesicBriefMarkdown, greatCircleSummary, nearestCatalogueItem } from '../../shared/lib/geodesic.ts';
 
 export interface CompareOptions {
   onShowArc?: (a: [number, number], b: [number, number]) => void;
@@ -87,18 +87,35 @@ export function openCompare(start?: string, opts?: CompareOptions): void {
         onChange: v => { distPair[i] = v; render(); },
       }).el)));
 
+    const summary = greatCircleSummary(a, b);
+    const nameA = tr(a.name, l);
+    const nameB = tr(b.name, l);
+    const kmRounded = fmtNum(Math.round(summary.distanceKm));
+    const chordRounded = fmtNum(Math.round(summary.chordKm));
+
     scales.replaceChildren(
       h('button', {
         class: 'pill pill-sm',
         'data-testid': 'cmp-dist-swap',
         onclick: () => { sfx.tap(); distPair = [distPair[1], distPair[0]]; render(); },
       }, h('span', { html: icon('shuffle', 13) }), ' ', t('cmpDist.swap')),
+      h('button', {
+        class: 'pill pill-sm',
+        'data-testid': 'cmp-dist-copy',
+        onclick: () => {
+          sfx.tap();
+          const md = formatGeodesicBriefMarkdown({
+            nameA,
+            coordA: [a.lat, a.lon],
+            nameB,
+            coordB: [b.lat, b.lon],
+            summary,
+            lang: l,
+          });
+          void copyText(md, t('cmpDist.copied'), t('cmpDist.copyBrief'));
+        },
+      }, h('span', { html: icon('copy', 13) }), ' ', t('cmpDist.copyBrief')),
     );
-
-    const summary = greatCircleSummary(a, b);
-    const nameA = tr(a.name, l);
-    const nameB = tr(b.name, l);
-    const kmRounded = fmtNum(Math.round(summary.distanceKm));
     ratioP.textContent = a.key === b.key
       ? t('cmpDist.samePlace', { a: nameA })
       : t('cmpDist.summary', {
@@ -124,6 +141,7 @@ export function openCompare(start?: string, opts?: CompareOptions): void {
     const pt = (ang: number, rad = r): [number, number] => [cx + rad * Math.cos(ang), cy + rad * Math.sin(ang)];
     const [ax, ay] = pt(angA);
     const [bx, by] = pt(angB);
+    const [mx, my] = pt(-Math.PI / 2);
     const [antix, antiy] = pt(angAnti);
     const largeArc = theta > Math.PI ? 1 : 0;
 
@@ -132,6 +150,7 @@ export function openCompare(start?: string, opts?: CompareOptions): void {
       s('line', { x1: ax, y1: ay, x2: antix, y2: antiy, stroke: 'rgba(148, 163, 184, 0.35)', 'stroke-width': 1, 'stroke-dasharray': '3 3' }),
       s('line', { x1: ax, y1: ay, x2: bx, y2: by, stroke: 'rgba(255, 179, 71, 0.45)', 'stroke-width': 1.5, 'stroke-dasharray': '5 4' }),
       s('path', { d: `M ${ax.toFixed(1)} ${ay.toFixed(1)} A ${r} ${r} 0 ${largeArc} 1 ${bx.toFixed(1)} ${by.toFixed(1)}`, fill: 'none', stroke: '#38bdf8', 'stroke-width': 3.5 }),
+      s('circle', { cx: mx, cy: my, r: 3.5, fill: '#34d399' }),
       s('circle', { cx: ax, cy: ay, r: 5, fill: COL[0] }),
       s('circle', { cx: bx, cy: by, r: 5, fill: COL[1] }),
       s('circle', { cx: antix, cy: antiy, r: 4, fill: 'none', stroke: '#f472b6', 'stroke-width': 2 }),
@@ -162,6 +181,8 @@ export function openCompare(start?: string, opts?: CompareOptions): void {
       h('div', { class: 'cmp-antipode-card', 'data-testid': 'cmp-antipode-card' },
         h('div', { class: 'cmp-antipode-text' },
           h('strong', {}, t('cmpDist.antipodeTitle', { a: nameA })),
+          h('p', { class: 'muted small', 'data-testid': 'cmp-midpoint-line' },
+            t('cmpDist.midpointInfo', { coord: formatCoordPair(summary.midpoint[0], summary.midpoint[1]), chord: chordRounded })),
           h('p', { class: 'muted small' }, t('cmpDist.antipodeCoord', { coord: formatCoordPair(antiLat, antiLon) })),
           nearAnti ? h('p', { class: 'muted small' }, t('cmpDist.antipodeNear', {
             name: `${nearAnti.item.emoji} ${tr(nearAnti.item.name, l)}`,
@@ -173,6 +194,11 @@ export function openCompare(start?: string, opts?: CompareOptions): void {
             'data-testid': 'cmp-fly-arc',
             onclick: () => { sfx.tap(); opts.onShowArc!([a.lat, a.lon], [b.lat, b.lon]); },
           }, h('span', { html: icon('compass', 13) }), ' ', t('cmpDist.showArc')) : null,
+          opts.onFlyTo ? h('button', {
+            class: 'pill pill-sm',
+            'data-testid': 'cmp-fly-midpoint',
+            onclick: () => { sfx.tap(); opts.onFlyTo!(summary.midpoint[0], summary.midpoint[1]); },
+          }, h('span', { html: icon('pin', 13) }), ' ', t('cmpDist.flyMidpoint')) : null,
           opts.onFlyTo ? h('button', {
             class: 'pill pill-sm',
             'data-testid': 'cmp-fly-antipode',

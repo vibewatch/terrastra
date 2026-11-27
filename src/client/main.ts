@@ -712,10 +712,13 @@ async function boot(): Promise<void> {
     }
     if (head === 'map') { history.replaceState(null, '', location.pathname + location.search); void openMap(); return; }
     if (head === 'compare') { history.replaceState(null, '', location.pathname + location.search); openCompareBench(rest || undefined); return; }
-    if (head === 'lesson') { if (rest) startLesson(rest); else openLessons(); history.replaceState(null, '', location.pathname + location.search); return; }
+    if (head === 'lesson' || head === 'lessons') { if (rest) startLesson(rest); else openLessons(); history.replaceState(null, '', location.pathname + location.search); return; }
     if (head === 'ssbs') { if (ssbsOn()) openSsbs(); history.replaceState(null, '', location.pathname + location.search); return; }
     if (head === 'astro') { if (rest) startLesson(rest); else openAstro(); history.replaceState(null, '', location.pathname + location.search); return; }
-    if (head === 'tour') { if (rest) startTour(rest); else openTours(); history.replaceState(null, '', location.pathname + location.search); return; }
+    if (head === 'tour' || head === 'tours') { if (rest) startTour(rest); else openTours(); history.replaceState(null, '', location.pathname + location.search); return; }
+    if (head === 'tonight') { history.replaceState(null, '', location.pathname + location.search); tonightMod(m => m.openTonight(navTo)); return; }
+    if (head === 'live' || head === 'live-earth') { history.replaceState(null, '', location.pathname + location.search); openLiveEarth(); return; }
+    if (head === 'daily' || head === 'placeit' || head === 'quiz') { history.replaceState(null, '', location.pathname + location.search); openGame(head); return; }
     const scale = SCALE_ROUTES[head];
     if (scale) {
       const focus = rest || (scale === 'solar' ? 'overview' : '');
