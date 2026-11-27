@@ -376,10 +376,24 @@ export class Theatre {
       if (this.el.classList.contains('cal-open')) this.toggleCal(false); else this.close();
       return;
     }
-    if (e.target instanceof HTMLButtonElement) return;
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+    if (e.target instanceof HTMLButtonElement && (e.key === ' ' || e.key === 'Enter')) return;
     if (e.key === ' ') { e.preventDefault(); e.stopPropagation(); this.setPlaying(!this.playing); }
-    else if (e.key === '+' || e.key === '=') { e.stopPropagation(); this.setRate(1); }
-    else if (e.key === '-') { e.stopPropagation(); this.setRate(-1); }
+    else if (e.key === '+' || e.key === '=' || e.key === ']') { e.stopPropagation(); this.setRate(1); }
+    else if (e.key === '-' || e.key === '[') { e.stopPropagation(); this.setRate(-1); }
+    else if (!e.metaKey && !e.ctrlKey && !e.altKey && e.key.toLowerCase() === 'c') {
+      e.stopPropagation();
+      this.toggleCal();
+    } else if (e.key === ',' || e.key === '.') {
+      e.stopPropagation();
+      const marks = this.tm?.marks ?? [];
+      if (!marks.length) return;
+      const sorted = [...marks].sort((a, b) => a.t - b.t);
+      const target = e.key === '.'
+        ? sorted.find(m => m.t > this.t + 1000)
+        : [...sorted].reverse().find(m => m.t < this.t - 1000);
+      if (target) this.seek(target.t, this.playing);
+    }
   };
 
   // ------------------------------------------------------------------------------------------------ loop

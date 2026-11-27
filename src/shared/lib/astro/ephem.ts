@@ -317,12 +317,44 @@ export function nextPhase(ms: number, phase: number): number {
 /** Previous instant at or before `ms` with the given phase. */
 const prevPhase = (ms: number, phase: number) => { const t = nextPhase(ms - 30 * 864e5, phase), n = nextPhase(t + 25 * 864e5, phase); return n <= ms + 1 ? n : t; };
 
+export type LunarStage =
+  | 'new'
+  | 'waxingCrescent'
+  | 'firstQuarter'
+  | 'waxingGibbous'
+  | 'full'
+  | 'waningGibbous'
+  | 'lastQuarter'
+  | 'waningCrescent';
+
+/** Classify illuminated fraction (0..1) and waxing flag into the 8 traditional lunar phase stages. */
+export function lunarPhaseStage(illumination: number, waxing: boolean): LunarStage {
+  if (illumination < 0.03) return 'new';
+  if (illumination > 0.97) return 'full';
+  if (waxing) {
+    if (illumination < 0.45) return 'waxingCrescent';
+    if (illumination <= 0.55) return 'firstQuarter';
+    return 'waxingGibbous';
+  }
+  if (illumination > 0.55) return 'waningGibbous';
+  if (illumination >= 0.45) return 'lastQuarter';
+  return 'waningCrescent';
+}
+
 /** Phase angle (Sun–Moon–Earth, deg), illuminated fraction, waxing flag and age since new moon. */
-export function moonPhase(ms: number): { phaseAngle: number; illumination: number; waxing: boolean; ageDays: number } {
+export function moonPhase(ms: number): { phaseAngle: number; illumination: number; waxing: boolean; ageDays: number; stage: LunarStage } {
   const s = sunGeo(ms), m = moonGeo(ms);
   const psi = Math.acos(Math.cos(m.lat * D2R) * Math.cos((m.lon - s.lon) * D2R));
   const i = Math.atan2(s.distKm * Math.sin(psi), m.distKm - s.distKm * Math.cos(psi));
-  return { phaseAngle: i * R2D, illumination: (1 + Math.cos(i)) / 2, waxing: norm360(m.lon - s.lon) < 180, ageDays: (ms - prevPhase(ms, 0)) / 864e5 };
+  const illumination = (1 + Math.cos(i)) / 2;
+  const waxing = norm360(m.lon - s.lon) < 180;
+  return {
+    phaseAngle: i * R2D,
+    illumination,
+    waxing,
+    ageDays: (ms - prevPhase(ms, 0)) / 864e5,
+    stage: lunarPhaseStage(illumination, waxing),
+  };
 }
 
 // -------------------------------------------------------------------------------------------------- planets
@@ -358,6 +390,79 @@ export function planetGeo(id: PlanetId, ms: number): PlanetGeo {
   const lon = norm360((lam + dl) * R2D + f.dPsi), lat = (bet + db) * R2D;
   const s = sunGeo(ms), el = angle(radec(lon, lat), radec(s.lon, s.lat));
   return { lon, lat, distAu: dist, ...eclToEq(lon, lat, f.eps), elong: norm180(lon - s.lon) < 0 ? -el : el };
+}
+
+/**
+ * Apparent visual magnitude V (Meeus ch. 41 / Astronomical Almanac) of a planet at UTC `ms`,
+ * rounded to 0.1 mag. Includes phase-angle darkening and Saturn's sub-Earth ring inclination.
+ */
+export function planetVisualMag(id: PlanetId, ms: number): number {
+  const f = frame(ms), T = f.T, d = T * 36525, k = BODY[id].kepler!;
+  const [L, B, R] = earthLBR(T), cB = Math.cos(B);
+  const earth: Vec3 = [R * cB * Math.cos(L), R * cB * Math.sin(L), R * Math.sin(B)];
+  const h = keplerPosition(k, d);
+  const r = Math.hypot(h[0], h[1], h[2]);
+  const [l, b] = precessEcl(h, T);
+  const p = radec(l, b, r);
+  const g: Vec3 = [p[0] - earth[0], p[1] - earth[1], p[2] - earth[2]];
+  const delta = Math.hypot(g[0], g[1], g[2]);
+  const cosAlpha = Math.max(-1, Math.min(1, (r * r + delta * delta - R * R) / Math.max(1e-9, 2 * r * delta)));
+  const a = Math.acos(cosAlpha) * R2D;
+  const distTerm = 5 * Math.log10(Math.max(1e-6, r * delta));
+  let v: number;
+  switch (id) {
+    case 'mercury':
+      v = -0.42 + distTerm + a * (0.038 + a * (-0.000273 + a * 0.000002));
+      break;
+    case 'venus':
+      v = -4.40 + distTerm + (a < 163.7
+        ? a * (0.0009 + a * (0.000239 - a * 0.00000065))
+        : 240.44228 - 2.81914 * a + 0.00839034 * a * a);
+      break;
+    case 'mars':
+      v = -1.52 + distTerm + 0.016 * a;
+      break;
+    case 'jupiter':
+      v = -9.40 + distTerm + 0.005 * a;
+      break;
+    case 'saturn': {
+      // Saturn north pole in J2000 ecliptic coordinates: λp ≈ 79.53°, βp ≈ 61.95°
+      const pole = radec(79.53, 61.95, 1);
+      const sinB = Math.min(1, Math.abs(g[0] * pole[0] + g[1] * pole[1] + g[2] * pole[2]) / Math.max(1e-6, delta));
+      v = -8.88 + distTerm + 0.044 * a - 2.60 * sinB + 1.25 * sinB * sinB;
+      break;
+    }
+    case 'uranus':
+      v = -7.19 + distTerm + 0.0028 * a;
+      break;
+    case 'neptune':
+      v = -6.87 + distTerm;
+      break;
+  }
+  return Math.round(v * 10) / 10;
+}
+
+/**
+ * Bennett (1982) atmospheric refraction in arcminutes for true altitude `altDeg`,
+ * scaled by barometric pressure (hPa) and ambient temperature (°C).
+ */
+export function refractionArcmin(altDeg: number, pressureHpa = 1010, tempC = 10): number {
+  if (!Number.isFinite(altDeg) || altDeg < -2) return 0;
+  const h = Math.max(-1.5, Math.min(90, altDeg));
+  const r0 = 1 / Math.tan((h + 7.31 / (h + 4.4)) * D2R);
+  const scale = (Math.max(100, pressureHpa) / 1010) * (283 / Math.max(180, 273.15 + tempC));
+  return Math.max(0, Math.round(r0 * scale * 100) / 100);
+}
+
+/**
+ * Kasten & Young (1989) relative optical air mass X for apparent altitude `altDeg`
+ * (X = 1.0 at zenith, ~37.9 at horizon, Infinity well below the horizon).
+ */
+export function opticalAirMass(altDeg: number): number {
+  if (!Number.isFinite(altDeg) || altDeg < -1) return Infinity;
+  const h = Math.max(0, Math.min(90, altDeg));
+  const denom = Math.sin(h * D2R) + 0.50572 * Math.pow(h + 6.07995, -1.6364);
+  return Math.round((1 / denom) * 100) / 100;
 }
 
 // -------------------------------------------------------------------------------------------------- solvers

@@ -767,7 +767,7 @@ body:has(.sky) .modal { z-index: var(--z-alert); }
 
 /* Tonight from my city (F04) */
 .tn { display: grid; gap: 10px; }
-.tn-city { display: flex; }
+.tn-city { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .tn-body { display: grid; gap: 8px; }
 .tn-when { margin: 0; font-family: var(--font-hud); color: #9fd4f0; font-size: .9rem; }
 .tn-sec { border: 1px solid var(--hud-line); border-radius: 10px; padding: 8px 12px; background: rgba(8, 16, 28, .5); }

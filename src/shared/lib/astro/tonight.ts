@@ -4,14 +4,42 @@
  * when this place can see it. No weather: clouds are not modelled and the caller must say so.
  */
 import type { GeoPoint, SkyEvent } from './types.ts';
-import { gast, moonPhase, planetGeo, topocentric, type PlanetId } from './ephem.ts';
+import { gast, moonGeo, moonPhase, planetGeo, planetVisualMag, topocentric, type LunarStage, type PlanetId } from './ephem.ts';
 import { localSolar } from './eclipses.ts';
 import { skyEvents } from './events.ts';
 import { SHOWERS } from '../../data/showers.ts';
+import { CONSTELLATIONS } from '../../data/constellations.ts';
 
 const D2R = Math.PI / 180;
 const STEP = 10 * 60_000;
 const NAKED_EYE: PlanetId[] = ['mercury', 'venus', 'mars', 'jupiter', 'saturn'];
+
+/**
+ * Fold a single RFC 5545 property line so each physical line is ≤ 75 UTF-8 octets,
+ * splitting cleanly on Unicode code-point boundaries with CRLF + SPACE continuation.
+ */
+export function foldIcsLine(line: string, maxOctets = 75): string {
+  const enc = new TextEncoder();
+  if (enc.encode(line).length <= maxOctets) return line;
+  const chunks: string[] = [];
+  let current = '';
+  let currentBytes = 0;
+  let limit = maxOctets;
+  for (const ch of line) {
+    const chBytes = enc.encode(ch).length;
+    if (currentBytes + chBytes > limit && current.length > 0) {
+      chunks.push(current);
+      current = ch;
+      currentBytes = chBytes;
+      limit = maxOctets - 1; // continuation line begins with leading SPACE (1 octet)
+    } else {
+      current += ch;
+      currentBytes += chBytes;
+    }
+  }
+  if (current.length > 0) chunks.push(current);
+  return chunks.join('\r\n ');
+}
 
 /** Altitude and azimuth (from north through east) of a point given by RA/Dec, ignoring refraction. */
 function altAz(ra: number, dec: number, ms: number, obs: GeoPoint): { alt: number; az: number } {
@@ -21,21 +49,23 @@ function altAz(ra: number, dec: number, ms: number, obs: GeoPoint): { alt: numbe
   return { alt: alt / D2R, az: ((az / D2R) + 360) % 360 };
 }
 
-interface PlanetTonight { id: PlanetId; best: number; alt: number; az: number; when: 'evening' | 'morning' | 'all' | 'night' }
-interface ShowerTonight { key: string; peak: number; daysToPeak: number; zhr: number; radiantAlt: number; best: number; rate: number }
+export interface PlanetTonight { id: PlanetId; best: number; alt: number; az: number; mag: number; when: 'evening' | 'morning' | 'all' | 'night' }
+export interface ShowerTonight { key: string; peak: number; daysToPeak: number; zhr: number; radiantAlt: number; best: number; rate: number; moonlitRate: number }
+export interface ConstellationTonight { id: string; alt: number; az: number; brightestMag: number; starIndex: number }
 export interface EventAhead {
   ev: SkyEvent;
   /** Can this place see it at the peak moment? 'up' = yes; 'day' = the Sun is up; 'below' = under the horizon; 'none' = not from here at all. */
   here: 'up' | 'day' | 'below' | 'none';
   alt?: number;
 }
-interface Tonight {
+export interface Tonight {
   /** Start and end of the night (Sun below the horizon) and of real darkness (Sun 12° down); null where it never happens. */
   night: [number, number] | null;
   dark: [number, number] | null;
   polar?: 'day' | 'night';
-  moon: { illum: number; waxing: boolean; upFrac: number; maxAlt: number; washout: boolean };
+  moon: { illum: number; waxing: boolean; stage: LunarStage; ageDays: number; distKm: number; upFrac: number; maxAlt: number; washout: boolean };
   planets: PlanetTonight[];
+  constellations: ConstellationTonight[];
   showers: ShowerTonight[];
   events: EventAhead[];
 }
@@ -70,7 +100,9 @@ export function tonight(obs: GeoPoint, now: number, aheadDays = 30): Tonight {
   const dark = run(ts, darkOk, start);
 
   const idx = ts.map((t, i) => [t, i] as const).filter(([t]) => inNight(t)).map(([, i]) => i);
-  const ph = moonPhase(night ? (night[0] + night[1]) / 2 : now);
+  const midMs = night ? (night[0] + night[1]) / 2 : now;
+  const ph = moonPhase(midMs);
+  const mDistKm = Math.round(moonGeo(midMs).distKm);
   const moonUp = idx.filter(i => moon[i] > 0).length;
   const upFrac = idx.length ? moonUp / idx.length : 0;
   const maxAlt = idx.length ? Math.max(...idx.map(i => moon[i])) : -90;
@@ -86,8 +118,36 @@ export function tonight(obs: GeoPoint, now: number, aheadDays = 30): Tonight {
     });
     if (best < 0) continue;
     const share = seen / twilight.length;
-    planets.push({ id, best, alt: bestAlt, az: bestAz,
+    planets.push({ id, best, alt: bestAlt, az: bestAz, mag: planetVisualMag(id, best),
       when: share > 0.7 ? 'all' : firstHalf / seen > 0.8 ? 'evening' : firstHalf / seen < 0.2 ? 'morning' : 'night' });
+  }
+
+  // Prominent constellations high overhead during prime stargazing (mid-darkness, or mid-night when twilight persists)
+  const constellations: ConstellationTonight[] = [];
+  if (polar !== 'day' && twilight.length > 0) {
+    const primeMs = dark ? (dark[0] + dark[1]) / 2 : ts[twilight[Math.floor(twilight.length / 2)]];
+    const scored: { item: ConstellationTonight; score: number }[] = [];
+    for (const con of CONSTELLATIONS) {
+      if (!con.stars.length) continue;
+      let starIndex = 0;
+      let brightestMag = con.stars[0][2];
+      for (let k = 1; k < con.stars.length; k++) {
+        if (con.stars[k][2] < brightestMag) {
+          brightestMag = con.stars[k][2];
+          starIndex = k;
+        }
+      }
+      if (brightestMag > 3.2) continue;
+      const [ra, dec] = con.stars[starIndex];
+      const p = altAz(ra, dec, primeMs, obs);
+      if (p.alt < 25) continue;
+      scored.push({
+        item: { id: con.id, alt: p.alt, az: p.az, brightestMag, starIndex },
+        score: (4.0 - brightestMag) * 20 + p.alt,
+      });
+    }
+    scored.sort((a, b) => b.score - a.score);
+    for (const s of scored.slice(0, 5)) constellations.push(s.item);
   }
 
   const showers: ShowerTonight[] = [];
@@ -105,7 +165,10 @@ export function tonight(obs: GeoPoint, now: number, aheadDays = 30): Tonight {
     const days = (peak.t - now) / 864e5;
     // hourly rate under a perfect sky, falling off with the radiant's height and with distance from the peak night
     const rate = radiantAlt > 0 ? sh.zhr * Math.sin(radiantAlt * D2R) * Math.exp(-Math.abs(days) / 2.5) : 0;
-    showers.push({ key: sh.key, peak: peak.t, daysToPeak: days, zhr: sh.zhr, radiantAlt, best, rate });
+    const moonAtBestUp = topocentric(best, obs).moon.alt > 0;
+    const moonFactor = moonAtBestUp ? Math.max(0.15, 1 - 0.78 * ph.illumination) : 1;
+    const moonlitRate = rate * moonFactor;
+    showers.push({ key: sh.key, peak: peak.t, daysToPeak: days, zhr: sh.zhr, radiantAlt, best, rate, moonlitRate });
   }
 
   const events: EventAhead[] = skyEvents(now, now + aheadDays * 864e5)
@@ -113,7 +176,25 @@ export function tonight(obs: GeoPoint, now: number, aheadDays = 30): Tonight {
       || (e.kind === 'conjunction' && (e.value ?? 9) < 3) || e.kind === 'elongation' || e.kind === 'transit')
     .slice(0, 6).map(ev => here(ev, obs));
 
-  return { night, dark, polar, moon: { illum: ph.illumination, waxing: ph.waxing, upFrac, maxAlt, washout: ph.illumination > 0.5 && upFrac > 0.4 }, planets, showers, events };
+  return {
+    night,
+    dark,
+    polar,
+    moon: {
+      illum: ph.illumination,
+      waxing: ph.waxing,
+      stage: ph.stage,
+      ageDays: Math.round(ph.ageDays * 10) / 10,
+      distKm: mDistKm,
+      upFrac,
+      maxAlt,
+      washout: ph.illumination > 0.5 && upFrac > 0.4,
+    },
+    planets,
+    constellations,
+    showers,
+    events,
+  };
 }
 
 /** Whether this observer can see an event at its peak moment. */

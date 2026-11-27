@@ -588,7 +588,7 @@ async function boot(): Promise<void> {
     openTours, openLessons, openAstro, openSsbs, openBookmarks,
     continueLesson, startLesson,
     openCompare: openCompareBench,
-    openTonight: () => tonightMod(m => m.openTonight(navTo)),
+    openTonight: () => tonightMod(m => m.openTonight(navTo, Date.now(), () => ({ lat: globe.lat, lon: globe.lon }))),
     openAccount: () => account(m => m.openAccount()), openGuestbook: () => account(m => void m.openGuestbook()),
     openSolar: () => void enterSolar(),
     openSky: () => void openSky(),
@@ -716,7 +716,7 @@ async function boot(): Promise<void> {
     if (head === 'ssbs') { if (ssbsOn()) openSsbs(); history.replaceState(null, '', location.pathname + location.search); return; }
     if (head === 'astro') { if (rest) startLesson(rest); else openAstro(); history.replaceState(null, '', location.pathname + location.search); return; }
     if (head === 'tour' || head === 'tours') { if (rest) startTour(rest); else openTours(); history.replaceState(null, '', location.pathname + location.search); return; }
-    if (head === 'tonight') { history.replaceState(null, '', location.pathname + location.search); tonightMod(m => m.openTonight(navTo)); return; }
+    if (head === 'tonight') { history.replaceState(null, '', location.pathname + location.search); tonightMod(m => m.openTonight(navTo, Date.now(), () => ({ lat: globe.lat, lon: globe.lon }))); return; }
     if (head === 'live' || head === 'live-earth') { history.replaceState(null, '', location.pathname + location.search); openLiveEarth(); return; }
     if (head === 'daily' || head === 'placeit' || head === 'quiz') { history.replaceState(null, '', location.pathname + location.search); openGame(head); return; }
     const scale = SCALE_ROUTES[head];

@@ -1,5 +1,5 @@
 /** The sky-events calendar: a year of events, filters, countdowns and what each one looks like from your site. */
-import { skyEvents, localSolar, topocentric, type SkyEvent, type SkyEventKind } from '../../shared/lib/astro/index.ts';
+import { skyEvents, localSolar, topocentric, foldIcsLine, type SkyEvent, type SkyEventKind } from '../../shared/lib/astro/index.ts';
 import { SHOWERS } from '../../shared/data/showers.ts';
 import { h } from '../ui/dom.ts';
 import { icon } from '../ui/icons.ts';
@@ -121,12 +121,13 @@ export function skyEventsToIcs(events: readonly SkyEvent[], site: Site | null, y
       `DTEND:${icsUtc(Math.max(t0 + 60_000, t1))}`,
       `SUMMARY:${icsEsc(title)}`,
       ...(site?.name ? [`LOCATION:${icsEsc(site.name)}`] : []),
+      ...(site && Number.isFinite(site.lat) && Number.isFinite(site.lon) ? [`GEO:${site.lat.toFixed(4)};${site.lon.toFixed(4)}`] : []),
       `DESCRIPTION:${icsEsc(desc)}`,
       'END:VEVENT',
     );
   }
   lines.push('END:VCALENDAR');
-  return lines.join('\r\n') + '\r\n';
+  return lines.map(l => foldIcsLine(l)).join('\r\n') + '\r\n';
 }
 
 export class Calendar {
@@ -134,6 +135,8 @@ export class Calendar {
   private list: HTMLElement;
   private yearEl: HTMLElement;
   private chips: HTMLElement;
+  private searchInput: HTMLInputElement;
+  private query = '';
   private year = new Date().getFullYear();
   private filter: Filter = 'top';
   active: string | null = null;
@@ -141,6 +144,17 @@ export class Calendar {
   constructor(private site: () => Site | null, private pick: (e: SkyEvent) => void) {
     this.yearEl = h('b', { class: 'skycal-year' });
     this.chips = h('div', { class: 'skycal-chips', role: 'tablist' });
+    this.searchInput = h('input', {
+      type: 'search',
+      class: 'skycal-search',
+      'data-testid': 'skycal-search',
+      placeholder: s('calSearch'),
+      'aria-label': s('calSearch'),
+      oninput: () => {
+        this.query = this.searchInput.value.trim().toLowerCase();
+        this.renderListOnly();
+      },
+    }) as HTMLInputElement;
     this.list = h('ol', { class: 'skycal-list', style: 'position:relative' });
     this.el = h('aside', { class: 'skycal', 'aria-label': s('list') },
       h('header', { class: 'skycal-head' },
@@ -151,14 +165,26 @@ export class Calendar {
           this.yearEl,
           h('button', { class: 'sky-btn sky-btn-sq', 'aria-label': '+1', html: icon('chevron', 18), onclick: () => this.go(1) }),
           h('button', { class: 'sky-btn sky-btn-sq', 'data-testid': 'skycal-ics', title: s('calExportIcs'), 'aria-label': s('calExportIcs'), html: icon('calendar', 16), onclick: () => this.exportIcs() }))),
-      this.chips, this.list,
+      this.chips,
+      h('div', { class: 'skycal-search-wrap' }, this.searchInput),
+      this.list,
       h('p', { class: 'skycal-tz' }, s('calTz', { z: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' })));
     this.render();
   }
 
   private currentYearEvents(): SkyEvent[] {
     const y = this.year;
-    return [...eventsOf(y - 1), ...eventsOf(y), ...eventsOf(y + 1)].filter(e => new Date(e.t).getFullYear() === y && match(e, this.filter));
+    const site = this.site();
+    const q = this.query;
+    return [...eventsOf(y - 1), ...eventsOf(y), ...eventsOf(y + 1)].filter(e => {
+      if (new Date(e.t).getFullYear() !== y || !match(e, this.filter)) return false;
+      if (!q) return true;
+      return (
+        eventTitle(e).toLowerCase().includes(q) ||
+        seenFrom(e, site).toLowerCase().includes(q) ||
+        e.kind.toLowerCase().includes(q)
+      );
+    });
   }
 
   private exportIcs(): void {
@@ -190,13 +216,18 @@ export class Calendar {
 
   render(): void {
     this.yearEl.textContent = String(this.year);
+    this.searchInput.placeholder = s('calSearch');
+    this.searchInput.setAttribute('aria-label', s('calSearch'));
     this.chips.replaceChildren(...FILTERS.map(f => h('button', {
       class: 'skycal-chip' + (f === this.filter ? ' on' : ''), role: 'tab', 'aria-selected': String(f === this.filter),
       onclick: () => { this.filter = f; this.render(); },
     }, s(`f_${f}` as SkyKey))));
+    this.renderListOnly();
+  }
+
+  private renderListOnly(): void {
     const now = Date.now(), site = this.site();
-    // rows show local dates, so the year's list follows the viewer's calendar too
-    const y = this.year, evs = [...eventsOf(y - 1), ...eventsOf(y), ...eventsOf(y + 1)].filter(e => new Date(e.t).getFullYear() === y && match(e, this.filter));
+    const evs = this.currentYearEvents();
     if (!evs.length) { this.list.replaceChildren(h('li', { class: 'skycal-empty' }, s('empty'))); return; }
     const l = lang(), nextIdx = evs.findIndex(e => e.t > now);
     this.list.replaceChildren(...evs.map((e, i) => {

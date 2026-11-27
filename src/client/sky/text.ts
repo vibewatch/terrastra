@@ -1,5 +1,6 @@
 /** Strings for the sky theatre (loaded with it, so they live here instead of the global dictionary). */
 import { lang } from '../lib/i18n.ts';
+import { haversineKm } from '../../shared/lib/geo.ts';
 
 type Pair = { en: string; zh: string };
 const S = {
@@ -170,6 +171,7 @@ const S = {
   loading: { en: 'Computing the sky…', zh: '正在计算天空…' },
   calToday: { en: 'Current year', zh: '回到今年' },
   calExportIcs: { en: 'Export .ics calendar', zh: '导出 .ics 日历' },
+  calSearch: { en: 'Search events…', zh: '搜索天象…' },
 } satisfies Record<string, Pair>;
 
 export type SkyKey = keyof typeof S;
@@ -198,12 +200,29 @@ export const SITES: { id: string; name: Pair; lat: number; lon: number; tz: numb
   { id: 'madrid', name: { en: 'Madrid', zh: '马德里' }, lat: 40.42, lon: -3.7, tz: 1, zone: 'Europe/Madrid' },
   { id: 'london', name: { en: 'London', zh: '伦敦' }, lat: 51.51, lon: -0.13, tz: 0, zone: 'Europe/London' },
   { id: 'reykjavik', name: { en: 'Reykjavík', zh: '雷克雅未克' }, lat: 64.15, lon: -21.94, tz: 0, zone: 'Atlantic/Reykjavik' },
+  { id: 'tromso', name: { en: 'Tromsø', zh: '特罗姆瑟' }, lat: 69.65, lon: 18.96, tz: 1, zone: 'Europe/Oslo' },
+  { id: 'nairobi', name: { en: 'Nairobi', zh: '内罗毕' }, lat: -1.29, lon: 36.82, tz: 3, zone: 'Africa/Nairobi' },
   { id: 'newyork', name: { en: 'New York', zh: '纽约' }, lat: 40.71, lon: -74.01, tz: -5, zone: 'America/New_York' },
   { id: 'dallas', name: { en: 'Dallas', zh: '达拉斯' }, lat: 32.78, lon: -96.8, tz: -6, zone: 'America/Chicago' },
   { id: 'losangeles', name: { en: 'Los Angeles', zh: '洛杉矶' }, lat: 34.05, lon: -118.24, tz: -8, zone: 'America/Los_Angeles' },
   { id: 'saopaulo', name: { en: 'São Paulo', zh: '圣保罗' }, lat: -23.55, lon: -46.63, tz: -3, zone: 'America/Sao_Paulo' },
+  { id: 'santiago', name: { en: 'Santiago', zh: '圣地亚哥' }, lat: -33.45, lon: -70.66, tz: -4, zone: 'America/Santiago' },
   { id: 'capetown', name: { en: 'Cape Town', zh: '开普敦' }, lat: -33.92, lon: 18.42, tz: 2, zone: 'Africa/Johannesburg' },
 ];
+
+/** Find the closest observing city in `SITES` to `(lat, lon)` by great-circle distance. */
+export function nearestSite(lat: number, lon: number): typeof SITES[number] {
+  let best = SITES[0];
+  let bestKm = Infinity;
+  for (const x of SITES) {
+    const km = haversineKm(lat, lon, x.lat, x.lon);
+    if (km < bestKm) {
+      bestKm = km;
+      best = x;
+    }
+  }
+  return best;
+}
 
 /** Very coarse "where on Earth" for a point, for captions like "best from North America". */
 export function regionOf(lat: number, lon: number): string {
