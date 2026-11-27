@@ -128,4 +128,35 @@ describe('local storage fallback', () => {
     expect(load('beta', null)).toBeNull();
     expect(values.has('pp.beta')).toBe(false);
   });
+
+  it('isolates per-key quota errors in flushPending so smaller pending keys still flush (#111)', async () => {
+    const values = new Map<string, string>();
+    let rejectKey: string | null = 'ALL';
+    vi.stubGlobal('localStorage', {
+      get length() { return values.size; },
+      key: (i: number) => [...values.keys()][i] ?? null,
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        if (rejectKey === 'ALL' || rejectKey === key) throw new Error('quota exceeded');
+        values.set(key, value);
+      },
+      removeItem: (key: string) => { values.delete(key); },
+    });
+    const { save, sessionOnly, storageUsageBytes } = await import('../../src/client/lib/storage.ts');
+
+    save('huge', 'x'.repeat(200));
+    save('small', { ok: true });
+    expect(sessionOnly()).toBe(true);
+    expect(storageUsageBytes().pendingKeys).toBe(2);
+
+    // Only pp.huge continues to fail; pp.small and pp.tiny should flush cleanly!
+    rejectKey = 'pp.huge';
+    save('tiny', 42);
+    expect(values.get('pp.small')).toBe('{"ok":true}');
+    expect(values.get('pp.tiny')).toBe('42');
+    expect(values.has('pp.huge')).toBe(false);
+    expect(sessionOnly()).toBe(true);
+    expect(storageUsageBytes().pendingKeys).toBe(1);
+    expect(storageUsageBytes().bytes).toBeGreaterThan(200);
+  });
 });

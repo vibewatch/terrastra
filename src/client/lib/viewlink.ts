@@ -69,3 +69,23 @@ export function removeBookmark(b: View): void {
   const key = encodeView(b);
   save('bookmarks', bookmarks().filter(x => encodeView(x) !== key));
 }
+
+/** Rename a saved view's label in place while bumping `at` so CRDT cloud sync propagates the new title. */
+export function renameBookmark(b: View, title: string, now = Date.now()): boolean {
+  const clean = title.trim().slice(0, 120);
+  if (!clean) return false;
+  const key = encodeView(b);
+  const cur = bookmarks();
+  const idx = cur.findIndex(x => encodeView(x) === key);
+  if (idx < 0) return false;
+  const prev = cur[idx];
+  const updated: Bookmark = {
+    ...prev,
+    label: { en: clean, zh: clean },
+    at: Math.max(now, prev.at + 1),
+  };
+  const next = [...cur];
+  next[idx] = updated;
+  save('bookmarks', next);
+  return true;
+}

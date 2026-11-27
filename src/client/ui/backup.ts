@@ -1,21 +1,14 @@
 /** Progress backup: a versioned JSON file the user keeps, and a checked, previewed merge back in. Photos are not included. */
 import { h, openModal, closeModal, toast } from './dom.ts';
-import { t } from '../lib/i18n.ts';
-import { load, save } from '../lib/storage.ts';
-import { store, canReplaceProgress, replaceProgress } from '../store.ts';
+import { t, lang } from '../lib/i18n.ts';
+import { save } from '../lib/storage.ts';
+import { store, canReplaceProgress, readLocalExtras, replaceProgress } from '../store.ts';
 import { mergeProgress } from '../../shared/lib/progress.ts';
-import { mergeLessonJournal, mergeMistakeBook, type LessonJournal, type MistakeBook } from '../../shared/lib/journal.ts';
-import { bookmarks, type Bookmark } from '../lib/viewlink.ts';
-import { backupOf, mergeBookmarks, readBackupFull, summary } from '../lib/backup-file.ts';
+import { mergeSyncExtras } from '../../shared/lib/sync-extras.ts';
+import { backupOf, readBackupFull, summary } from '../lib/backup-file.ts';
 
 export function exportProgress(): void {
-  const payload = backupOf(store.progress, Date.now(), {
-    lessonsDone: load<string[]>('lessonsDone', []),
-    toursDone: load<string[]>('toursDone', []),
-    lessonJournal: load<LessonJournal>('lessonJournal', {}),
-    mistakeBook: load<MistakeBook>('mistakeBook', {}),
-    bookmarks: bookmarks(),
-  });
+  const payload = backupOf(store.progress, Date.now(), readLocalExtras());
   const blob = new Blob([JSON.stringify(payload, null, 1)], { type: 'application/json' });
   const a = h('a', { href: URL.createObjectURL(blob), download: `terrastra-progress-${new Date().toISOString().slice(0, 10)}.json` });
   document.body.append(a); a.click(); a.remove();
@@ -38,14 +31,8 @@ export function importProgress(): void {
     const now = summary(store.progress), merged = mergeProgress(store.progress, p);
     if (!canReplaceProgress(merged)) { toast('⚠️ ' + t('backupLimit'), 4000); return; }
     const after = summary(merged);
-    const curDone = load<string[]>('lessonsDone', []);
-    const afterDoneCount = new Set([...curDone, ...parsed.lessonsDone]).size;
-    const curTours = load<string[]>('toursDone', []);
-    const afterTourCount = new Set([...curTours, ...parsed.toursDone]).size;
-    const curMistakes = load<MistakeBook>('mistakeBook', {});
-    const afterMistakeCount = Object.keys(mergeMistakeBook(curMistakes, parsed.mistakeBook)).length;
-    const curBm = bookmarks();
-    const afterBmCount = mergeBookmarks(curBm, parsed.bookmarks).length;
+    const localExtras = readLocalExtras();
+    const mergedExtras = mergeSyncExtras(localExtras, parsed);
     const row = (label: string, beforeVal: number, afterVal: number) => {
       const diff = afterVal - beforeVal;
       return h('tr', {},
@@ -54,42 +41,34 @@ export function importProgress(): void {
         h('td', {}, String(afterVal), diff > 0 ? h('small', { class: 'ok', style: 'margin-left:6px' }, `+${diff}`) : null));
     };
     const line = (k: 'seen' | 'found' | 'stickers' | 'likes') => row(t('bk_' + k), now[k], after[k]);
+    const dateLine = parsed.exportedAt
+      ? h('p', { class: 'muted small', 'data-testid': 'backup-date', style: 'margin:0 0 8px' },
+          t('backupDate', { date: new Date(parsed.exportedAt).toLocaleString(lang() === 'zh' ? 'zh-CN' : 'en') }))
+      : null;
     openModal('backup-import', t('backupImport'), h('div', { class: 'backup-preview', 'data-testid': 'backup-preview' },
       h('p', {}, t('backupMerge')),
+      dateLine,
       h('table', { class: 'facts' },
         h('tr', {}, h('th', {}), h('th', {}, t('bkNow')), h('th', {}, t('bkAfter'))),
         line('seen'),
         line('found'),
         line('stickers'),
         line('likes'),
-        row(t('bk_lessons'), curDone.length, afterDoneCount),
-        row(t('bk_tours'), curTours.length, afterTourCount),
-        row(t('bk_mistakes'), Object.keys(curMistakes).length, afterMistakeCount),
-        row(t('bk_bookmarks'), curBm.length, afterBmCount)),
+        row(t('bk_lessons'), (localExtras.lessonsDone ?? []).length, (mergedExtras.lessonsDone ?? []).length),
+        row(t('bk_tours'), (localExtras.toursDone ?? []).length, (mergedExtras.toursDone ?? []).length),
+        row(t('bk_journal'), Object.keys(localExtras.lessonJournal ?? {}).length, Object.keys(mergedExtras.lessonJournal ?? {}).length),
+        row(t('bk_mistakes'), Object.keys(localExtras.mistakeBook ?? {}).length, Object.keys(mergedExtras.mistakeBook ?? {}).length),
+        row(t('bk_bookmarks'), (localExtras.bookmarks ?? []).length, (mergedExtras.bookmarks ?? []).length)),
       h('div', { class: 'row' },
         h('button', { class: 'cta', 'data-testid': 'backup-merge', onclick: () => {
           const current = mergeProgress(store.progress, p);
           if (!canReplaceProgress(current)) { toast('⚠️ ' + t('backupLimit'), 4000); return; }
-          if (parsed.lessonsDone.length > 0) {
-            const curDone = load<string[]>('lessonsDone', []);
-            save('lessonsDone', [...new Set([...curDone, ...parsed.lessonsDone])]);
-          }
-          if (parsed.toursDone.length > 0) {
-            const curTours = load<string[]>('toursDone', []);
-            save('toursDone', [...new Set([...curTours, ...parsed.toursDone])]);
-          }
-          if (Object.keys(parsed.lessonJournal).length > 0) {
-            const curJournal = load<LessonJournal>('lessonJournal', {});
-            save('lessonJournal', mergeLessonJournal(curJournal, parsed.lessonJournal));
-          }
-          if (Object.keys(parsed.mistakeBook).length > 0) {
-            const curMistakes = load<MistakeBook>('mistakeBook', {});
-            save('mistakeBook', mergeMistakeBook(curMistakes, parsed.mistakeBook));
-          }
-          if (parsed.bookmarks.length > 0) {
-            const curBm = load<Bookmark[]>('bookmarks', []);
-            save('bookmarks', mergeBookmarks(curBm, parsed.bookmarks));
-          }
+          const nextExtras = mergeSyncExtras(readLocalExtras(), parsed);
+          save('lessonsDone', nextExtras.lessonsDone ?? []);
+          save('toursDone', nextExtras.toursDone ?? []);
+          save('lessonJournal', nextExtras.lessonJournal ?? {});
+          save('mistakeBook', nextExtras.mistakeBook ?? {});
+          save('bookmarks', nextExtras.bookmarks ?? []);
           replaceProgress(current, true);
           closeModal('backup-import'); toast('✅ ' + t('backupDone'));
         } }, t('backupMergeBtn')),

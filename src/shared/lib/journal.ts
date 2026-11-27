@@ -31,6 +31,18 @@ export type LessonJournal = Record<string, LessonJournalEntry>;
 
 const MAX_JOURNAL_ENTRIES = 500;
 
+function pruneLessonJournal(journal: LessonJournal): LessonJournal {
+  const entries = Object.values(journal);
+  if (entries.length <= MAX_JOURNAL_ENTRIES) return journal;
+  entries.sort((a, b) => {
+    const aMid = a.stepIndex > 0 && a.stepIndex < a.totalSteps ? 1 : 0;
+    const bMid = b.stepIndex > 0 && b.stepIndex < b.totalSteps ? 1 : 0;
+    if (aMid !== bMid) return bMid - aMid;
+    return b.updatedAt - a.updatedAt || a.id.localeCompare(b.id);
+  });
+  return Object.fromEntries(entries.slice(0, MAX_JOURNAL_ENTRIES).map(e => [e.id, e]));
+}
+
 export function recordLessonStep(
   journal: LessonJournal,
   id: string,
@@ -38,12 +50,15 @@ export function recordLessonStep(
   totalSteps: number,
   now = Date.now(),
 ): LessonJournal {
-  const prev = journal[id];
+  const cleanId = id.trim().slice(0, 64);
+  if (!cleanId) return journal;
+  const prev = journal[cleanId];
   const updatedAt = Math.max(now, (prev?.updatedAt ?? 0) + 1);
+  const cleanTotalSteps = Math.max(1, Math.floor(totalSteps));
   const entry: LessonJournalEntry = {
-    id,
-    stepIndex: Math.max(0, Math.min(totalSteps, Math.floor(stepIndex))),
-    totalSteps: Math.max(1, Math.floor(totalSteps)),
+    id: cleanId,
+    stepIndex: Math.max(0, Math.min(cleanTotalSteps, Math.floor(stepIndex))),
+    totalSteps: cleanTotalSteps,
     bestScore: prev?.bestScore ?? null,
     lastScore: prev?.lastScore ?? null,
     quizTotal: prev?.quizTotal ?? 0,
@@ -52,7 +67,7 @@ export function recordLessonStep(
     completedAt: prev?.completedAt ?? null,
     updatedAt,
   };
-  return { ...journal, [id]: entry };
+  return pruneLessonJournal({ ...journal, [cleanId]: entry });
 }
 
 export function recordLessonFinish(
@@ -64,7 +79,9 @@ export function recordLessonFinish(
   totalSteps: number,
   now = Date.now(),
 ): LessonJournal {
-  const prev = journal[id];
+  const cleanId = id.trim().slice(0, 64);
+  if (!cleanId) return journal;
+  const prev = journal[cleanId];
   const updatedAt = Math.max(now, (prev?.updatedAt ?? 0) + 1);
   const cleanTotal = Math.max(1, Math.floor(quizTotal));
   const cleanScore = Math.min(cleanTotal, Math.max(0, Math.floor(score)));
@@ -83,7 +100,7 @@ export function recordLessonFinish(
     if (dedupMissed.length >= 12) break;
   }
   const entry: LessonJournalEntry = {
-    id,
+    id: cleanId,
     stepIndex: 0,
     totalSteps: Math.max(1, Math.floor(totalSteps)),
     bestScore,
@@ -94,16 +111,16 @@ export function recordLessonFinish(
     completedAt: prev?.completedAt ?? updatedAt,
     updatedAt,
   };
-  return { ...journal, [id]: entry };
+  return pruneLessonJournal({ ...journal, [cleanId]: entry });
 }
 
 export function mergeLessonJournal(a: LessonJournal = {}, b: LessonJournal = {}): LessonJournal {
   const out = new Map<string, LessonJournalEntry>();
   for (const [k, v] of Object.entries(a)) {
-    if (isLessonJournalEntry(v)) out.set(k, v);
+    if (k.length <= 64 && isLessonJournalEntry(v) && v.id === k) out.set(k, v);
   }
   for (const [k, eb] of Object.entries(b)) {
-    if (!isLessonJournalEntry(eb)) continue;
+    if (k.length > 64 || !isLessonJournalEntry(eb) || eb.id !== k) continue;
     const ea = out.get(k);
     if (!ea) {
       out.set(k, eb);
@@ -133,7 +150,7 @@ export function mergeLessonJournal(a: LessonJournal = {}, b: LessonJournal = {})
       updatedAt: Math.max(ea.updatedAt, eb.updatedAt),
     });
   }
-  return Object.fromEntries(out);
+  return pruneLessonJournal(Object.fromEntries(out));
 }
 
 function isLessonJournalEntry(x: unknown): x is LessonJournalEntry {
@@ -559,21 +576,24 @@ export function isMistakeBook(x: unknown): x is MistakeBook {
 export function mergeMistakeBook(a: MistakeBook = {}, b: MistakeBook = {}): MistakeBook {
   const out = new Map<string, MistakeEntry>();
   for (const [k, v] of Object.entries(a)) {
-    if (isMistakeEntry(v)) out.set(k, v);
+    if (k.length <= 200 && isMistakeEntry(v) && v.key === k) out.set(k, v);
   }
   for (const [k, eb] of Object.entries(b)) {
-    if (!isMistakeEntry(eb)) continue;
+    if (k.length > 200 || !isMistakeEntry(eb) || eb.key !== k) continue;
     const ea = out.get(k);
     if (!ea) {
       out.set(k, eb);
       continue;
     }
-    const newer = eb.updatedAt >= ea.updatedAt ? eb : ea;
+    const tie = ea.updatedAt === eb.updatedAt;
+    const newer = tie ? (!eb.mastered ? eb : ea) : (eb.updatedAt > ea.updatedAt ? eb : ea);
+    const mastered = tie ? (ea.mastered && eb.mastered) : newer.mastered;
+    const reviewStreak = tie ? (mastered ? Math.max(ea.reviewStreak, eb.reviewStreak) : 0) : newer.reviewStreak;
     out.set(k, {
       ...newer,
       wrongCount: Math.max(ea.wrongCount, eb.wrongCount),
-      reviewStreak: newer.reviewStreak,
-      mastered: newer.mastered,
+      reviewStreak,
+      mastered,
       lastMissedAt: Math.max(ea.lastMissedAt, eb.lastMissedAt),
       updatedAt: Math.max(ea.updatedAt, eb.updatedAt),
     });

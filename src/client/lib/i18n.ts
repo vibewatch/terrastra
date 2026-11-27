@@ -696,6 +696,15 @@ const en = {
   mapFitWorld: "Fit world",
   mapQuizProgress: "Hide again ({n}/{total})",
   mapDistAngle: "∠{deg}°",
+  "passport.span": "Farthest span: {km} km ({a} ↔ {b})",
+  backupDate: "Backup created: {date}",
+  bk_journal: "Learning journal",
+  bmSearch: "Search saved views…",
+  bmRename: "Rename saved view",
+  bmRenamed: "Saved view renamed",
+  stickerFilterAll: "All ({n})",
+  stickerFilterEarned: "Earned ({n})",
+  stickerFilterLocked: "Locked ({n})",
 } as const;
 
 export type I18nKey = keyof typeof en;
@@ -1393,6 +1402,15 @@ const zh: Record<I18nKey, string> = {
   mapFitWorld: "全图视野",
   mapQuizProgress: "重新隐藏（{n}/{total}）",
   mapDistAngle: "角变形 {deg}°",
+  "passport.span": "最远探索跨度：{km} 公里（{a} ↔ {b}）",
+  backupDate: "备份创建时间：{date}",
+  bk_journal: "学习日志记录",
+  bmSearch: "搜索收藏视角…",
+  bmRename: "重命名收藏视角",
+  bmRenamed: "已重命名收藏视角",
+  stickerFilterAll: "全部（{n}）",
+  stickerFilterEarned: "已获得（{n}）",
+  stickerFilterLocked: "未解锁（{n}）",
 };
 
 const DICTS: Record<Lang, Dict> = { en, zh };

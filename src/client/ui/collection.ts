@@ -1,7 +1,8 @@
 import { subName } from '../../shared/data/subs.ts';
+import { CONTINENT_NAMES, type Continent } from '../../shared/data/iso.ts';
 import { h, openModal, closeModal } from './dom.ts';
 import { Select } from './select.ts';
-import { t, lang } from '../lib/i18n.ts';
+import { t, lang, countryName } from '../lib/i18n.ts';
 import { store } from '../store.ts';
 import { ANIMALS, DISCOVERIES, BY_TYPE, CATALOGUE } from '../../shared/data/catalogue.ts';
 import { TYPE_META, TYPE_ORDER } from '../../shared/data/typemeta.ts';
@@ -83,7 +84,14 @@ function dex(title: string, items: CatalogueItem[], got: Record<string, number>,
   });
   filterBar.append(...filterBtns, searchInp);
 
-  const countEl = h('p', { class: 'muted' }, t('found', { n: items.filter(i => i.key in got).length, t: items.length }));
+  const foundCount = items.filter(i => i.key in got).length;
+  const pct = items.length > 0 ? Math.round((foundCount / items.length) * 100) : 0;
+  const countEl = h('div', { style: 'margin-bottom:8px' },
+    h('div', { class: 'row', style: 'justify-content:space-between;margin-bottom:4px' },
+      h('span', { class: 'muted' }, t('found', { n: foundCount, t: items.length })),
+      h('strong', { class: 'small', 'data-testid': 'dex-pct' }, `${pct}%`)),
+    h('div', { style: 'height:6px;border-radius:999px;background:rgba(255,255,255,.1);overflow:hidden', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': String(items.length), 'aria-valuenow': String(foundCount) },
+      h('div', { style: `height:100%;width:${pct}%;background:var(--accent,#5cd6a9);transition:width .25s ease` })));
   const groupsWrap = h('div', { class: 'dex-groups' });
 
   const render = () => {
@@ -94,7 +102,10 @@ function dex(title: string, items: CatalogueItem[], got: Record<string, number>,
       if (status === 'found' && !have) return false;
       if (status === 'missing' && have) return false;
       if (q) {
-        const hay = `${it.name.en} ${it.name.zh ?? ''} ${subName(it.sub, 'en')} ${subName(it.sub, 'zh')}`.toLowerCase();
+        const cEn = countryName(it.country, 'en');
+        const cZh = countryName(it.country, 'zh');
+        const cont = CONTINENT_NAMES[it.continent as Continent];
+        const hay = `${it.name.en} ${it.name.zh ?? ''} ${subName(it.sub, 'en')} ${subName(it.sub, 'zh')} ${cEn} ${cZh} ${cont?.en ?? ''} ${cont?.zh ?? ''}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
@@ -134,18 +145,51 @@ function dex(title: string, items: CatalogueItem[], got: Record<string, number>,
 
 function stickers(): void {
   let order = load<'default' | 'earned'>('stickerSort', 'default');
+  let filter: 'all' | 'earned' | 'locked' = 'all';
   const grid = h('div', { class: 'sticker-grid', 'data-testid': 'sticker-grid' });
+  const filterWrap = h('div', { class: 'row', style: 'gap:6px;flex-wrap:wrap' });
   const sel = new Select({ label: t('sortBy'), testid: 'sticker-sort', icon: 'trophy', value: order,
     options: [{ value: 'default', label: t('sortDefault') }, { value: 'earned', label: t('sortEarned') }],
     onChange: v => { order = v as typeof order; save('stickerSort', order); render(); } }).el;
   const render = () => {
+    const l = lang();
     const got = store.progress.stickers;
-    const list = STICKERS.slice();
+    const earnedTotal = STICKERS.filter(s => Boolean(got[s.id])).length;
+    const lockedTotal = STICKERS.length - earnedTotal;
+    const filterDefs: ReadonlyArray<{ id: 'all' | 'earned' | 'locked'; label: string }> = [
+      { id: 'all', label: t('stickerFilterAll', { n: STICKERS.length }) },
+      { id: 'earned', label: t('stickerFilterEarned', { n: earnedTotal }) },
+      { id: 'locked', label: t('stickerFilterLocked', { n: lockedTotal }) },
+    ];
+    filterWrap.replaceChildren(...filterDefs.map(fd => h('button', {
+      class: 'pill pill-sm' + (fd.id === filter ? ' active' : ''),
+      'data-testid': 'sticker-filter-' + fd.id,
+      onclick: () => { filter = fd.id; render(); },
+    }, fd.label)));
+
+    const list = STICKERS.filter(s => {
+      const have = Boolean(got[s.id]);
+      if (filter === 'earned' && !have) return false;
+      if (filter === 'locked' && have) return false;
+      return true;
+    });
     if (order === 'earned') list.sort((a, b) => (got[a.id] ? 0 : 1) - (got[b.id] ? 0 : 1) || (got[a.id] ?? 0) - (got[b.id] ?? 0));
-    grid.replaceChildren(...list.map(s => h('div', { class: 'sticker' + (got[s.id] ? ' have' : ''), 'data-sticker': s.id },
-      h('span', { class: 'st-emoji', 'aria-hidden': 'true' }, got[s.id] ? s.emoji : '🔒'), h('span', {}, tr(s.name, lang())),
-      got[s.id] ? h('small', {}, new Date(got[s.id]).toLocaleDateString()) : null)));
+    if (list.length === 0) {
+      grid.replaceChildren(h('p', { class: 'muted', 'data-testid': 'sticker-empty' }, t('dexEmptyFilter')));
+      return;
+    }
+    grid.replaceChildren(...list.map(s => {
+      const unlockedAt = got[s.id];
+      return h('div', {
+        class: 'sticker' + (unlockedAt ? ' have' : ''),
+        'data-sticker': s.id,
+        title: tr(s.hint, l),
+      },
+        h('span', { class: 'st-emoji', 'aria-hidden': 'true' }, unlockedAt ? s.emoji : '🔒'),
+        h('span', {}, tr(s.name, l)),
+        h('small', { class: 'muted' }, unlockedAt ? new Date(unlockedAt).toLocaleDateString() : tr(s.hint, l)));
+    }));
   };
   render();
-  openModal('stickers', t('stickers'), h('div', {}, h('div', { class: 'row end' }, sel), grid), { wide: true });
+  openModal('stickers', t('stickers'), h('div', {}, h('div', { class: 'row', style: 'justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px' }, filterWrap, sel), grid), { wide: true });
 }

@@ -2,6 +2,7 @@ import { BY_KEY } from '../data/catalogue.ts';
 import { CONTINENT_NAMES, type Continent } from '../data/iso.ts';
 import { PASSPORTS, bookProgress } from '../data/passports.ts';
 import { tr, type CatalogueItem } from '../data/types.ts';
+import { haversineKm, latLonToVec } from './geo.ts';
 import { formatCoordPair } from './geodesic.ts';
 import { isLessonJournal, type LessonJournal } from './journal.ts';
 import type { Progress } from './progress.ts';
@@ -23,6 +24,9 @@ export interface ExplorerStats {
   northernmost: CatalogueItem | null;
   southernmost: CatalogueItem | null;
   highestPeak: CatalogueItem | null;
+  deepestSpot: CatalogueItem | null;
+  antipodalSpanKm: number;
+  antipodalPair: [CatalogueItem, CatalogueItem] | null;
   dexCount: number;
   logsCount: number;
   foundCount: number;
@@ -34,12 +38,18 @@ export interface ExplorerStats {
   dailyMaxStreak: number;
 }
 
-export function computeExplorerStats(progress: Progress, journal?: LessonJournal): ExplorerStats {
+export function computeExplorerStats(
+  progress: Progress,
+  journal?: LessonJournal,
+  lessonsDone?: readonly string[],
+): ExplorerStats {
   const continents = new Set<Continent>();
   const countries = new Set<string>();
   let northernmost: CatalogueItem | null = null;
   let southernmost: CatalogueItem | null = null;
   let highestPeak: CatalogueItem | null = null;
+  let deepestSpot: CatalogueItem | null = null;
+  const fixedPts: { it: CatalogueItem; v: [number, number, number] }[] = [];
 
   for (const key of Object.keys(progress.seen)) {
     const it = BY_KEY.get(key);
@@ -50,19 +60,57 @@ export function computeExplorerStats(progress: Progress, journal?: LessonJournal
     if (it.country) {
       countries.add(it.country);
     }
-    if (!it.route && Number.isFinite(it.lat)) {
+    if (!it.route && Number.isFinite(it.lat) && Number.isFinite(it.lon)) {
       if (!northernmost || it.lat > northernmost.lat) northernmost = it;
       if (!southernmost || it.lat < southernmost.lat) southernmost = it;
       const h = it.facts?.heightM;
       if (typeof h === 'number' && h > 0 && (!highestPeak || h > (highestPeak.facts?.heightM ?? 0))) {
         highestPeak = it;
       }
+      const d = it.facts?.depthM;
+      if (typeof d === 'number' && d > 0 && (!deepestSpot || d > (deepestSpot.facts?.depthM ?? 0))) {
+        deepestSpot = it;
+      }
+      fixedPts.push({ it, v: latLonToVec(it.lat, it.lon) });
     }
   }
 
-  const lessonsCompleted = journal && isLessonJournal(journal)
-    ? Object.values(journal).filter(e => e.completedAt !== null).length
-    : 0;
+  let antipodalSpanKm = 0;
+  let antipodalPair: [CatalogueItem, CatalogueItem] | null = null;
+  if (fixedPts.length >= 2) {
+    let minDot = Infinity;
+    let bestI = 0;
+    let bestJ = 1;
+    for (let i = 0; i < fixedPts.length; i++) {
+      const [ax, ay, az] = fixedPts[i].v;
+      for (let j = i + 1; j < fixedPts.length; j++) {
+        const [bx, by, bz] = fixedPts[j].v;
+        const dot = ax * bx + ay * by + az * bz;
+        if (dot < minDot) {
+          minDot = dot;
+          bestI = i;
+          bestJ = j;
+        }
+      }
+    }
+    const a = fixedPts[bestI].it;
+    const b = fixedPts[bestJ].it;
+    antipodalPair = [a, b];
+    antipodalSpanKm = Math.round(haversineKm(a.lat, a.lon, b.lat, b.lon));
+  }
+
+  const completedSet = new Set<string>();
+  if (journal && isLessonJournal(journal)) {
+    for (const e of Object.values(journal)) {
+      if (e.completedAt !== null) completedSet.add(e.id);
+    }
+  }
+  if (Array.isArray(lessonsDone)) {
+    for (const id of lessonsDone) {
+      if (typeof id === 'string' && id.length > 0 && id.length <= 64) completedSet.add(id);
+    }
+  }
+  const lessonsCompleted = completedSet.size;
 
   const quizAnswered = Math.max(0, progress.quiz?.answered ?? 0);
   const quizCorrect = Math.min(quizAnswered, Math.max(0, progress.quiz?.correct ?? 0));
@@ -77,6 +125,9 @@ export function computeExplorerStats(progress: Progress, journal?: LessonJournal
     northernmost,
     southernmost,
     highestPeak,
+    deepestSpot,
+    antipodalSpanKm,
+    antipodalPair,
     dexCount: Object.keys(progress.dex).length,
     logsCount: Object.keys(progress.logs).length,
     foundCount: Object.keys(progress.found).length,
@@ -94,8 +145,9 @@ export function formatFieldLogMarkdown(
   journal: LessonJournal | undefined,
   lang: 'en' | 'zh',
   nowMs = Date.now(),
+  lessonsDone?: readonly string[],
 ): string {
-  const stats = computeExplorerStats(progress, journal);
+  const stats = computeExplorerStats(progress, journal, lessonsDone);
   const dateStr = new Date(nowMs).toISOString().slice(0, 10);
   const isZh = lang === 'zh';
   const lines: string[] = [];
@@ -133,6 +185,17 @@ export function formatFieldLogMarkdown(
       lines.push(isZh
         ? `- **最高海拔**: ${stats.highestPeak.emoji} ${tr(stats.highestPeak.name, lang)} (${Math.round(stats.highestPeak.facts.heightM).toLocaleString()} m)`
         : `- **Highest elevation**: ${stats.highestPeak.emoji} ${tr(stats.highestPeak.name, lang)} (${Math.round(stats.highestPeak.facts.heightM).toLocaleString()} m)`);
+    }
+    if (stats.deepestSpot && typeof stats.deepestSpot.facts?.depthM === 'number') {
+      lines.push(isZh
+        ? `- **最深足迹**: ${stats.deepestSpot.emoji} ${tr(stats.deepestSpot.name, lang)} (${Math.round(stats.deepestSpot.facts.depthM).toLocaleString()} m)`
+        : `- **Deepest spot**: ${stats.deepestSpot.emoji} ${tr(stats.deepestSpot.name, lang)} (${Math.round(stats.deepestSpot.facts.depthM).toLocaleString()} m)`);
+    }
+    if (stats.antipodalPair && stats.antipodalSpanKm > 0) {
+      const [pa, pb] = stats.antipodalPair;
+      lines.push(isZh
+        ? `- **最大大圆跨度**: ${stats.antipodalSpanKm.toLocaleString()} km (${pa.emoji} ${tr(pa.name, lang)} ↔ ${pb.emoji} ${tr(pb.name, lang)})`
+        : `- **Farthest span**: ${stats.antipodalSpanKm.toLocaleString()} km (${pa.emoji} ${tr(pa.name, lang)} ↔ ${pb.emoji} ${tr(pb.name, lang)})`);
     }
   }
 

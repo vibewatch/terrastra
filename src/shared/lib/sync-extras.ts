@@ -101,6 +101,25 @@ export function emptySyncExtras(): SyncExtras {
   return { lessonsDone: [], toursDone: [], lessonJournal: {}, mistakeBook: {}, bookmarks: [] };
 }
 
+/**
+ * Coerces arbitrary or partially-corrupt local storage extras into a guaranteed-valid `SyncExtras`
+ * (`isSyncExtras(out) === true`) so a single malformed or over-limit local key never blocks cloud sync.
+ */
+export function sanitizeSyncExtras(raw: unknown): SyncExtras {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return emptySyncExtras();
+  const r = raw as Record<string, unknown>;
+  const lessonsDone = Array.isArray(r.lessonsDone) ? mergeIdList([], r.lessonsDone as string[]) : [];
+  const toursDone = Array.isArray(r.toursDone) ? mergeIdList([], r.toursDone as string[]) : [];
+  const lessonJournal = r.lessonJournal && typeof r.lessonJournal === 'object' && !Array.isArray(r.lessonJournal)
+    ? mergeLessonJournal({}, r.lessonJournal as LessonJournal)
+    : {};
+  const mistakeBook = r.mistakeBook && typeof r.mistakeBook === 'object' && !Array.isArray(r.mistakeBook)
+    ? mergeMistakeBook({}, r.mistakeBook as MistakeBook)
+    : {};
+  const bookmarks = Array.isArray(r.bookmarks) ? mergeSyncBookmarks([], r.bookmarks as SyncBookmark[]) : [];
+  return { lessonsDone, toursDone, lessonJournal, mistakeBook, bookmarks };
+}
+
 export function mergeSyncExtras(a: SyncExtras = {}, b: SyncExtras = {}): SyncExtras {
   return {
     lessonsDone: mergeIdList(a.lessonsDone, b.lessonsDone),

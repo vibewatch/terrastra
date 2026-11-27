@@ -2,8 +2,7 @@ import { load, save } from './lib/storage.ts';
 import { PAYWALL_DEMO } from './lib/env.ts';
 import { emptyProgress, fitsSyncRequest, isProgress, mergeProgress, type Progress } from '../shared/lib/progress.ts';
 import { hasProAccess, type Plan } from '../shared/lib/entitlements.ts';
-import { isSyncExtras, mergeSyncExtras, type SyncBookmark, type SyncExtras } from '../shared/lib/sync-extras.ts';
-import type { LessonJournal, MistakeBook } from '../shared/lib/journal.ts';
+import { isSyncExtras, mergeSyncExtras, sanitizeSyncExtras, type SyncExtras } from '../shared/lib/sync-extras.ts';
 import { newlyEarned } from '../shared/lib/stickers.ts';
 import { ANIMALS, DISCOVERIES } from '../shared/data/catalogue.ts';
 import { DEFAULT_SETTINGS, type Settings } from './globe/scene.ts';
@@ -105,11 +104,17 @@ export function canReplaceProgress(p: unknown): p is Progress {
 
 export function replaceProgress(p: Progress, sync = false): void {
   if (!canReplaceProgress(p)) throw new ProgressLimitError();
+  const earned = isEmptyProgress(p)
+    ? []
+    : newlyEarned(p, { animals: ANIMALS.length, discoveries: DISCOVERIES.length });
   store.progress = p;
   lastSavedRef = p;
   save('progress', p);
   emit();
-  if (sync) scheduleSync();
+  if (sync) {
+    for (const id of earned) onSticker(id);
+    scheduleSync();
+  }
 }
 
 if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
@@ -126,6 +131,9 @@ if (typeof window !== 'undefined' && typeof window.addEventListener === 'functio
         if (isProgress(incoming)) {
           const normalized = isEmptyProgress(incoming) ? emptyProgress() : mergeProgress(emptyProgress(), incoming);
           const merged = isEmptyProgress(incoming) ? emptyProgress() : mergeProgress(store.progress, normalized);
+          if (!isEmptyProgress(merged)) {
+            newlyEarned(merged, { animals: ANIMALS.length, discoveries: DISCOVERIES.length });
+          }
           store.progress = merged;
           lastSavedRef = store.progress;
           if (!isEmptyProgress(incoming) && JSON.stringify(merged) !== JSON.stringify(normalized)) {
@@ -214,13 +222,13 @@ export function canUsePro(): boolean {
 }
 
 export function readLocalExtras(): SyncExtras {
-  return {
-    lessonsDone: load<string[]>('lessonsDone', []),
-    toursDone: load<string[]>('toursDone', []),
-    lessonJournal: load<LessonJournal>('lessonJournal', {}),
-    mistakeBook: load<MistakeBook>('mistakeBook', {}),
-    bookmarks: load<SyncBookmark[]>('bookmarks', []),
-  };
+  return sanitizeSyncExtras({
+    lessonsDone: load<unknown>('lessonsDone', []),
+    toursDone: load<unknown>('toursDone', []),
+    lessonJournal: load<unknown>('lessonJournal', {}),
+    mistakeBook: load<unknown>('mistakeBook', {}),
+    bookmarks: load<unknown>('bookmarks', []),
+  });
 }
 
 export function applyRemoteExtras(remote: unknown): void {

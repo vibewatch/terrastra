@@ -43,7 +43,8 @@ export function openPassport(hooks: PassportHooks): void {
     sfx.tap();
     const rawJ = load<unknown>('lessonJournal', {});
     const j: LessonJournal = isLessonJournal(rawJ) ? rawJ : {};
-    const md = formatFieldLogMarkdown(store.progress, j, lang());
+    const done = load<string[]>('lessonsDone', []);
+    const md = formatFieldLogMarkdown(store.progress, j, lang(), Date.now(), done);
     const dateStr = new Date().toISOString().slice(0, 10);
     const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);
@@ -59,7 +60,8 @@ export function openPassport(hooks: PassportHooks): void {
   const render = () => {
     const l = lang(), seen = store.progress.seen;
     const rawJ = load<unknown>('lessonJournal', {});
-    const stats = computeExplorerStats(store.progress, isLessonJournal(rawJ) ? rawJ : undefined);
+    const done = load<string[]>('lessonsDone', []);
+    const stats = computeExplorerStats(store.progress, isLessonJournal(rawJ) ? rawJ : undefined, done);
     const peakM = stats.highestPeak?.facts?.heightM;
     summaryBar.replaceChildren(
       h('div', { class: 'passport-summary-text' },
@@ -75,6 +77,11 @@ export function openPassport(hooks: PassportHooks): void {
         stats.highestPeak && typeof peakM === 'number' ? h('small', { class: 'muted', 'data-testid': 'passport-highest-peak' }, t('passport.highestPeak', {
           name: `${stats.highestPeak.emoji} ${tr(stats.highestPeak.name, l)}`,
           m: fmtNum(peakM),
+        })) : null,
+        stats.antipodalPair && stats.antipodalSpanKm > 0 ? h('small', { class: 'muted', 'data-testid': 'passport-span' }, t('passport.span', {
+          km: fmtNum(stats.antipodalSpanKm),
+          a: `${stats.antipodalPair[0].emoji} ${tr(stats.antipodalPair[0].name, l)}`,
+          b: `${stats.antipodalPair[1].emoji} ${tr(stats.antipodalPair[1].name, l)}`,
         })) : null),
       h('button', {
         class: 'pill pill-sm',

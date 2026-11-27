@@ -30,8 +30,12 @@ function flushPending(s: Storage): void {
   for (const k of [...pending]) {
     const raw = mem.get(k);
     if (raw === undefined) { pending.delete(k); continue; }
-    s.setItem(k, raw);
-    pending.delete(k);
+    try {
+      s.setItem(k, raw);
+      pending.delete(k);
+    } catch {
+      // Keep only keys that still exceed quota in pending so smaller keys flush cleanly.
+    }
   }
   if (pending.size === 0) lost = false;
 }
@@ -79,3 +83,27 @@ export function save<T>(key: string, value: T): void { write(key, JSON.stringify
 /** For existing settings stored as plain strings rather than JSON. */
 export function loadText(key: string, fallback: string): string { return read(key) ?? fallback; }
 export function saveText(key: string, value: string): void { write(key, value); }
+
+/** UTF-8 byte footprint of namespaced `pp.*` entries currently persisted or buffered in memory. */
+export function storageUsageBytes(): { keys: number; bytes: number; pendingKeys: number } {
+  const seen = new Map<string, string>();
+  try {
+    const s = ls();
+    if (s) {
+      for (let i = 0; i < s.length; i++) {
+        const k = s.key(i);
+        if (k && k.startsWith(NS)) {
+          const v = s.getItem(k);
+          if (v !== null) seen.set(k, v);
+        }
+      }
+    }
+  } catch { /* fallback to mem */ }
+  for (const [k, v] of mem) {
+    if (k.startsWith(NS) && (!seen.has(k) || pending.has(k))) seen.set(k, v);
+  }
+  const enc = new TextEncoder();
+  let bytes = 0;
+  for (const [k, v] of seen) bytes += enc.encode(k).byteLength + enc.encode(v).byteLength;
+  return { keys: seen.size, bytes, pendingKeys: pending.size };
+}

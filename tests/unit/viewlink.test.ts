@@ -1,10 +1,22 @@
 import { describe, it, expect } from 'vitest';
-import { parseView, encodeView } from '../../src/client/lib/viewlink.ts';
-import { isBookmark, mergeBookmarks } from '../../src/client/lib/backup-file.ts';
-import { isSyncBookmark } from '../../src/shared/lib/sync-extras.ts';
-import { emptyProgress, isProgress, mergeProgress } from '../../src/shared/lib/progress.ts';
-import { computeJournalMastery, mergeLessonJournal, recordLessonFinish } from '../../src/shared/lib/journal.ts';
+import { parseView, encodeView, addBookmark, bookmarks, renameBookmark } from '../../src/client/lib/viewlink.ts';
+import { backupOf, isBookmark, mergeBookmarks, readBackupFull } from '../../src/client/lib/backup-file.ts';
+import { isSyncBookmark, isSyncExtras, mergeSyncBookmarks, sanitizeSyncExtras } from '../../src/shared/lib/sync-extras.ts';
+import { emptyProgress, fitProgress, isProgress, mergeProgress } from '../../src/shared/lib/progress.ts';
+import {
+  computeJournalMastery,
+  isLessonJournal,
+  mergeLessonJournal,
+  mergeMistakeBook,
+  recordLessonFinish,
+  recordLessonStep,
+  recordMistake,
+  recordMistakeReview,
+  type LessonJournal,
+} from '../../src/shared/lib/journal.ts';
 import { computeExplorerStats, formatFieldLogMarkdown } from '../../src/shared/lib/field-log.ts';
+import { STICKERS } from '../../src/shared/lib/stickers.ts';
+import { replaceProgress, setStickerHandler, store } from '../../src/client/store.ts';
 
 describe('view links', () => {
   it('round-trips a globe camera on an item route', () => {
@@ -90,5 +102,103 @@ describe('view links', () => {
     const md = formatFieldLogMarkdown(p, j, 'en', 1700000000000);
     expect(md).toContain('Highest elevation');
     expect(md).toContain('Quiz accuracy**: 85%');
+  });
+
+  it('caps LessonJournal merges at 500 preserving mid-lesson entries and breaks MistakeBook ties safely (#112)', () => {
+    const a: LessonJournal = {};
+    const b: LessonJournal = {};
+    for (let i = 0; i < 300; i++) {
+      Object.assign(a, recordLessonFinish({}, `a-${i}`, 3, 4, [], 6, 1000 + i));
+      Object.assign(b, recordLessonFinish({}, `b-${i}`, 4, 4, [], 6, 2000 + i));
+    }
+    const withResume = recordLessonStep(a, 'in-progress-mid', 2, 8, 500);
+    const merged = mergeLessonJournal(withResume, b);
+    expect(Object.keys(merged).length).toBe(500);
+    expect(isLessonJournal(merged)).toBe(true);
+    expect(merged['in-progress-mid']?.stepIndex).toBe(2);
+
+    const missed = recordMistake({}, 'g7-earth', { q: ['Q1', '问题1'], why: ['W1', '解析1'] }, 5000);
+    const key = Object.keys(missed)[0];
+    const masteredCopy = recordMistakeReview(missed, key, true, 5000);
+    // Equal updatedAt tie between unmastered and mastered keeps unmastered so active mistakes aren't lost
+    const tied = mergeMistakeBook(
+      { [key]: { ...masteredCopy[key], updatedAt: 6000 } },
+      { [key]: { ...missed[key], updatedAt: 6000, wrongCount: 3 } },
+    );
+    expect(tied[key].mastered).toBe(false);
+    expect(tied[key].wrongCount).toBe(3);
+  });
+
+  it('sanitizes corrupt/oversized SyncExtras, Progress counters, and >100 placeit modes (#113, #115)', () => {
+    const dirty = sanitizeSyncExtras({
+      lessonsDone: ['ok-1', '', 123, 'x'.repeat(90), ...Array.from({ length: 520 }, (_, i) => `l-${i}`)],
+      toursDone: ['tour-1', null],
+      lessonJournal: { bad: { id: 'mismatch' } },
+      mistakeBook: { bad: { key: 'bad' } },
+      bookmarks: [
+        { route: 'eiffel', label: { en: 'Eiffel' }, at: 100 },
+        { route: '', label: { en: 'Invalid' }, at: 200 },
+      ],
+    });
+    expect(isSyncExtras(dirty)).toBe(true);
+    expect(dirty.lessonsDone?.length).toBe(500);
+    expect(dirty.bookmarks?.length).toBe(1);
+
+    const pA = emptyProgress();
+    for (let i = 0; i < 120; i++) pA.placeit[`mode-${i}`] = { best: i * 50, plays: 1 };
+    const fitted = fitProgress(pA);
+    expect(Object.keys(fitted.placeit).length).toBe(100);
+    expect(isProgress(fitted)).toBe(true);
+
+    const corrupt = emptyProgress();
+    (corrupt.quiz as unknown as Record<string, unknown>).answered = NaN;
+    (corrupt.placeit as Record<string, unknown>).bad = { best: -50, plays: Infinity };
+    const cleanMerged = mergeProgress(corrupt, emptyProgress());
+    expect(isProgress(cleanMerged)).toBe(true);
+    expect(cleanMerged.placeit.bad).toEqual({ best: 0, plays: 0 });
+  });
+
+  it('unlocks retroactive stickers on replaceProgress, tracks deepest/span in Field Log, and renames bookmarks (#114, #116, #117, #118, #119)', () => {
+    expect(STICKERS.every(s => Boolean(s.hint.en && s.hint.zh))).toBe(true);
+
+    const unlocked: string[] = [];
+    setStickerHandler(id => unlocked.push(id));
+    try {
+      const p = emptyProgress();
+      p.dex.an_panda = 1000;
+      p.seen.everest = 1000;
+      p.seen.dc_endurance = 2000;
+      p.seen.dc_challenger = 3000;
+      replaceProgress(p, true);
+      expect(store.progress.stickers.first_animal).toBeGreaterThan(0);
+      expect(unlocked).toContain('first_animal');
+
+      const stats = computeExplorerStats(store.progress, {}, ['g7-earth', 'g7-map']);
+      expect(stats.lessonsCompleted).toBe(2);
+      expect(stats.antipodalSpanKm).toBeGreaterThan(10_000);
+      expect(stats.antipodalPair).not.toBeNull();
+      expect(stats.deepestSpot?.key).toBe('dc_challenger');
+      expect(stats.deepestSpot?.facts?.depthM).toBe(10935);
+      const md = formatFieldLogMarkdown(store.progress, {}, 'zh', 1700000000000, ['g7-earth']);
+      expect(md).toContain('最大大圆跨度');
+      expect(md).toContain('最深足迹');
+
+      const rawBk = JSON.stringify(backupOf(store.progress, 1712345678000, { lessonsDone: ['g7-earth'] }));
+      const parsed = readBackupFull(rawBk);
+      expect(parsed?.exportedAt).toBe(1712345678000);
+      expect(parsed?.lessonsDone).toEqual(['g7-earth']);
+
+      addBookmark({ route: 'solar/mars', label: { en: 'Mars', zh: '火星' }, at: 1000 });
+      expect(renameBookmark({ route: 'solar/mars' }, 'Olympus Mons Flyby', 2500)).toBe(true);
+      const saved = bookmarks().find(b => b.route === 'solar/mars')!;
+      expect(saved.label.en).toBe('Olympus Mons Flyby');
+      expect(saved.at).toBe(2500);
+      // CRDT merge keeps renamed title over older copy
+      const synced = mergeSyncBookmarks([{ route: 'solar/mars', label: { en: 'Mars' }, at: 1000 }], [saved]);
+      expect(synced[0].label.en).toBe('Olympus Mons Flyby');
+    } finally {
+      setStickerHandler(() => {});
+      store.progress = emptyProgress();
+    }
   });
 });

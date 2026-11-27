@@ -28,9 +28,15 @@ export function emptyProgress(): Progress {
     daily: { ...EMPTY_STATS, dist: [...EMPTY_STATS.dist] }, updatedAt: 0 };
 }
 
+const cleanNonNeg = (v: unknown): number => typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : 0;
+
 function unionEarliest(a: Stamp = {}, b: Stamp = {}): Stamp {
-  const out = new Map(Object.entries(a));
+  const out = new Map<string, number>();
+  for (const [k, v] of Object.entries(a)) {
+    if (k.length <= 64 && typeof v === 'number' && Number.isFinite(v)) out.set(k, v);
+  }
   for (const [k, v] of Object.entries(b)) {
+    if (k.length > 64 || typeof v !== 'number' || !Number.isFinite(v)) continue;
     const previous = out.get(k);
     out.set(k, previous === undefined ? v : Math.min(previous, v));
   }
@@ -46,8 +52,12 @@ export const countOn = (m: Stamp | undefined): number => Object.values(m ?? {}).
 
 /** per key, the latest switch wins (whichever side it came from) */
 function latestToggle(a: Stamp = {}, b: Stamp = {}): Stamp {
-  const out = new Map(Object.entries(a));
+  const out = new Map<string, number>();
+  for (const [k, v] of Object.entries(a)) {
+    if (k.length <= 64 && typeof v === 'number' && Number.isFinite(v)) out.set(k, v);
+  }
   for (const [k, v] of Object.entries(b)) {
+    if (k.length > 64 || typeof v !== 'number' || !Number.isFinite(v)) continue;
     const previous = out.get(k);
     if (previous === undefined || Math.abs(v) > Math.abs(previous)) out.set(k, v);
   }
@@ -60,24 +70,44 @@ function latestToggle(a: Stamp = {}, b: Stamp = {}): Stamp {
  * likes/visited are toggles: the latest switch of each key wins.
  */
 export function mergeProgress(a: Progress, b: Progress): Progress {
-  const placeit = new Map(Object.entries(a.placeit ?? {}));
-  for (const [k, r] of Object.entries(b.placeit ?? {})) {
-    const p = placeit.get(k);
-    placeit.set(k, p ? { best: Math.max(p.best, r.best), plays: Math.max(p.plays, r.plays) } : r);
+  const placeit = new Map<string, PlaceItRecord>();
+  for (const [k, r] of Object.entries(a.placeit ?? {})) {
+    if (k.length <= 64 && r && typeof r === 'object') {
+      placeit.set(k, { best: cleanNonNeg(r.best), plays: cleanNonNeg(r.plays) });
+    }
   }
-  const bySet = new Map(Object.entries(a.quiz?.bySet ?? {}));
-  for (const [k, v] of Object.entries(b.quiz?.bySet ?? {})) bySet.set(k, Math.max(bySet.get(k) ?? 0, v));
+  for (const [k, r] of Object.entries(b.placeit ?? {})) {
+    if (k.length > 64 || !r || typeof r !== 'object') continue;
+    const p = placeit.get(k);
+    const rb = cleanNonNeg(r.best), rp = cleanNonNeg(r.plays);
+    placeit.set(k, p ? { best: Math.max(p.best, rb), plays: Math.max(p.plays, rp) } : { best: rb, plays: rp });
+  }
+  const bySet = new Map<string, number>();
+  for (const [k, v] of Object.entries(a.quiz?.bySet ?? {})) {
+    if (k.length <= 64 && typeof v === 'number' && Number.isFinite(v) && v >= 0) bySet.set(k, v);
+  }
+  for (const [k, v] of Object.entries(b.quiz?.bySet ?? {})) {
+    if (k.length <= 64 && typeof v === 'number' && Number.isFinite(v) && v >= 0) {
+      bySet.set(k, Math.max(bySet.get(k) ?? 0, v));
+    }
+  }
   const da = a.daily ?? EMPTY_STATS, db = b.daily ?? EMPTY_STATS;
-  const wa = da.lastWonDay ?? -1, wb = db.lastWonDay ?? -1;
+  const wa = typeof da.lastWonDay === 'number' && Number.isFinite(da.lastWonDay) ? da.lastWonDay : -1;
+  const wb = typeof db.lastWonDay === 'number' && Number.isFinite(db.lastWonDay) ? db.lastWonDay : -1;
+  const daPlayed = cleanNonNeg(da.played), dbPlayed = cleanNonNeg(db.played);
+  const aUpdated = cleanNonNeg(a.updatedAt), bUpdated = cleanNonNeg(b.updatedAt);
   const dailyNewer = wa !== wb
     ? (wa > wb ? da : db)
-    : da.played !== db.played
-      ? (da.played > db.played ? da : db)
-      : (a.updatedAt ?? 0) >= (b.updatedAt ?? 0) ? da : db;
-  const quizAnswered = Math.max(0, a.quiz?.answered ?? 0, b.quiz?.answered ?? 0);
-  const quizCorrect = Math.min(quizAnswered, Math.max(0, a.quiz?.correct ?? 0, b.quiz?.correct ?? 0));
-  const dailyPlayed = Math.max(0, da.played, db.played);
-  const dailyWon = Math.min(dailyPlayed, Math.max(0, da.won, db.won));
+    : daPlayed !== dbPlayed
+      ? (daPlayed > dbPlayed ? da : db)
+      : aUpdated >= bUpdated ? da : db;
+  const quizAnswered = Math.max(cleanNonNeg(a.quiz?.answered), cleanNonNeg(b.quiz?.answered));
+  const quizCorrect = Math.min(quizAnswered, Math.max(cleanNonNeg(a.quiz?.correct), cleanNonNeg(b.quiz?.correct)));
+  const dailyPlayed = Math.max(daPlayed, dbPlayed);
+  const dailyWon = Math.min(dailyPlayed, Math.max(cleanNonNeg(da.won), cleanNonNeg(db.won)));
+  const newerLastWon = dailyNewer.lastWonDay !== null && typeof dailyNewer.lastWonDay === 'number' && Number.isFinite(dailyNewer.lastWonDay)
+    ? dailyNewer.lastWonDay
+    : null;
   return {
     v: 1,
     dex: unionEarliest(a.dex, b.dex), logs: unionEarliest(a.logs, b.logs), stickers: unionEarliest(a.stickers, b.stickers),
@@ -86,11 +116,11 @@ export function mergeProgress(a: Progress, b: Progress): Progress {
     placeit: Object.fromEntries(placeit),
     quiz: { answered: quizAnswered, correct: quizCorrect, bySet: Object.fromEntries(bySet) },
     daily: {
-      played: dailyPlayed, won: dailyWon, streak: Math.max(0, dailyNewer.streak),
-      maxStreak: Math.max(0, da.maxStreak, db.maxStreak), lastWonDay: dailyNewer.lastWonDay,
-      dist: da.dist.map((v, i) => Math.max(0, v, db.dist?.[i] ?? 0)),
+      played: dailyPlayed, won: dailyWon, streak: cleanNonNeg(dailyNewer.streak),
+      maxStreak: Math.max(cleanNonNeg(da.maxStreak), cleanNonNeg(db.maxStreak)), lastWonDay: newerLastWon,
+      dist: EMPTY_STATS.dist.map((_, i) => Math.max(cleanNonNeg(da.dist?.[i]), cleanNonNeg(db.dist?.[i]))),
     },
-    updatedAt: Math.max(a.updatedAt ?? 0, b.updatedAt ?? 0),
+    updatedAt: Math.max(aUpdated, bUpdated),
   };
 }
 
@@ -143,6 +173,11 @@ export function fitProgress(p: Progress): Progress {
   // Collection keys are bounded by the catalogue, so only a malformed client can overflow them; that record is left
   // as it is and still refused, rather than silently dropping something a child earned.
   const out: Progress = { ...p };
+  if (out.placeit && Object.keys(out.placeit).length > 100) {
+    const entries = Object.entries(out.placeit)
+      .sort(([ka, ra], [kb, rb]) => rb.best - ra.best || rb.plays - ra.plays || ka.localeCompare(kb));
+    out.placeit = Object.fromEntries(entries.slice(0, 100));
+  }
   for (const k of EXPENDABLE) if (out[k]) out[k] = keepEarliest(out[k], MAX_STAMPS);
   if (fitsSyncRequest(out)) return out;
   out.likes = { ...out.likes }; out.visited = { ...out.visited }; out.seen = { ...out.seen };
