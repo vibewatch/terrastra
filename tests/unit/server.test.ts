@@ -969,4 +969,125 @@ describe('HTTP caching, security headers, expiry preservation & backup resilienc
     expect(recoveredPut.status).toBe(200);
     expect(recoveredPut.json.progress.dex).toEqual({ eiffel: 10 });
   });
+
+  it('enforces guestbook self-delete, mine flag, emoji-safe 200-codepoint truncation, duplicate guard, dynamic Retry-After, HEAD/revalidation & SMTP address sanitization', async () => {
+    const { truncateCodePoints } = await import('../../src/server/app.ts');
+    const { sanitizeEnvelopeAddr } = await import('../../src/server/mail.ts');
+    const { mkdtempSync, mkdirSync, rmSync, utimesSync, writeFileSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const { spawnSync } = await import('node:child_process');
+
+    // 1. Unicode code-point truncation never splits astral emojis into lone UTF-16 surrogates
+    const emojiWall = '🌍'.repeat(205);
+    const truncated = truncateCodePoints(emojiWall, 200);
+    expect(Array.from(truncated)).toHaveLength(200);
+    expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(truncated)).toBe(false);
+
+    // 2. SMTP envelope sanitization blocks command/header injection
+    expect(sanitizeEnvelopeAddr('Terrastra <login@terrastra.example>')).toBe('login@terrastra.example');
+    expect(() => sanitizeEnvelopeAddr('a@b.co> RCPT TO:<evil@b.co')).toThrow('bad address');
+    expect(() => sanitizeEnvelopeAddr('no-at-sign')).toThrow('bad address');
+
+    // 3. Limiter retryAfterSec reports remaining window ceiling in both memory and SQLite modes
+    let fakeNow = 10_000;
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => fakeNow);
+    const limDb = openDb(':memory:');
+    try {
+      const memLim = limiter(1, 25_000);
+      const sqlLim = limiter(1, 25_000, 100, { db: limDb, scope: 't' });
+      expect(memLim('u1')).toBe(true);
+      expect(sqlLim('u1')).toBe(true);
+      fakeNow += 12_200; // 12.8s left -> ceil = 13s
+      expect(memLim('u1')).toBe(false);
+      expect(sqlLim('u1')).toBe(false);
+      expect(memLim.retryAfterSec('u1')).toBe(13);
+      expect(sqlLim.retryAfterSec('u1')).toBe(13);
+    } finally {
+      clock.mockRestore();
+      limDb.close();
+    }
+
+    // 4. Guestbook ownership (`mine`), consecutive duplicate guard (409), self-delete (200) vs other-user delete (403), security headers & HEAD /api/health
+    db.prepare('DELETE FROM rate_limits').run();
+    const headHealth = await fetch(base + '/api/health', { method: 'HEAD' });
+    expect(headHealth.status).toBe(200);
+    expect(headHealth.headers.get('x-permitted-cross-domain-policies')).toBe('none');
+    expect(headHealth.headers.get('origin-agent-cluster')).toBe('?1');
+
+    const rAuthor = await call('POST', '/api/auth/request', { email: 'author-gb@example.com' });
+    await confirmLink(rAuthor.json.devLink);
+    const posted = await call('POST', '/api/guestbook', { body: 'a'.repeat(199) + '🦕🚀' });
+    expect(posted.status).toBe(201);
+    expect(posted.json.entry.mine).toBe(true);
+    expect(Array.from(posted.json.entry.body as string)).toHaveLength(200);
+    expect((posted.json.entry.body as string).endsWith('🦕')).toBe(true);
+    expect('user_id' in posted.json.entry).toBe(false);
+
+    // Immediate identical repost is rejected as 409 Conflict
+    const dup = await call('POST', '/api/guestbook', { body: 'a'.repeat(199) + '🦕🚀' });
+    expect(dup.status).toBe(409);
+
+    // Another user sees mine: false and gets 403 on DELETE, whereas author gets 200
+    const rOther = await fetch(base + '/api/auth/request', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: base },
+      body: JSON.stringify({ email: 'other-gb@example.com' }),
+    });
+    const otherSid = (await confirmLink((await rOther.json()).devLink, base, false)).sid!;
+    const listAsOther = await (await fetch(base + '/api/guestbook', { headers: { cookie: otherSid } })).json();
+    const targetAsOther = listAsOther.entries.find((e: { id: number }) => e.id === posted.json.entry.id);
+    expect(targetAsOther?.mine).toBe(false);
+    const forbidDel = await fetch(base + `/api/guestbook/${posted.json.entry.id}`, {
+      method: 'DELETE',
+      headers: { origin: base, cookie: otherSid },
+    });
+    expect(forbidDel.status).toBe(403);
+
+    const ownDel = await call('DELETE', `/api/guestbook/${posted.json.entry.id}`);
+    expect(ownDel.status).toBe(200);
+    expect((await call('GET', '/api/guestbook')).json.entries.find((e: { id: number }) => e.id === posted.json.entry.id)).toBeUndefined();
+
+    // 5. Pro chunk HEAD + Content-Length + zero-downtime file mtime/size revalidation + backup --json
+    const tmpDir = mkdtempSync(join(tmpdir(), 'terrastra-wave11-'));
+    try {
+      mkdirSync(join(tmpDir, '.pro-assets'), { recursive: true });
+      const chunkPath = join(tmpDir, '.pro-assets', 'pro-lessons-sky-W11.js');
+      writeFileSync(chunkPath, 'export const v = 1;\n' + '// pad\n'.repeat(200));
+      const appDb = openDb(join(tmpDir, 'live.db'));
+      const srv: Server = await new Promise(r => {
+        const s = createApp({ db: appDb, staticDir: tmpDir, devLogin: false, baseUrl: 'http://127.0.0.1', secureCookies: false }).listen(0, '127.0.0.1', () => r(s));
+      });
+      try {
+        const uBase = `http://127.0.0.1:${(srv.address() as { port: number }).port}`;
+        const headChunk = await fetch(uBase + '/assets/pro-lessons-sky-W11.js', { method: 'HEAD', headers: { 'accept-encoding': 'br' } });
+        expect(headChunk.status).toBe(200);
+        expect(headChunk.headers.get('content-encoding')).toBe('br');
+        expect(Number(headChunk.headers.get('content-length'))).toBeGreaterThan(0);
+
+        const nextContent = 'export const v = 2;\n' + '// rebuilt payload\n'.repeat(220);
+        writeFileSync(chunkPath, nextContent);
+        const future = new Date(Date.now() + 5_000);
+        utimesSync(chunkPath, future, future);
+        const refreshed = await fetch(uBase + '/assets/pro-lessons-sky-W11.js');
+        expect(await refreshed.text()).toContain('export const v = 2;');
+
+        const backupDest = join(tmpDir, 'snap.db');
+        const backupRun = spawnSync(process.execPath, ['scripts/backup-db.ts', '--json', backupDest], {
+          env: { ...process.env, DB_PATH: join(tmpDir, 'live.db') },
+          encoding: 'utf8',
+          timeout: 10_000,
+        });
+        expect(backupRun.status, backupRun.stderr).toBe(0);
+        const backupMeta = JSON.parse(backupRun.stdout) as { ok: boolean; bytes: number };
+        expect(backupMeta.ok).toBe(true);
+        expect(backupMeta.bytes).toBeGreaterThan(0);
+      } finally {
+        await new Promise<void>(r => srv.close(() => r()));
+        appDb.close();
+      }
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
 });

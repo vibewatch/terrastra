@@ -258,6 +258,53 @@ export function redeemCodeForUser(db: DB, userId: number, rawCode: string, now =
  * Revokes an activation code and optionally rolls back the redeeming user's entitlement
  * while preserving any other valid paid orders or CLI grants on that account.
  */
+function recomputeUserEntitlementAfterRevoke(db: DB, userId: number, now: number): Plan {
+  const paidOrders = db.prepare(
+    "SELECT plan, provider, external_id FROM orders WHERE user_id = ? AND status = 'paid'",
+  ).all(userId) as { plan: 'pro' | 'classroom'; provider: string; external_id: string | null }[];
+  const entRow = db.prepare(
+    'SELECT plan, expires_at, source FROM entitlements WHERE user_id = ?',
+  ).get(userId) as { plan: Plan; expires_at: number | null; source: string } | undefined;
+
+  let bestPlan: Plan = 'free';
+  let bestSource = 'order';
+  let bestExpiresAt: number | null = null;
+  for (const ord of paidOrders) {
+    if (PLAN_RANK[ord.plan] > PLAN_RANK[bestPlan]) {
+      bestPlan = ord.plan;
+      bestSource = ord.provider;
+      bestExpiresAt = null;
+    }
+  }
+  // Preserve non-redemption grants (e.g. cli-grant) that are still active, or prefer a permanent grant at equal rank.
+  if (
+    entRow
+    && !entRow.source.startsWith('redeem:')
+    && (entRow.expires_at === null || entRow.expires_at > now)
+    && (
+      PLAN_RANK[entRow.plan] > PLAN_RANK[bestPlan]
+      || (PLAN_RANK[entRow.plan] === PLAN_RANK[bestPlan] && entRow.expires_at === null && bestExpiresAt !== null)
+    )
+  ) {
+    bestPlan = entRow.plan;
+    bestSource = entRow.source;
+    bestExpiresAt = entRow.expires_at;
+  }
+
+  if (bestPlan === 'free') {
+    db.prepare('DELETE FROM entitlements WHERE user_id = ?').run(userId);
+  } else {
+    const cap = maxSessionsForPlan(bestPlan);
+    db.prepare(`
+      UPDATE entitlements
+      SET plan = ?, max_sessions = ?, expires_at = ?, source = ?
+      WHERE user_id = ?
+    `).run(bestPlan, cap, bestExpiresAt, bestSource, userId);
+  }
+  trimActiveSessions(db, userId, maxSessionsForPlan(bestPlan), now);
+  return bestPlan;
+}
+
 export function revokeRedemptionCode(
   db: DB,
   rawCode: string,
@@ -277,47 +324,54 @@ export function revokeRedemptionCode(
 
     let userPlanAfter: Plan | null = null;
     if (opts.revokeUser && row.redeemed_by !== null) {
-      const userId = row.redeemed_by;
-      const paidOrders = db.prepare(
-        "SELECT plan, provider, external_id FROM orders WHERE user_id = ? AND status = 'paid'",
-      ).all(userId) as { plan: 'pro' | 'classroom'; provider: string; external_id: string | null }[];
-      const entRow = db.prepare(
-        'SELECT plan, expires_at, source FROM entitlements WHERE user_id = ?',
-      ).get(userId) as { plan: Plan; expires_at: number | null; source: string } | undefined;
-
-      let bestPlan: Plan = 'free';
-      let bestSource = 'order';
-      for (const ord of paidOrders) {
-        if (PLAN_RANK[ord.plan] > PLAN_RANK[bestPlan]) {
-          bestPlan = ord.plan;
-          bestSource = ord.provider;
-        }
-      }
-      // Preserve non-redemption grants (e.g. cli-grant) that are still active.
-      if (
-        entRow
-        && !entRow.source.startsWith('redeem:')
-        && (entRow.expires_at === null || entRow.expires_at > now)
-        && PLAN_RANK[entRow.plan] > PLAN_RANK[bestPlan]
-      ) {
-        bestPlan = entRow.plan;
-        bestSource = entRow.source;
-      }
-
-      if (bestPlan === 'free') {
-        db.prepare('DELETE FROM entitlements WHERE user_id = ?').run(userId);
-      } else {
-        const cap = maxSessionsForPlan(bestPlan);
-        db.prepare(`
-          UPDATE entitlements
-          SET plan = ?, max_sessions = ?, source = ?
-          WHERE user_id = ?
-        `).run(bestPlan, cap, bestSource, userId);
-      }
-      trimActiveSessions(db, userId, maxSessionsForPlan(bestPlan), now);
-      userPlanAfter = bestPlan;
+      userPlanAfter = recomputeUserEntitlementAfterRevoke(db, row.redeemed_by, now);
     }
     return { code, redeemedBy: row.redeemed_by, userPlanAfter };
+  });
+}
+
+export interface BatchRevokeResult {
+  note: string;
+  revokedCount: number;
+  affectedUsers: number;
+}
+
+/**
+ * Revokes all non-revoked activation codes matching an exact batch `note` (case-insensitive).
+ * By default only unredeemed codes are revoked; set `revokeUsers: true` to also revoke redeemed
+ * codes in the batch, refund their redeem orders, and recompute affected users' entitlements.
+ */
+export function revokeRedemptionBatchByNote(
+  db: DB,
+  note: string,
+  opts: { revokeUsers?: boolean; now?: number } = {},
+): BatchRevokeResult {
+  const cleanNote = note.trim();
+  if (!cleanNote) return { note: '', revokedCount: 0, affectedUsers: 0 };
+  const now = opts.now ?? Date.now();
+  return transaction(db, () => {
+    const rows = db.prepare(`
+      SELECT code_hash, redeemed_by, redeemed_at
+      FROM redemption_codes
+      WHERE revoked = 0
+        AND note IS NOT NULL
+        AND LOWER(TRIM(note)) = LOWER(?)
+        ${opts.revokeUsers ? '' : 'AND redeemed_at IS NULL'}
+    `).all(cleanNote) as { code_hash: string; redeemed_by: number | null; redeemed_at: number | null }[];
+    if (!rows.length) return { note: cleanNote, revokedCount: 0, affectedUsers: 0 };
+
+    const markRevoked = db.prepare('UPDATE redemption_codes SET revoked = 1 WHERE code_hash = ?');
+    const refundOrder = db.prepare("UPDATE orders SET status = 'refunded' WHERE provider = 'redeem' AND external_id = ?");
+    const userIds = new Set<number>();
+    for (const r of rows) {
+      markRevoked.run(r.code_hash);
+      refundOrder.run(`code:${r.code_hash.slice(0, 24)}`);
+      if (opts.revokeUsers && r.redeemed_by !== null) userIds.add(r.redeemed_by);
+    }
+    for (const uid of userIds) {
+      recomputeUserEntitlementAfterRevoke(db, uid, now);
+    }
+    return { note: cleanNote, revokedCount: rows.length, affectedUsers: userIds.size };
   });
 }
 

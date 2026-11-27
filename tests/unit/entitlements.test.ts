@@ -40,7 +40,16 @@ import {
   type MistakeBook,
 } from '../../src/shared/lib/journal.ts';
 import { openDb } from '../../src/server/db.ts';
-import { formatCodesCsv, getUserEntitlement, listRedemptionCodes, redeemCodeForUser } from '../../src/server/billing.ts';
+import {
+  formatCodesCsv,
+  getUserEntitlement,
+  grantEntitlement,
+  issueRedemptionCodes,
+  listRedemptionCodes,
+  redeemCodeForUser,
+  revokeRedemptionBatchByNote,
+  revokeRedemptionCode,
+} from '../../src/server/billing.ts';
 
 describe('entitlements & redemption code rules', () => {
   it('normalizes valid activation codes and rejects ambiguous or malformed inputs', () => {
@@ -369,8 +378,71 @@ describe('manage-codes CLI', () => {
       expect(formatCodesCsv(['TRST-ABCD-2345-HJKL'], { plan: 'pro', baseUrl: 'https://t.co/', note: '+promo' })).toBe(
         `code,plan,redeem_url,expires_at,note\nTRST-ABCD-2345-HJKL,pro,https://t.co/#redeem=TRST-ABCD-2345-HJKL,,'+promo`,
       );
+
+      // JSON CLI outputs & revoke-batch support
+      const jsonBatch = run('create', '--plan', 'pro', '--count', '3', '--note', 'promo-wave-11', '--json', '--base-url', 'https://t.co/');
+      expect(jsonBatch.status, jsonBatch.stderr).toBe(0);
+      const parsedCreate = JSON.parse(jsonBatch.stdout) as { count: number; codes: { code: string; redeemUrl: string }[] };
+      expect(parsedCreate.count).toBe(3);
+      expect(parsedCreate.codes[0]!.redeemUrl).toContain('https://t.co/#redeem=');
+
+      const jsonInspect = run('inspect', parsedCreate.codes[0]!.code, '--json');
+      expect(jsonInspect.status, jsonInspect.stderr).toBe(0);
+      expect(JSON.parse(jsonInspect.stdout)).toMatchObject({ status: 'available', note: 'promo-wave-11' });
+
+      const batchRevokeOut = run('revoke-batch', '--note', 'PROMO-WAVE-11', '--json');
+      expect(batchRevokeOut.status, batchRevokeOut.stderr).toBe(0);
+      expect(JSON.parse(batchRevokeOut.stdout)).toEqual({ note: 'PROMO-WAVE-11', revokedCount: 3, affectedUsers: 0 });
+
+      const jsonList = JSON.parse(run('list', '--note', 'promo-wave-11', '--json').stdout) as { status: string }[];
+      expect(jsonList).toHaveLength(3);
+      expect(jsonList.every(r => r.status === 'revoked')).toBe(true);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   }, 30_000);
+
+  it('clears stale expires_at when falling back to a lifetime paid order and batch-revokes redeemed users on request', () => {
+    const db = openDb(':memory:');
+    try {
+      const now = 1_700_000_000_000;
+      db.prepare('INSERT INTO users (email) VALUES (?), (?)').run('paid@example.com', 'batch@example.com');
+      const paidUser = db.prepare('SELECT id FROM users WHERE email = ?').get('paid@example.com') as { id: number };
+      const batchUser = db.prepare('SELECT id FROM users WHERE email = ?').get('batch@example.com') as { id: number };
+
+      // User has a lifetime Pro paid order, then redeems a Classroom code, and had an expiring timestamp row in entitlements
+      db.prepare(`
+        INSERT INTO orders (id, user_id, provider, external_id, plan, amount_cents, currency, status, created_at, paid_at)
+        VALUES ('ord_stripe_1', ?, 'stripe', 'pi_1', 'pro', 6800, 'CNY', 'paid', ?, ?)
+      `).run(paidUser.id, now, now);
+      const [clsCode] = issueRedemptionCodes(db, { plan: 'classroom', count: 1, note: 'cls-upgrade', now });
+      redeemCodeForUser(db, paidUser.id, clsCode!, now);
+      db.prepare('UPDATE entitlements SET expires_at = ? WHERE user_id = ?').run(now + 86_400_000, paidUser.id);
+
+      const outcome = revokeRedemptionCode(db, clsCode!, { revokeUser: true, now });
+      expect(outcome?.userPlanAfter).toBe('pro');
+      // Lifetime paid order must clear expires_at back to null so it does not expire tomorrow!
+      const afterPaid = getUserEntitlement(db, paidUser.id, now + 10 * 86_400_000);
+      expect(afterPaid).toMatchObject({ plan: 'pro', expiresAt: null, source: 'stripe' });
+
+      // Batch revoke: default skips redeemed codes; revokeUsers: true rolls back redeemed accounts too
+      const [b1, b2] = issueRedemptionCodes(db, { plan: 'pro', count: 2, note: 'leak-batch', now });
+      redeemCodeForUser(db, batchUser.id, b1!, now);
+      expect(grantEntitlement(db, { userId: batchUser.id, plan: 'pro', source: 'redeem:test', now }).plan).toBe('pro');
+      expect(revokeRedemptionBatchByNote(db, 'leak-batch', { now })).toEqual({
+        note: 'leak-batch',
+        revokedCount: 1, // only unredeemed b2
+        affectedUsers: 0,
+      });
+      expect(getUserEntitlement(db, batchUser.id, now).plan).toBe('pro');
+      expect(revokeRedemptionBatchByNote(db, 'leak-batch', { revokeUsers: true, now })).toEqual({
+        note: 'leak-batch',
+        revokedCount: 1, // now redeemed b1
+        affectedUsers: 1,
+      });
+      expect(getUserEntitlement(db, batchUser.id, now).plan).toBe('free');
+    } finally {
+      db.close();
+    }
+  });
 });

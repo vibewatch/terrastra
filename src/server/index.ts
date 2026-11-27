@@ -41,6 +41,10 @@ const app = createApp({
   sendMail,
 });
 const server = app.listen(port, () => console.log(`Terrastra server on http://localhost:${port}`));
+// Outlive standard 60s reverse-proxy idle keep-alive to prevent 502 races, and bound slow-header/body requests.
+server.keepAliveTimeout = 65_000;
+server.headersTimeout = 66_000;
+server.requestTimeout = 30_000;
 
 let shuttingDown = false;
 function shutdown(signal: string): void {

@@ -22,6 +22,7 @@ import {
   inspectRedemptionCode,
   issueRedemptionCodes,
   listRedemptionCodes,
+  revokeRedemptionBatchByNote,
   revokeRedemptionCode,
   type RedemptionCodeStatus,
 } from '../src/server/billing.ts';
@@ -36,18 +37,20 @@ function argVal(args: readonly string[], flag: string): string | undefined {
 
 function usage(): never {
   console.error(`Usage:
-  npm run codes -- create [--plan pro|classroom] [--count N] [--note TEXT] [--expires-days N] [--raw] [--links] [--csv] [--base-url URL]
-  npm run codes -- list [--limit N] [--status available|redeemed|expired|revoked] [--plan pro|classroom] [--note QUERY]
-  npm run codes -- inspect <TRST-XXXX-XXXX-XXXX>
+  npm run codes -- create [--plan pro|classroom] [--count N] [--note TEXT] [--expires-days N] [--raw] [--links] [--csv] [--json] [--base-url URL]
+  npm run codes -- list [--limit N] [--status available|redeemed|expired|revoked] [--plan pro|classroom] [--note QUERY] [--json]
+  npm run codes -- inspect <TRST-XXXX-XXXX-XXXX> [--json]
   npm run codes -- stats [--json]
-  npm run codes -- prune
+  npm run codes -- prune [--json]
   npm run codes -- revoke <TRST-XXXX-XXXX-XXXX> [--revoke-user]
+  npm run codes -- revoke-batch --note <NOTE> [--revoke-users] [--json]
   npm run codes -- grant --email <EMAIL> [--plan pro|classroom] [--expires-days N]`);
   process.exit(1);
 }
 
 const args = process.argv.slice(2);
 const cmd = args[0];
+const asJson = args.includes('--json');
 if (!cmd || cmd === '--help' || cmd === '-h') usage();
 
 const db = openDb(dbPath);
@@ -79,7 +82,15 @@ try {
     const asCsv = args.includes('--csv');
     const baseUrl = (argVal(args, '--base-url') ?? process.env.BASE_URL ?? 'http://localhost:8787').replace(/\/$/, '');
     const codes = issueRedemptionCodes(db, { plan: planRaw, count, note, expiresAt });
-    if (asCsv) {
+    if (asJson) {
+      console.log(JSON.stringify({
+        plan: planRaw,
+        count: codes.length,
+        note: note ?? null,
+        expiresAt,
+        codes: codes.map(code => ({ code, redeemUrl: `${baseUrl}/#redeem=${code}` })),
+      }));
+    } else if (asCsv) {
       console.log(formatCodesCsv(codes, { plan: planRaw, baseUrl, expiresAt, note }));
     } else {
       if (!rawOnly) {
@@ -109,7 +120,9 @@ try {
       plan: planFilter as 'pro' | 'classroom' | undefined,
       note: argVal(args, '--note'),
     });
-    if (!rows.length) {
+    if (asJson) {
+      console.log(JSON.stringify(rows));
+    } else if (!rows.length) {
       console.log('No activation codes found.');
     } else {
       for (const r of rows) {
@@ -126,22 +139,26 @@ try {
       }
     }
   } else if (cmd === 'inspect') {
-    const raw = args[1] ?? '';
+    const raw = args.find((a, idx) => idx >= 1 && !a.startsWith('-')) ?? '';
     const info = inspectRedemptionCode(db, raw);
     if (!info) {
       console.error('Error: code is invalid or not found.');
       process.exit(1);
     }
-    console.log(`Code:       ${info.code}`);
-    console.log(`Plan:       ${info.plan.toUpperCase()}`);
-    console.log(`Status:     ${info.status.toUpperCase()}`);
-    console.log(`Created:    ${new Date(info.createdAt).toISOString()}`);
-    console.log(`Expires:    ${info.expiresAt ? new Date(info.expiresAt).toISOString() : 'Never'}`);
-    console.log(`Redeemed:   ${info.redeemedAt ? `${new Date(info.redeemedAt).toISOString()} (${info.redeemedEmail ?? 'deleted-user'})` : 'No'}`);
-    if (info.note) console.log(`Note:       ${info.note}`);
+    if (asJson) {
+      console.log(JSON.stringify(info));
+    } else {
+      console.log(`Code:       ${info.code}`);
+      console.log(`Plan:       ${info.plan.toUpperCase()}`);
+      console.log(`Status:     ${info.status.toUpperCase()}`);
+      console.log(`Created:    ${new Date(info.createdAt).toISOString()}`);
+      console.log(`Expires:    ${info.expiresAt ? new Date(info.expiresAt).toISOString() : 'Never'}`);
+      console.log(`Redeemed:   ${info.redeemedAt ? `${new Date(info.redeemedAt).toISOString()} (${info.redeemedEmail ?? 'deleted-user'})` : 'No'}`);
+      if (info.note) console.log(`Note:       ${info.note}`);
+    }
   } else if (cmd === 'stats') {
     const s = getBillingStats(db);
-    if (args.includes('--json')) {
+    if (asJson) {
       console.log(JSON.stringify(s));
     } else {
       console.log(`Codes:      ${s.availableCodes} available · ${s.redeemedCodes} redeemed · ${s.expiredCodes} expired · ${s.revokedCodes} revoked`);
@@ -150,7 +167,11 @@ try {
     }
   } else if (cmd === 'prune') {
     const r = pruneExpiredState(db);
-    console.log(`Pruned ${r.loginTokens} login token(s), ${r.sessions} expired session(s), and ${r.rateLimits} rate-limit bucket(s).`);
+    if (asJson) {
+      console.log(JSON.stringify(r));
+    } else {
+      console.log(`Pruned ${r.loginTokens} login token(s), ${r.sessions} expired session(s), and ${r.rateLimits} rate-limit bucket(s).`);
+    }
   } else if (cmd === 'revoke') {
     const raw = args[1] ?? '';
     const revokeUser = args.includes('--revoke-user');
@@ -163,6 +184,20 @@ try {
       ? ` and updated user #${outcome.redeemedBy} -> ${(outcome.userPlanAfter ?? 'free').toUpperCase()}`
       : '';
     console.log(`Revoked ${outcome.code}${suffix}.`);
+  } else if (cmd === 'revoke-batch') {
+    const note = (argVal(args, '--note') ?? '').trim();
+    if (!note) {
+      console.error('Error: --note is required for revoke-batch');
+      process.exit(1);
+    }
+    const revokeUsers = args.includes('--revoke-users') || args.includes('--revoke-user');
+    const outcome = revokeRedemptionBatchByNote(db, note, { revokeUsers });
+    if (asJson) {
+      console.log(JSON.stringify(outcome));
+    } else {
+      const userSuffix = revokeUsers ? ` (${outcome.affectedUsers} account(s) updated)` : '';
+      console.log(`Revoked ${outcome.revokedCount} code(s) for batch [${outcome.note}]${userSuffix}.`);
+    }
   } else if (cmd === 'grant') {
     const email = (argVal(args, '--email') ?? '').trim().toLowerCase();
     const planRaw = argVal(args, '--plan') ?? 'pro';

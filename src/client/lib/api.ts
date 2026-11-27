@@ -40,7 +40,7 @@ export interface RedeemResponse {
     source: string | null;
   };
 }
-interface GuestbookEntry { id: number; handle: string; body: string; created_at: string }
+export interface GuestbookEntry { id: number; handle: string; body: string; created_at: string; mine?: boolean }
 
 export class ApiError extends Error {
   readonly status: number;
@@ -104,5 +104,6 @@ export const api = {
   react: async (key: string, kind: 'like' | 'visited', on: boolean) => j<{ like: number; visited: number }>(fetch(url('api/reactions'), opt('POST', { key, kind, on }))),
   guestbook: async () => j<{ entries: GuestbookEntry[] }>(fetch(url('api/guestbook'), opt('GET'))),
   post: async (body: string) => j<{ entry: GuestbookEntry }>(fetch(url('api/guestbook'), opt('POST', { body }))),
+  deleteGuestbookEntry: async (id: number) => j<{ ok: true }>(fetch(url(`api/guestbook/${id}`), opt('DELETE'))),
   report: async (id: number) => j<{ ok: true }>(fetch(url(`api/guestbook/${id}/report`), opt('POST', {}))),
 };

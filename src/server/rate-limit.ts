@@ -5,12 +5,19 @@ export interface LimiterStore {
   scope: string;
 }
 
+export interface Limiter {
+  (key: string): boolean;
+  /** Remaining whole seconds until `key`'s active window resets (at least 1). */
+  retryAfterSec: (key: string) => number;
+}
+
 /**
  * Fixed-window limiter with bounded buckets. When every bucket is active, the one closest to expiry is evicted,
  * so filling the table cannot lock out new clients (callers key IPv6 by prefix so one host cannot fill it cheaply).
  * Uses SQLite when `store` is supplied so multiple server processes share one rate-limit state.
  */
-export function limiter(max: number, windowMs: number, maxBuckets = 10_000, store?: LimiterStore): (key: string) => boolean {
+export function limiter(max: number, windowMs: number, maxBuckets = 10_000, store?: LimiterStore): Limiter {
+  const defaultSec = Math.max(1, Math.ceil(windowMs / 1000));
   if (store) {
     const { db, scope } = store;
     const getRow = db.prepare('SELECT count, reset FROM rate_limits WHERE scope = ? AND key = ?');
@@ -19,7 +26,7 @@ export function limiter(max: number, windowMs: number, maxBuckets = 10_000, stor
     const countRows = db.prepare('SELECT COUNT(*) AS n FROM rate_limits WHERE scope = ?');
     const purgeExpired = db.prepare('DELETE FROM rate_limits WHERE scope = ? AND reset <= ?');
     const evictOldest = db.prepare('DELETE FROM rate_limits WHERE scope = ? AND key = (SELECT key FROM rate_limits WHERE scope = ? ORDER BY reset LIMIT 1)');
-    return key => transaction(db, () => {
+    const fn = ((key: string) => transaction(db, () => {
       const now = Date.now();
       const row = getRow.get(scope, key) as { count: number; reset: number } | undefined;
       if (row && row.reset > now) {
@@ -37,11 +44,17 @@ export function limiter(max: number, windowMs: number, maxBuckets = 10_000, stor
       }
       setRow.run(scope, key, now + windowMs);
       return true;
-    });
+    })) as Limiter;
+    fn.retryAfterSec = (key: string) => {
+      const now = Date.now();
+      const row = getRow.get(scope, key) as { count: number; reset: number } | undefined;
+      return row && row.reset > now ? Math.max(1, Math.ceil((row.reset - now) / 1000)) : defaultSec;
+    };
+    return fn;
   }
   const hits = new Map<string, { n: number; reset: number }>();
   let earliestReset = Infinity;
-  return key => {
+  const fn = ((key: string) => {
     const now = Date.now();
     const hit = hits.get(key);
     if (hit && hit.reset > now) return ++hit.n <= max;
@@ -64,5 +77,11 @@ export function limiter(max: number, windowMs: number, maxBuckets = 10_000, stor
     hits.set(key, { n: 1, reset });
     earliestReset = Math.min(earliestReset, reset);
     return true;
+  }) as Limiter;
+  fn.retryAfterSec = (key: string) => {
+    const now = Date.now();
+    const hit = hits.get(key);
+    return hit && hit.reset > now ? Math.max(1, Math.ceil((hit.reset - now) / 1000)) : defaultSec;
   };
+  return fn;
 }

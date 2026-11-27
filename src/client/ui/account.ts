@@ -235,20 +235,54 @@ export async function openGuestbook(): Promise<void> {
     try {
       const { entries } = await api.guestbook();
       list.replaceChildren(...(entries.length ? entries.map(e => h('li', {},
-        h('div', { class: 'gb-head' }, h('strong', {}, e.handle), h('time', { datetime: e.created_at }, new Date(e.created_at + (e.created_at.endsWith('Z') ? '' : 'Z')).toLocaleDateString()),
+        h('div', { class: 'gb-head' },
+          h('strong', {}, e.handle),
+          h('time', { datetime: e.created_at }, new Date(e.created_at + (e.created_at.endsWith('Z') ? '' : 'Z')).toLocaleDateString()),
+          ...(e.mine ? [h('button', {
+            class: 'link small',
+            'data-testid': 'gb-delete',
+            'aria-label': t('gbDelete'),
+            onclick: async () => {
+              try { await api.deleteGuestbookEntry(e.id); toast(t('gbDeleted')); await load(); } catch { toast(t('offline')); }
+            },
+            html: icon('trash', 14),
+          })] : []),
           h('button', { class: 'link small', 'aria-label': t('report'), onclick: async () => { try { await api.report(e.id); toast(t('reported')); } catch { toast(t('offline')); } }, html: icon('flag', 14) })),
         h('p', {}, e.body))) : [h('li', { class: 'muted' }, t('gbEmpty'))]));
     } catch { list.replaceChildren(h('li', { class: 'muted' }, t('offline'))); }
   };
   const form = store.me
     ? (() => {
-      const ta = h('textarea', { maxlength: 200, rows: 2, placeholder: t('gbPlaceholder'), 'aria-label': t('gbPlaceholder'), 'data-testid': 'gb-text' });
-      return h('form', { class: 'gb-form', onsubmit: async (e: Event) => {
-        e.preventDefault();
+      const countEl = h('span', { class: 'muted small', 'data-testid': 'gb-count' }, '0 / 200');
+      const syncCount = () => {
+        const len = Array.from(ta.value).length;
+        if (len > 200) ta.value = Array.from(ta.value).slice(0, 200).join('');
+        countEl.textContent = `${Math.min(len, 200)} / 200`;
+      };
+      const submitPost = async () => {
         const v = ta.value.trim();
         if (!v) return;
-        try { await api.post(v); ta.value = ''; await load(); } catch (err) { toast((err as Error).message); }
-      } }, ta, h('button', { class: 'cta', type: 'submit', 'data-testid': 'gb-post' }, t('post')));
+        try { await api.post(v); ta.value = ''; syncCount(); await load(); } catch (err) { toast((err as Error).message); }
+      };
+      const ta = h('textarea', {
+        maxlength: 400,
+        rows: 2,
+        placeholder: t('gbPlaceholder'),
+        'aria-label': t('gbPlaceholder'),
+        'data-testid': 'gb-text',
+        oninput: syncCount,
+        onkeydown: (ev: Event) => {
+          const ke = ev as KeyboardEvent;
+          if ((ke.ctrlKey || ke.metaKey) && ke.key === 'Enter') {
+            ke.preventDefault();
+            void submitPost();
+          }
+        },
+      });
+      return h('form', {
+        class: 'gb-form',
+        onsubmit: async (e: Event) => { e.preventDefault(); await submitPost(); },
+      }, ta, h('div', { class: 'row', style: 'justify-content:space-between;align-items:center' }, countEl, h('button', { class: 'cta', type: 'submit', 'data-testid': 'gb-post' }, t('post'))));
     })()
     : h('p', { class: 'muted' }, t('gbNeedLogin'), ' ', h('button', { class: 'link', onclick: () => { closeModal('guestbook'); openAccount(); } }, t('signIn')));
   openModal('guestbook', t('guestbook'), h('div', { class: 'guestbook' }, form, list));

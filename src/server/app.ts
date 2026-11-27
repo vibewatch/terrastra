@@ -132,6 +132,11 @@ function cookies(req: Request): Record<string, string> {
 export function cleanText(s: string): string {
   return s.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/https?:\/\/\S+|www\.\S+/gi, '🔗').replace(/\s+/g, ' ').trim();
 }
+/** Truncates by Unicode scalar values (code points) so astral-plane emojis are never split into lone UTF-16 surrogates. */
+export function truncateCodePoints(s: string, max: number): string {
+  const cps = Array.from(s);
+  return cps.length <= max ? s : cps.slice(0, max).join('');
+}
 export function isBlocked(s: string): boolean { const l = s.toLowerCase(); return BLOCKED.some(w => l.includes(w)); }
 
 export function createApp(o: AppOptions): express.Express {
@@ -152,6 +157,8 @@ export function createApp(o: AppOptions): express.Express {
 
   app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
+    res.setHeader('Origin-Agent-Cluster', '?1');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
     res.setHeader('X-Frame-Options', 'SAMEORIGIN');
     res.setHeader('Permissions-Policy', 'camera=(), microphone=(), payment=(), usb=(), geolocation=(self)');
@@ -204,9 +211,31 @@ export function createApp(o: AppOptions): express.Express {
   const sessionUserStmt = db.prepare(
     'SELECT u.id, u.email, u.handle FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.hash = ? AND s.expires > ?',
   );
+  const logoutSessionStmt = db.prepare('DELETE FROM sessions WHERE hash = ?');
   const progressSelectStmt = db.prepare('SELECT json FROM progress WHERE user_id = ?');
+  const progressUpsertStmt = db.prepare(
+    'INSERT INTO progress (user_id, json, updated_at) VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET json = excluded.json, updated_at = excluded.updated_at',
+  );
   const extrasSelectStmt = db.prepare('SELECT json FROM learning_sync WHERE user_id = ?');
+  const extrasUpsertStmt = db.prepare(
+    'INSERT INTO learning_sync (user_id, json, updated_at) VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET json = excluded.json, updated_at = excluded.updated_at',
+  );
   const reactionCountsStmt = db.prepare('SELECT kind, COUNT(*) AS n FROM reactions WHERE item = ? GROUP BY kind');
+  const reactionInsertStmt = db.prepare('INSERT OR IGNORE INTO reactions (visitor, item, kind, created_at) VALUES (?, ?, ?, ?)');
+  const reactionDeleteStmt = db.prepare('DELETE FROM reactions WHERE visitor = ? AND item = ? AND kind = ?');
+  const guestbookListStmt = db.prepare(
+    `SELECT g.id, g.user_id, COALESCE(u.handle, 'Explorer') AS handle, g.body, g.created_at
+     FROM guestbook g LEFT JOIN users u ON u.id = g.user_id
+     WHERE g.hidden = 0 ORDER BY g.id DESC LIMIT 50`,
+  );
+  const guestbookLastUserStmt = db.prepare('SELECT body FROM guestbook WHERE user_id = ? AND hidden = 0 ORDER BY id DESC LIMIT 1');
+  const guestbookInsertStmt = db.prepare('INSERT INTO guestbook (user_id, body) VALUES (?, ?)');
+  const guestbookByIdStmt = db.prepare(
+    `SELECT g.id, g.user_id, COALESCE(u.handle, 'Explorer') AS handle, g.body, g.created_at
+     FROM guestbook g LEFT JOIN users u ON u.id = g.user_id WHERE g.id = ?`,
+  );
+  const guestbookOwnerStmt = db.prepare('SELECT user_id FROM guestbook WHERE id = ?');
+  const guestbookDeleteOwnStmt = db.prepare('DELETE FROM guestbook WHERE id = ? AND user_id = ?');
   const pruneTokensStmt = db.prepare('DELETE FROM login_tokens WHERE expires <= ? OR used = 1');
   const pruneSessionsStmt = db.prepare('DELETE FROM sessions WHERE expires <= ?');
   const pruneRateLimitsStmt = db.prepare('DELETE FROM rate_limits WHERE reset <= ?');
@@ -273,6 +302,11 @@ export function createApp(o: AppOptions): express.Express {
   // reactions are anonymous, so cap them per IP: a cookie-dropping script could otherwise inflate counts without limit
   const reactLimit = limiter(60, 60_000, 10_000);
 
+  const sendRateLimited = (res: Response, retrySec: number, payload: Record<string, unknown>) => {
+    res.setHeader('Retry-After', String(Math.max(1, retrySec)));
+    return res.status(429).json(payload);
+  };
+
   app.get('/api/health', (_req, res) => {
     try {
       healthProbeStmt.get();
@@ -287,9 +321,18 @@ export function createApp(o: AppOptions): express.Express {
     const email = String(req.body?.email ?? '').trim().toLowerCase();
     if (!EMAIL_RE.test(email) || email.length > 254) return res.status(400).json({ error: 'Please enter a valid email' });
     const client = clientKey(req.ip);
-    if (!authLimit(client.host) || (client.wide && !authWideLimit(client.wide)) || !authLimit(client.host + ':' + email) || !mailLimit(email)) {
-      res.setHeader('Retry-After', '60');
-      return res.status(429).json({ error: 'Too many requests, try again later' });
+    const hostEmailKey = client.host + ':' + email;
+    if (!authLimit(client.host)) {
+      return sendRateLimited(res, authLimit.retryAfterSec(client.host), { error: 'Too many requests, try again later' });
+    }
+    if (client.wide && !authWideLimit(client.wide)) {
+      return sendRateLimited(res, authWideLimit.retryAfterSec(client.wide), { error: 'Too many requests, try again later' });
+    }
+    if (!authLimit(hostEmailKey)) {
+      return sendRateLimited(res, authLimit.retryAfterSec(hostEmailKey), { error: 'Too many requests, try again later' });
+    }
+    if (!mailLimit(email)) {
+      return sendRateLimited(res, mailLimit.retryAfterSec(email), { error: 'Too many requests, try again later' });
     }
     const token = randomBytes(24).toString('base64url');
     // housekeeping, at most a few times an hour per visitor thanks to the limit above
@@ -348,7 +391,7 @@ export function createApp(o: AppOptions): express.Express {
 
   app.post('/api/auth/logout', (req, res) => {
     const sid = cookies(req).pp_sid;
-    if (sid) db.prepare('DELETE FROM sessions WHERE hash = ?').run(sha(sid));
+    if (sid) logoutSessionStmt.run(sha(sid));
     res.clearCookie('pp_sid', { path: '/' });
     res.json({ ok: true });
   });
@@ -395,10 +438,13 @@ export function createApp(o: AppOptions): express.Express {
 
   app.post('/api/billing/redeem', (req, res) => {
     const u = requireUser(req, res); if (!u) return;
-    const hostKey = clientKey(req.ip).host;
-    if (!redeemLimit(`user:${u.id}`) || !redeemLimit(`ip:${hostKey}`)) {
-      res.setHeader('Retry-After', '60');
-      return res.status(429).json({ error: 'Too many redemption attempts, please try again later' });
+    const userKey = `user:${u.id}`;
+    const ipKey = `ip:${clientKey(req.ip).host}`;
+    if (!redeemLimit(userKey)) {
+      return sendRateLimited(res, redeemLimit.retryAfterSec(userKey), { error: 'Too many redemption attempts, please try again later' });
+    }
+    if (!redeemLimit(ipKey)) {
+      return sendRateLimited(res, redeemLimit.retryAfterSec(ipKey), { error: 'Too many redemption attempts, please try again later' });
     }
     try {
       const entitlement = redeemCodeForUser(db, u.id, String(req.body?.code ?? ''));
@@ -488,11 +534,9 @@ export function createApp(o: AppOptions): express.Express {
         mergedExtras = fitSyncExtras(result, mergeSyncExtras(storedExtras, filtered), MAX_SYNC_REQUEST_BYTES);
         const totalBytes = new TextEncoder().encode(JSON.stringify({ progress: result, extras: mergedExtras })).byteLength;
         if (totalBytes > MAX_SYNC_REQUEST_BYTES) return null;
-        db.prepare('INSERT INTO learning_sync (user_id, json, updated_at) VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET json = excluded.json, updated_at = excluded.updated_at')
-          .run(u.id, JSON.stringify(mergedExtras), now);
+        extrasUpsertStmt.run(u.id, JSON.stringify(mergedExtras), now);
       }
-      db.prepare('INSERT INTO progress (user_id, json, updated_at) VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET json = excluded.json, updated_at = excluded.updated_at')
-        .run(u.id, JSON.stringify(result), now);
+      progressUpsertStmt.run(u.id, JSON.stringify(result), now);
       return { progress: result, extras: mergedExtras };
     });
     if (!synced) return res.status(413).json({ error: 'Progress is too large to sync' });
@@ -513,32 +557,56 @@ export function createApp(o: AppOptions): express.Express {
   app.post('/api/reactions', (req, res) => {
     const { key, kind, on } = req.body ?? {};
     if (typeof key !== 'string' || !BY_KEY.has(key) || (kind !== 'like' && kind !== 'visited') || typeof on !== 'boolean') return res.status(400).json({ error: 'Bad reaction' });
-    if (!reactLimit(clientKey(req.ip).host)) return res.status(429).json({ error: 'Too many requests, try again later' });
+    const hostKey = clientKey(req.ip).host;
+    if (!reactLimit(hostKey)) return sendRateLimited(res, reactLimit.retryAfterSec(hostKey), { error: 'Too many requests, try again later' });
     const v = visitor(req, res);
-    if (on) db.prepare('INSERT OR IGNORE INTO reactions (visitor, item, kind, created_at) VALUES (?, ?, ?, ?)').run(v, key, kind, Date.now());
-    else db.prepare('DELETE FROM reactions WHERE visitor = ? AND item = ? AND kind = ?').run(v, key, kind);
+    if (on) reactionInsertStmt.run(v, key, kind, Date.now());
+    else reactionDeleteStmt.run(v, key, kind);
     res.json(counts(key));
   });
 
-  app.get('/api/guestbook', (_req, res) => {
-    const entries = db.prepare(`SELECT g.id, COALESCE(u.handle, 'Explorer') AS handle, g.body, g.created_at FROM guestbook g LEFT JOIN users u ON u.id = g.user_id
-      WHERE g.hidden = 0 ORDER BY g.id DESC LIMIT 50`).all();
+  app.get('/api/guestbook', (req, res) => {
+    const u = currentUser(req);
+    const rows = guestbookListStmt.all() as { id: number; user_id: number | null; handle: string; body: string; created_at: string }[];
+    const entries = rows.map(r => ({
+      id: r.id,
+      handle: r.handle,
+      body: r.body,
+      created_at: r.created_at,
+      mine: u !== null && r.user_id === u.id,
+    }));
     res.json({ entries });
   });
   app.post('/api/guestbook', (req, res) => {
     const u = requireUser(req, res); if (!u) return;
-    if (!postLimit(String(u.id))) return res.status(429).json({ error: 'Slow down a little!' });
-    const body = cleanText(String(req.body?.body ?? '')).slice(0, 200);
+    const body = truncateCodePoints(cleanText(String(req.body?.body ?? '')), 200);
     if (body.length < 1) return res.status(400).json({ error: 'Write something first' });
     if (isBlocked(body)) return res.status(400).json({ error: 'Let’s keep the guestbook friendly' });
-    const r = db.prepare('INSERT INTO guestbook (user_id, body) VALUES (?, ?)').run(u.id, body);
-    const entry = db.prepare(`SELECT g.id, COALESCE(u.handle, 'Explorer') AS handle, g.body, g.created_at FROM guestbook g LEFT JOIN users u ON u.id = g.user_id WHERE g.id = ?`).get(r.lastInsertRowid);
-    res.status(201).json({ entry });
+    const last = guestbookLastUserStmt.get(u.id) as { body: string } | undefined;
+    if (last && last.body === body) return res.status(409).json({ error: 'You already posted that message' });
+    const userLimitKey = String(u.id);
+    if (!postLimit(userLimitKey)) return sendRateLimited(res, postLimit.retryAfterSec(userLimitKey), { error: 'Slow down a little!' });
+    const r = guestbookInsertStmt.run(u.id, body);
+    const row = guestbookByIdStmt.get(r.lastInsertRowid) as { id: number; user_id: number | null; handle: string; body: string; created_at: string };
+    res.status(201).json({
+      entry: { id: row.id, handle: row.handle, body: row.body, created_at: row.created_at, mine: true },
+    });
+  });
+  app.delete('/api/guestbook/:id', (req, res) => {
+    const u = requireUser(req, res); if (!u) return;
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Bad id' });
+    const row = guestbookOwnerStmt.get(id) as { user_id: number | null } | undefined;
+    if (!row) return res.status(404).json({ error: 'Not found' });
+    if (row.user_id !== u.id) return res.status(403).json({ error: 'Forbidden' });
+    guestbookDeleteOwnStmt.run(id, u.id);
+    res.json({ ok: true });
   });
   app.post('/api/guestbook/:id/report', (req, res) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id)) return res.status(400).json({ error: 'Bad id' });
-    if (!reportLimit(clientKey(req.ip).host)) return res.status(429).json({ error: 'Too many requests, try again later' });
+    const hostKey = clientKey(req.ip).host;
+    if (!reportLimit(hostKey)) return sendRateLimited(res, reportLimit.retryAfterSec(hostKey), { error: 'Too many requests, try again later' });
     const user = currentUser(req);
     if (!user && !req.ip) return res.status(503).json({ error: 'Reporting is temporarily unavailable' });
     const v = visitor(req, res);
@@ -586,12 +654,15 @@ export function createApp(o: AppOptions): express.Express {
       res.type(contentType);
       if (enc === 'br' && asset.br.byteLength < asset.raw.byteLength) {
         res.setHeader('Content-Encoding', 'br');
+        res.setHeader('Content-Length', String(asset.br.byteLength));
         return res.end(req.method === 'HEAD' ? undefined : asset.br);
       }
       if (enc === 'gzip' && asset.gzip.byteLength < asset.raw.byteLength) {
         res.setHeader('Content-Encoding', 'gzip');
+        res.setHeader('Content-Length', String(asset.gzip.byteLength));
         return res.end(req.method === 'HEAD' ? undefined : asset.gzip);
       }
+      res.setHeader('Content-Length', String(asset.raw.byteLength));
       return res.end(req.method === 'HEAD' ? undefined : asset.raw);
     };
 
@@ -601,8 +672,8 @@ export function createApp(o: AppOptions): express.Express {
       if (decoded === '/.pro-assets' || decoded.startsWith('/.pro-assets/')) return res.status(404).end();
       next();
     });
-    app.get('/assets/:file', (req, res, next) => {
-      const file = req.params.file;
+    const serveProChunk = (req: Request, res: Response, next: NextFunction) => {
+      const file = String(req.params.file ?? '');
       if (!PRO_CHUNK_RE.test(file)) return next();
       res.setHeader('Cache-Control', 'private, no-store');
       res.vary('Cookie');
@@ -612,21 +683,35 @@ export function createApp(o: AppOptions): express.Express {
         if (!hasProAccess(u.plan, true)) {
           return res.status(402).json({ error: 'Explorer Pro required', code: 'PRO_REQUIRED' });
         }
-        if (!proAssetLimit(`user:${u.id}`) || !proAssetLimit(`ip:${clientKey(req.ip).host}`)) {
-          return res.status(429).json({ error: 'Too many requests, try again later', code: 'RATE_LIMITED' });
+        const userKey = `user:${u.id}`;
+        const ipKey = `ip:${clientKey(req.ip).host}`;
+        if (!proAssetLimit(userKey)) {
+          return sendRateLimited(res, proAssetLimit.retryAfterSec(userKey), { error: 'Too many requests, try again later', code: 'RATE_LIMITED' });
+        }
+        if (!proAssetLimit(ipKey)) {
+          return sendRateLimited(res, proAssetLimit.retryAfterSec(ipKey), { error: 'Too many requests, try again later', code: 'RATE_LIMITED' });
         }
       }
+      const gatedPath = join(dir, '.pro-assets', file);
+      const fallbackPath = join(dir, 'assets', file);
+      const resolved = existsSync(gatedPath) ? gatedPath : existsSync(fallbackPath) ? fallbackPath : null;
+      if (!resolved) {
+        proChunkCache.delete(file);
+        return res.status(404).end();
+      }
+      let st;
+      try { st = statSync(resolved); } catch {
+        proChunkCache.delete(file);
+        return res.status(404).end();
+      }
       let cached = proChunkCache.get(file);
-      if (!cached) {
-        const gatedPath = join(dir, '.pro-assets', file);
-        const fallbackPath = join(dir, 'assets', file);
-        const resolved = existsSync(gatedPath) ? gatedPath : existsSync(fallbackPath) ? fallbackPath : null;
-        if (!resolved) return res.status(404).end();
-        cached = buildCompressedAsset(readFileSync(resolved));
+      if (!cached || cached.mtimeMs !== st.mtimeMs || cached.size !== st.size) {
+        cached = buildCompressedAsset(readFileSync(resolved), st.mtimeMs);
         proChunkCache.set(file, cached);
       }
       return sendCompressedAsset(req, res, cached, 'application/javascript; charset=utf-8');
-    });
+    };
+    app.route('/assets/:file').get(serveProChunk).head(serveProChunk);
     app.use((req, res, next) => {
       if ((req.method !== 'GET' && req.method !== 'HEAD') || req.headers.range) return next();
       let relPath = req.path;

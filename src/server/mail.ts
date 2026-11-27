@@ -65,15 +65,26 @@ function httpMailer(endpoint: string, key: string, from: string): SendMail {
   };
 }
 
+/** Extracts and validates an SMTP envelope address, rejecting angle brackets, whitespace, or control chars. */
+export function sanitizeEnvelopeAddr(raw: string): string {
+  const extracted = (raw.match(/<([^>]+)>/)?.[1] ?? raw).trim();
+  if (!extracted || /[<>\r\n\s\u0000-\u001f\u007f]/.test(extracted) || !extracted.includes('@')) {
+    throw new Error('bad address');
+  }
+  return extracted;
+}
+
 /** A minimal SMTP client: EHLO, (STARTTLS), AUTH PLAIN, one message. */
 function smtpMailer(u: URL, from: string, { user, pass }: { user: string; pass: string }, ca?: string): SendMail {
   const host = u.hostname, implicit = u.protocol === 'smtps:';
   const port = Number(u.port || (implicit ? 465 : 587));
   return async (to, link) => {
-    const addr = (s: string) => s.match(/<([^>]+)>/)?.[1] ?? s;
     if (/[\r\n]/.test(to + from)) throw new Error('bad address');
+    const envFrom = sanitizeEnvelopeAddr(from);
+    const envTo = sanitizeEnvelopeAddr(to);
     let sock: Socket | TLSSocket = implicit ? tlsConnect({ host, port, servername: host, ca }) : netConnect({ host, port });
-    sock.setTimeout(20_000, () => sock.destroy(new Error('smtp timeout')));
+    const armTimeout = (s: Socket | TLSSocket) => s.setTimeout(20_000, () => s.destroy(new Error('smtp timeout')));
+    armTimeout(sock);
     let buf = '';
     let waiting: ((line: string) => void) | null = null;
     let failed: Error | null = null;
@@ -87,6 +98,7 @@ function smtpMailer(u: URL, from: string, { user, pass }: { user: string; pass: 
     // a server hanging up mid-conversation must not leave a reply pending forever
     const onClose = () => { if (waiting) onErr(failed ?? new Error('smtp: connection closed')); };
     const attach = (s: Socket | TLSSocket) => { s.on('data', onData); s.on('error', onErr); s.on('close', onClose); };
+    const detach = (s: Socket | TLSSocket) => { s.off('data', onData); s.off('error', onErr); s.off('close', onClose); };
     attach(sock);
     const reply = () => new Promise<string>(res => { waiting = res; });
     const expect = async (ok: string) => {
@@ -103,15 +115,16 @@ function smtpMailer(u: URL, from: string, { user, pass }: { user: string; pass: 
       if (!implicit) {
         if (!/STARTTLS/i.test(ehlo)) throw new Error('smtp: server offers no STARTTLS');
         await cmd('STARTTLS', '220');
-        sock.removeAllListeners('data');
+        detach(sock);
         sock = tlsConnect({ socket: sock, servername: host, ca });
+        armTimeout(sock);
         attach(sock);
         await new Promise<void>((res, rej) => { (sock as TLSSocket).once('secureConnect', res); sock.once('error', rej); });
         ehlo = await cmd('EHLO terrastra', '250');
       }
       if (user) await cmd('AUTH PLAIN ' + Buffer.from(`\0${user}\0${pass}`).toString('base64'), '235');
-      await cmd(`MAIL FROM:<${addr(from)}>`, '250');
-      await cmd(`RCPT TO:<${addr(to)}>`, '250|251');
+      await cmd(`MAIL FROM:<${envFrom}>`, '250');
+      await cmd(`RCPT TO:<${envTo}>`, '250|251');
       await cmd('DATA', '354');
       const { subject, text } = mailBody(link);
       const enc = (s: string) => '=?UTF-8?B?' + Buffer.from(s).toString('base64') + '?=';
