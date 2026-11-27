@@ -40,6 +40,7 @@ export function isSyncBookmark(x: unknown): x is SyncBookmark {
   if (!x || typeof x !== 'object') return false;
   const b = x as Partial<SyncBookmark>;
   if (typeof b.route !== 'string' || b.route.length > 160) return false;
+  if (b.route.length === 0 && b.cam === undefined) return false;
   if (typeof b.at !== 'number' || !Number.isFinite(b.at) || b.at < 0) return false;
   if (!b.label || typeof b.label !== 'object' || typeof b.label.en !== 'string' || b.label.en.length > 160) return false;
   if (b.label.zh !== undefined && (typeof b.label.zh !== 'string' || b.label.zh.length > 160)) return false;

@@ -39,10 +39,10 @@ function usage(): never {
   npm run codes -- create [--plan pro|classroom] [--count N] [--note TEXT] [--expires-days N] [--raw] [--links] [--csv] [--base-url URL]
   npm run codes -- list [--limit N] [--status available|redeemed|expired|revoked] [--plan pro|classroom] [--note QUERY]
   npm run codes -- inspect <TRST-XXXX-XXXX-XXXX>
-  npm run codes -- stats
+  npm run codes -- stats [--json]
   npm run codes -- prune
   npm run codes -- revoke <TRST-XXXX-XXXX-XXXX> [--revoke-user]
-  npm run codes -- grant --email <EMAIL> [--plan pro|classroom]`);
+  npm run codes -- grant --email <EMAIL> [--plan pro|classroom] [--expires-days N]`);
   process.exit(1);
 }
 
@@ -141,9 +141,13 @@ try {
     if (info.note) console.log(`Note:       ${info.note}`);
   } else if (cmd === 'stats') {
     const s = getBillingStats(db);
-    console.log(`Codes:      ${s.availableCodes} available · ${s.redeemedCodes} redeemed · ${s.expiredCodes} expired · ${s.revokedCodes} revoked`);
-    console.log(`Accounts:   ${s.proUsers} Explorer Pro · ${s.classroomUsers} Classroom`);
-    console.log(`Orders:     ${s.paidOrders} paid`);
+    if (args.includes('--json')) {
+      console.log(JSON.stringify(s));
+    } else {
+      console.log(`Codes:      ${s.availableCodes} available · ${s.redeemedCodes} redeemed · ${s.expiredCodes} expired · ${s.revokedCodes} revoked`);
+      console.log(`Accounts:   ${s.proUsers} Explorer Pro · ${s.classroomUsers} Classroom`);
+      console.log(`Orders:     ${s.paidOrders} paid`);
+    }
   } else if (cmd === 'prune') {
     const r = pruneExpiredState(db);
     console.log(`Pruned ${r.loginTokens} login token(s), ${r.sessions} expired session(s), and ${r.rateLimits} rate-limit bucket(s).`);
@@ -170,12 +174,23 @@ try {
       console.error('Error: --plan must be "pro" or "classroom"');
       process.exit(1);
     }
+    const expiresDaysRaw = argVal(args, '--expires-days');
+    let expiresAt: number | null = null;
+    if (expiresDaysRaw !== undefined) {
+      const days = Number(expiresDaysRaw);
+      if (!Number.isFinite(days) || days <= 0 || days > 3650) {
+        console.error('Error: --expires-days must be a number between 1 and 3650');
+        process.exit(1);
+      }
+      expiresAt = Date.now() + Math.round(days * 86_400_000);
+    }
     const ent = transaction(db, () => {
       db.prepare('INSERT OR IGNORE INTO users (email) VALUES (?)').run(email);
       const u = db.prepare('SELECT id FROM users WHERE email = ?').get(email) as { id: number };
-      return grantEntitlement(db, { userId: u.id, plan: planRaw, source: 'cli-grant' });
+      return grantEntitlement(db, { userId: u.id, plan: planRaw, source: 'cli-grant', expiresAt });
     });
-    console.log(`Granted ${ent.plan.toUpperCase()} (max ${ent.maxSessions} sessions) to ${email}.`);
+    const expLabel = ent.expiresAt ? `, expires ${new Date(ent.expiresAt).toISOString().slice(0, 10)}` : '';
+    console.log(`Granted ${ent.plan.toUpperCase()} (max ${ent.maxSessions} sessions${expLabel}) to ${email}.`);
   } else {
     usage();
   }

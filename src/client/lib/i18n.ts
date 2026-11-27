@@ -596,6 +596,10 @@ const en = {
   "mistake.proHint": "Free plan includes up to {n} unlocked mistake drills — upgrade to Pro for unlimited mistake review & cloud sync.",
   "mistake.practiceFreeBtn": "Practice free {n}",
   "mistake.lockedCardHint": "Unlock Explorer Pro to view the answer, explanation, and single-question drill.",
+  dexFilterAll: "All items",
+  dexFilterFound: "Collected",
+  dexFilterMissing: "Unfound",
+  dexEmptyFilter: "No items match this filter.",
 } as const;
 
 export type I18nKey = keyof typeof en;
@@ -1193,6 +1197,10 @@ const zh: Record<I18nKey, string> = {
   "mistake.proHint": "免费版提供前 {n} 道错题免费查看与重练——升级 Pro 解锁全部无限错题本与多端云同步。",
   "mistake.practiceFreeBtn": "先练前 {n} 题",
   "mistake.lockedCardHint": "解锁寰星 Pro 查看本题答案解析与单题重练。",
+  dexFilterAll: "全部条目",
+  dexFilterFound: "已解锁",
+  dexFilterMissing: "待探索",
+  dexEmptyFilter: "没有符合当前筛选条件的图鉴条目。",
 };
 
 const DICTS: Record<Lang, Dict> = { en, zh };

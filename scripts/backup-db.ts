@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { closeSync, linkSync, openSync, rmSync } from 'node:fs';
+import { closeSync, existsSync, linkSync, mkdirSync, openSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { backup, DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
@@ -10,6 +10,8 @@ const root = fileURLToPath(new URL('..', import.meta.url));
 const source = process.env.DB_PATH ?? join(root, 'data', 'terrastra.db');
 if (source === ':memory:') throw new Error('An in-memory database cannot be backed up by a separate process');
 const destination = resolve(process.argv[2]);
+if (existsSync(destination)) throw new Error(`Backup destination already exists: ${destination}`);
+mkdirSync(dirname(destination), { recursive: true });
 const temporary = join(dirname(destination), `.terrastra-backup-${randomUUID()}.partial`);
 const db = new DatabaseSync(source, { readOnly: true, timeout: 5000 });
 let created = false, published = false;

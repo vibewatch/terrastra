@@ -93,11 +93,15 @@ export function grantEntitlement(
   const current = getUserEntitlement(db, opts.userId, now);
   const nextPlan: Plan = PLAN_RANK[opts.plan] >= PLAN_RANK[current.plan] ? opts.plan : current.plan;
   const maxSessions = Math.max(current.maxSessions, maxSessionsForPlan(nextPlan));
-  const expiresAt = opts.expiresAt === undefined
-    ? null
-    : current.plan !== 'free' && current.expiresAt === null
-      ? null
-      : opts.expiresAt;
+  const incomingExpiresAt = opts.expiresAt === undefined ? null : opts.expiresAt;
+  let expiresAt: number | null;
+  if (incomingExpiresAt === null) {
+    expiresAt = null;
+  } else if (current.plan !== 'free' && PLAN_RANK[current.plan] >= PLAN_RANK[opts.plan]) {
+    expiresAt = current.expiresAt === null ? null : Math.max(current.expiresAt, incomingExpiresAt);
+  } else {
+    expiresAt = incomingExpiresAt;
+  }
   db.prepare(`
     INSERT INTO entitlements (user_id, plan, max_sessions, granted_at, expires_at, source)
     VALUES (?, ?, ?, ?, ?, ?)

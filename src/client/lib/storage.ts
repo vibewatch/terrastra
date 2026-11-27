@@ -25,14 +25,46 @@ let onLost: (() => void) | null = null;
 export function onSessionOnly(fn: () => void): void { onLost = fn; if (lost) fn(); }
 export const sessionOnly = () => lost;
 
+function flushPending(s: Storage): void {
+  if (pending.size === 0) return;
+  for (const k of [...pending]) {
+    const raw = mem.get(k);
+    if (raw === undefined) { pending.delete(k); continue; }
+    s.setItem(k, raw);
+    pending.delete(k);
+  }
+  if (pending.size === 0) lost = false;
+}
+
 function write(key: string, raw: string): void {
   const name = NS + key;
   mem.set(name, raw);
   let ok = false;
-  try { const s = ls(); if (s) { s.setItem(name, raw); ok = true; } } catch { /* quota or disabled */ }
-  if (ok) pending.delete(name); else pending.add(name);
+  try {
+    const s = ls();
+    if (s) {
+      s.setItem(name, raw);
+      ok = true;
+      pending.delete(name);
+      flushPending(s);
+    }
+  } catch { /* quota or disabled */ }
+  if (!ok) pending.add(name);
   if (ok && pending.size === 0) lost = false;
   if (!ok && !lost) { lost = true; onLost?.(); }
+}
+
+export function remove(key: string): void {
+  const name = NS + key;
+  mem.delete(name);
+  pending.delete(name);
+  try {
+    const s = ls();
+    if (s) {
+      s.removeItem(name);
+      flushPending(s);
+    }
+  } catch { /* quota or disabled */ }
 }
 
 export function load<T>(key: string, fallback: T): T {

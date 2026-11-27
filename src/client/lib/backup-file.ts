@@ -29,7 +29,8 @@ export interface Backup {
 export function isBookmark(x: unknown): x is Bookmark {
   if (!x || typeof x !== 'object') return false;
   const b = x as Partial<Bookmark>;
-  if (typeof b.route !== 'string' || b.route.length === 0 || b.route.length > 160) return false;
+  if (typeof b.route !== 'string' || b.route.length > 160) return false;
+  if (b.route.length === 0 && b.cam === undefined) return false;
   if (typeof b.at !== 'number' || !Number.isFinite(b.at) || b.at < 0) return false;
   if (!b.label || typeof b.label !== 'object' || typeof b.label.en !== 'string' || b.label.en.length > 160) return false;
   if (b.label.zh !== undefined && (typeof b.label.zh !== 'string' || b.label.zh.length > 160)) return false;
@@ -51,11 +52,9 @@ export function mergeBookmarks(a: readonly Bookmark[], b: readonly Bookmark[]): 
       if (!prev || item.at >= prev.at) byKey.set(k, item);
     }
   }
-  return [...byKey.values()].sort((x, y) => y.at - aSortTie(x, y)).slice(0, MAX_BOOKMARKS);
-}
-
-function aSortTie(x: Bookmark, y: Bookmark): number {
-  return x.at !== y.at ? x.at : encodeView(y).localeCompare(encodeView(x));
+  return [...byKey.values()]
+    .sort((x, y) => (y.at !== x.at ? y.at - x.at : encodeView(x).localeCompare(encodeView(y))))
+    .slice(0, MAX_BOOKMARKS);
 }
 
 export function backupOf(p: Progress, at = Date.now(), extras?: BackupExtras): Backup {

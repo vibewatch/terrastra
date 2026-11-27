@@ -42,7 +42,10 @@ function isEmptyProgress(p: Progress): boolean {
     && Object.keys(p.visited).length === 0
     && Object.keys(p.stickers).length === 0
     && Object.keys(p.found).length === 0
-    && Object.keys(p.seen).length === 0;
+    && Object.keys(p.seen).length === 0
+    && Object.keys(p.placeit ?? {}).length === 0
+    && (p.quiz?.answered ?? 0) === 0
+    && (p.daily?.played ?? 0) === 0;
 }
 
 function bumpChangedToggles(prev: Record<string, number>, next: Record<string, number>): void {
@@ -242,10 +245,32 @@ export function clearLocalExtras(): void {
 }
 
 let syncTimer = 0;
+let syncPending = false;
 let syncer: (() => Promise<void>) | null = null;
 export function setSyncer(fn: () => Promise<void>): void { syncer = fn; }
+export function flushSync(): void {
+  if (!syncPending) return;
+  syncPending = false;
+  clearTimeout(syncTimer);
+  syncTimer = 0;
+  if (store.me && syncer) void syncer();
+}
 export function scheduleSync(): void {
   if (!store.me || !syncer) return;
+  syncPending = true;
   clearTimeout(syncTimer);
-  syncTimer = window.setTimeout(() => void syncer?.(), 1500);
+  syncTimer = window.setTimeout(() => {
+    syncPending = false;
+    syncTimer = 0;
+    void syncer?.();
+  }, 1500);
+}
+
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+  window.addEventListener('pagehide', flushSync);
+  if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') flushSync();
+    });
+  }
 }

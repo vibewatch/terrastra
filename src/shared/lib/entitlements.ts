@@ -121,6 +121,17 @@ export function maskRedeemCode(raw: string): string | null {
   return norm ? `TRST-••••-••••-${norm.slice(-4)}` : null;
 }
 
+/** Parses HTTP `Retry-After` (delta-seconds or IMF-fixdate) into non-negative seconds. */
+export function parseRetryAfterSeconds(header: string | null | undefined, now = Date.now()): number | undefined {
+  if (!header) return undefined;
+  const trimmed = header.trim();
+  if (!trimmed) return undefined;
+  if (/^\d+$/.test(trimmed)) return Math.max(0, Number(trimmed));
+  const dateMs = Date.parse(trimmed);
+  if (Number.isFinite(dateMs)) return Math.max(0, Math.ceil((dateMs - now) / 1000));
+  return undefined;
+}
+
 /**
  * Starter lessons bundled in the public `lessons-free` chunk so every curriculum track
  * offers complete, interactive lessons for free without downloading Pro chunks.

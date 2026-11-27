@@ -907,3 +907,66 @@ describe('billing, redemption codes, session caps, sync v2 & gated pro chunks', 
     }
   });
 });
+
+describe('HTTP caching, security headers, expiry preservation & backup resilience', () => {
+  it('supports weak If-None-Match comparison, Accept-Encoding wildcards, Retry-After parsing, and mail escaping', async () => {
+    const { matchesIfNoneMatch, negotiateEncoding } = await import('../../src/server/app.ts');
+    const { mailBody } = await import('../../src/server/mail.ts');
+    const { parseRetryAfterSeconds } = await import('../../src/shared/lib/entitlements.ts');
+
+    expect(matchesIfNoneMatch('"abc-123"', 'W/"abc-123"')).toBe(true);
+    expect(matchesIfNoneMatch('W/"other", "abc-123"', 'W/"abc-123"')).toBe(true);
+    expect(matchesIfNoneMatch('W/"other"', 'W/"abc-123"')).toBe(false);
+
+    expect(negotiateEncoding('*;q=0.8')).toBe('br');
+    expect(negotiateEncoding('br;q=0, *;q=0.5')).toBe('gzip');
+    expect(negotiateEncoding('br;q=0, gzip;q=0, *;q=0.5')).toBeNull();
+
+    expect(parseRetryAfterSeconds('60')).toBe(60);
+    expect(parseRetryAfterSeconds('Wed, 21 Oct 2026 07:28:10 GMT', Date.parse('Wed, 21 Oct 2026 07:28:00 GMT'))).toBe(10);
+    expect(parseRetryAfterSeconds('invalid')).toBeUndefined();
+
+    const body = mailBody('https://terrastra.example/?a=1&b="x">\'y');
+    expect(body.html).toContain('https://terrastra.example/?a=1&amp;b=&quot;x&quot;&gt;&#39;y');
+  });
+
+  it('sets Permissions-Policy + HSTS on secure origins, recovers corrupt stored progress, and never shortens active expiry', async () => {
+    const { grantEntitlement } = await import('../../src/server/billing.ts');
+    const tmpDb = openDb(':memory:');
+    tmpDb.prepare('INSERT INTO users (email) VALUES (?)').run('school@example.edu');
+    const u = tmpDb.prepare('SELECT id FROM users WHERE email = ?').get('school@example.edu') as { id: number };
+    const now = 1_700_000_000_000;
+    const yearOut = now + 365 * 86_400_000;
+    const monthOut = now + 30 * 86_400_000;
+    expect(grantEntitlement(tmpDb, { userId: u.id, plan: 'classroom', source: 'annual', expiresAt: yearOut, now }).expiresAt).toBe(yearOut);
+    expect(grantEntitlement(tmpDb, { userId: u.id, plan: 'classroom', source: 'promo', expiresAt: monthOut, now }).expiresAt).toBe(yearOut);
+
+    // Corrupt stored JSON in progress/learning_sync self-heals on GET/PUT instead of throwing 500
+    const secApp = createApp({ db: tmpDb, devLogin: true, baseUrl: 'https://secure.example', secureCookies: true });
+    const srv: Server = await new Promise(r => { const s = secApp.listen(0, () => r(s)); });
+    try {
+      const port = (srv.address() as { port: number }).port;
+      const health = await fetch(`http://127.0.0.1:${port}/api/health`);
+      expect(health.headers.get('strict-transport-security')).toContain('max-age=31536000');
+      expect(health.headers.get('permissions-policy')).toContain('geolocation=(self)');
+    } finally {
+      await new Promise<void>(r => srv.close(() => r()));
+      tmpDb.close();
+    }
+
+    // Corrupt row recovery on shared test server
+    db.prepare("DELETE FROM rate_limits").run();
+    const rHeal = await call('POST', '/api/auth/request', { email: 'heal@example.com' });
+    await confirmLink(rHeal.json.devLink);
+    const uTest = db.prepare('SELECT id FROM users WHERE email = ?').get('heal@example.com') as { id: number };
+    db.prepare('INSERT OR REPLACE INTO progress (user_id, json, updated_at) VALUES (?, ?, ?)').run(uTest.id, '{broken-json', 1);
+    db.prepare('INSERT OR REPLACE INTO learning_sync (user_id, json, updated_at) VALUES (?, ?, ?)').run(uTest.id, '{"bad":true}', 1);
+    const recoveredGet = await call('GET', '/api/progress');
+    expect(recoveredGet.status).toBe(200);
+    expect(recoveredGet.json.progress).toBeNull();
+    const pClean = emptyProgress(); pClean.dex = { eiffel: 10 }; pClean.updatedAt = 99;
+    const recoveredPut = await call('PUT', '/api/progress', { progress: pClean });
+    expect(recoveredPut.status).toBe(200);
+    expect(recoveredPut.json.progress.dex).toEqual({ eiffel: 10 });
+  });
+});

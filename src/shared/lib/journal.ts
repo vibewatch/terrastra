@@ -66,10 +66,11 @@ export function recordLessonFinish(
 ): LessonJournal {
   const prev = journal[id];
   const updatedAt = Math.max(now, (prev?.updatedAt ?? 0) + 1);
-  const cleanScore = Math.max(0, Math.floor(score));
   const cleanTotal = Math.max(1, Math.floor(quizTotal));
+  const cleanScore = Math.min(cleanTotal, Math.max(0, Math.floor(score)));
+  const effectiveTotal = Math.max(cleanTotal, prev?.quizTotal ?? 0);
   const bestScore = prev?.bestScore !== null && prev?.bestScore !== undefined
-    ? Math.max(prev.bestScore, cleanScore)
+    ? Math.min(effectiveTotal, Math.max(prev.bestScore, cleanScore))
     : cleanScore;
   const dedupMissed: [string, string][] = [];
   const seen = new Set<string>();
@@ -109,9 +110,13 @@ export function mergeLessonJournal(a: LessonJournal = {}, b: LessonJournal = {})
       continue;
     }
     const newer = eb.updatedAt >= ea.updatedAt ? eb : ea;
-    const bestScore = ea.bestScore !== null && eb.bestScore !== null
+    const mergedQuizTotal = Math.max(ea.quizTotal, eb.quizTotal);
+    const rawBest = ea.bestScore !== null && eb.bestScore !== null
       ? Math.max(ea.bestScore, eb.bestScore)
       : (ea.bestScore ?? eb.bestScore);
+    const bestScore = rawBest !== null && mergedQuizTotal > 0 ? Math.min(mergedQuizTotal, rawBest) : rawBest;
+    const rawLast = newer.lastScore ?? ea.lastScore ?? eb.lastScore;
+    const lastScore = rawLast !== null && mergedQuizTotal > 0 ? Math.min(mergedQuizTotal, rawLast) : rawLast;
     const completedAt = ea.completedAt !== null && eb.completedAt !== null
       ? Math.min(ea.completedAt, eb.completedAt)
       : (ea.completedAt ?? eb.completedAt);
@@ -120,8 +125,8 @@ export function mergeLessonJournal(a: LessonJournal = {}, b: LessonJournal = {})
       stepIndex: newer.stepIndex,
       totalSteps: Math.max(ea.totalSteps, eb.totalSteps),
       bestScore,
-      lastScore: newer.lastScore ?? ea.lastScore ?? eb.lastScore,
-      quizTotal: newer.quizTotal || ea.quizTotal || eb.quizTotal,
+      lastScore,
+      quizTotal: mergedQuizTotal,
       attempts: Math.max(ea.attempts, eb.attempts),
       missedTopics: newer.missedTopics,
       completedAt,
@@ -168,6 +173,45 @@ export function pickContinueLesson(
   }
   entries.sort((a, b) => b.updatedAt - a.updatedAt);
   return entries[0];
+}
+
+export interface JournalMasterySummary {
+  completedCount: number;
+  inProgressCount: number;
+  perfectCount: number;
+  totalAttempts: number;
+  averageAccuracyPct: number | null;
+}
+
+export function computeJournalMastery(
+  journal: LessonJournal,
+  filterFn?: (id: string) => boolean,
+): JournalMasterySummary {
+  const entries = Object.values(journal).filter(e => isLessonJournalEntry(e) && (!filterFn || filterFn(e.id)));
+  let completedCount = 0;
+  let inProgressCount = 0;
+  let perfectCount = 0;
+  let totalAttempts = 0;
+  let scoredSum = 0;
+  let totalQuestions = 0;
+  for (const e of entries) {
+    totalAttempts += Math.max(0, e.attempts);
+    if (e.completedAt !== null) completedCount++;
+    else if (e.stepIndex > 0) inProgressCount++;
+    if (e.bestScore !== null && e.quizTotal > 0) {
+      const clamped = Math.min(e.quizTotal, Math.max(0, e.bestScore));
+      scoredSum += clamped;
+      totalQuestions += e.quizTotal;
+      if (clamped === e.quizTotal) perfectCount++;
+    }
+  }
+  return {
+    completedCount,
+    inProgressCount,
+    perfectCount,
+    totalAttempts,
+    averageAccuracyPct: totalQuestions > 0 ? Math.round((scoredSum / totalQuestions) * 100) : null,
+  };
 }
 
 // ============================================================================

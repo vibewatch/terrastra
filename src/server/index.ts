@@ -54,6 +54,7 @@ function shutdown(signal: string): void {
   forceTimer.unref();
   server.close(() => {
     clearTimeout(forceTimer);
+    try { db.exec('PRAGMA wal_checkpoint(TRUNCATE)'); } catch { /* ignore */ }
     try { db.close(); } catch { /* ignore */ }
     process.exit(0);
   });

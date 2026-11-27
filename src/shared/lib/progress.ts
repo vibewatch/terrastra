@@ -74,17 +74,21 @@ export function mergeProgress(a: Progress, b: Progress): Progress {
     : da.played !== db.played
       ? (da.played > db.played ? da : db)
       : (a.updatedAt ?? 0) >= (b.updatedAt ?? 0) ? da : db;
+  const quizAnswered = Math.max(0, a.quiz?.answered ?? 0, b.quiz?.answered ?? 0);
+  const quizCorrect = Math.min(quizAnswered, Math.max(0, a.quiz?.correct ?? 0, b.quiz?.correct ?? 0));
+  const dailyPlayed = Math.max(0, da.played, db.played);
+  const dailyWon = Math.min(dailyPlayed, Math.max(0, da.won, db.won));
   return {
     v: 1,
     dex: unionEarliest(a.dex, b.dex), logs: unionEarliest(a.logs, b.logs), stickers: unionEarliest(a.stickers, b.stickers),
     found: unionEarliest(a.found, b.found), seen: unionEarliest(a.seen, b.seen),
     likes: latestToggle(a.likes, b.likes), visited: latestToggle(a.visited, b.visited),
     placeit: Object.fromEntries(placeit),
-    quiz: { answered: Math.max(a.quiz?.answered ?? 0, b.quiz?.answered ?? 0), correct: Math.max(a.quiz?.correct ?? 0, b.quiz?.correct ?? 0), bySet: Object.fromEntries(bySet) },
+    quiz: { answered: quizAnswered, correct: quizCorrect, bySet: Object.fromEntries(bySet) },
     daily: {
-      played: Math.max(da.played, db.played), won: Math.max(da.won, db.won), streak: dailyNewer.streak,
-      maxStreak: Math.max(da.maxStreak, db.maxStreak), lastWonDay: dailyNewer.lastWonDay,
-      dist: da.dist.map((v, i) => Math.max(v, db.dist?.[i] ?? 0)),
+      played: dailyPlayed, won: dailyWon, streak: Math.max(0, dailyNewer.streak),
+      maxStreak: Math.max(0, da.maxStreak, db.maxStreak), lastWonDay: dailyNewer.lastWonDay,
+      dist: da.dist.map((v, i) => Math.max(0, v, db.dist?.[i] ?? 0)),
     },
     updatedAt: Math.max(a.updatedAt ?? 0, b.updatedAt ?? 0),
   };
@@ -97,13 +101,15 @@ const isStamp = (m: unknown, required: boolean): boolean => m === undefined ? !r
   : !!m && typeof m === 'object' && !Array.isArray(m) && Object.keys(m).length <= MAX_STAMPS
     && Object.entries(m).every(([k, v]) => k.length <= 64 && typeof v === 'number' && Number.isFinite(v));
 
+const nonNeg = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0;
 const num = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
-/** The merge maps over `dist` and takes maxima of the counters, so every field must be a real number. */
+/** The merge maps over `dist` and takes maxima of the counters, so every field must be a non-negative real number. */
 const isDaily = (d: unknown): boolean => {
   if (!d || typeof d !== 'object') return false;
   const s = d as DailyStats;
-  return num(s.played) && num(s.won) && num(s.streak) && num(s.maxStreak) && (s.lastWonDay === null || num(s.lastWonDay))
-    && Array.isArray(s.dist) && s.dist.length === EMPTY_STATS.dist.length && s.dist.every(num);
+  return nonNeg(s.played) && nonNeg(s.won) && s.won <= s.played && nonNeg(s.streak) && nonNeg(s.maxStreak)
+    && (s.lastWonDay === null || num(s.lastWonDay))
+    && Array.isArray(s.dist) && s.dist.length === EMPTY_STATS.dist.length && s.dist.every(nonNeg);
 };
 
 /** Stamp maps that can be trimmed to keep a record syncable: toggles and passport stamps, never collections. */
@@ -158,8 +164,8 @@ export function isProgress(x: unknown): x is Progress {
   const p = x as Progress;
   return p.v === 1 && STAMPS.every(k => isStamp(p[k], k === 'dex' || k === 'logs' || k === 'stickers'))
     && (p.placeit === undefined || (!!p.placeit && typeof p.placeit === 'object' && !Array.isArray(p.placeit) && Object.keys(p.placeit).length <= 100
-      && Object.entries(p.placeit).every(([k, r]) => k.length <= 64 && !!r && Number.isFinite(r.best) && Number.isFinite(r.plays))))
-    && (p.quiz === undefined || (!!p.quiz && Number.isFinite(p.quiz.answered) && Number.isFinite(p.quiz.correct) && isStamp(p.quiz.bySet, false)))
+      && Object.entries(p.placeit).every(([k, r]) => k.length <= 64 && !!r && nonNeg(r.best) && nonNeg(r.plays))))
+    && (p.quiz === undefined || (!!p.quiz && nonNeg(p.quiz.answered) && nonNeg(p.quiz.correct) && p.quiz.correct <= p.quiz.answered && isStamp(p.quiz.bySet, false)))
     && (p.daily === undefined || isDaily(p.daily))
     && (p.updatedAt === undefined || Number.isFinite(p.updatedAt));
 }

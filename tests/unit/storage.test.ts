@@ -96,4 +96,36 @@ describe('local storage fallback', () => {
     saveText('skyObs', 'beijing');
     expect(loadText('skyObs', 'best')).toBe('beijing');
   });
+
+  it('flushes other pending keys once storage quota frees up and supports remove()', async () => {
+    const values = new Map<string, string>();
+    let blocked = true;
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        if (blocked) throw new Error('quota exceeded');
+        values.set(key, value);
+      },
+      removeItem: (key: string) => {
+        values.delete(key);
+      },
+    });
+    const { load, save, remove, sessionOnly } = await import('../../src/client/lib/storage.ts');
+
+    save('alpha', { a: 1 });
+    save('beta', { b: 2 });
+    expect(sessionOnly()).toBe(true);
+    expect(values.size).toBe(0);
+
+    blocked = false;
+    save('gamma', { c: 3 });
+    expect(sessionOnly()).toBe(false);
+    expect(JSON.parse(values.get('pp.alpha')!)).toEqual({ a: 1 });
+    expect(JSON.parse(values.get('pp.beta')!)).toEqual({ b: 2 });
+    expect(JSON.parse(values.get('pp.gamma')!)).toEqual({ c: 3 });
+
+    remove('beta');
+    expect(load('beta', null)).toBeNull();
+    expect(values.has('pp.beta')).toBe(false);
+  });
 });

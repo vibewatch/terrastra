@@ -47,17 +47,88 @@ export function openCollection(go: (it: CatalogueItem) => void): void {
 }
 
 function dex(title: string, items: CatalogueItem[], got: Record<string, number>, go: (it: CatalogueItem) => void): void {
-  const groups = new Map<string, CatalogueItem[]>();
-  for (const it of items) { const k = it.sub; groups.set(k, [...(groups.get(k) ?? []), it]); }
-  const body = h('div', { class: 'dex' }, h('p', { class: 'muted' }, t('found', { n: items.filter(i => i.key in got).length, t: items.length })));
-  for (const [g, list] of groups) {
-    body.append(h('h3', { class: 'dex-group' }, subName(g, lang())), h('div', { class: 'dex-grid' }, ...list.map(it => {
+  let status: 'all' | 'found' | 'missing' = 'all';
+  let query = '';
+
+  const filterBar = h('div', { class: 'row', style: 'gap:6px;flex-wrap:wrap;margin-bottom:8px' });
+  const statuses: ReadonlyArray<{ id: 'all' | 'found' | 'missing'; key: string }> = [
+    { id: 'all', key: 'dexFilterAll' },
+    { id: 'found', key: 'dexFilterFound' },
+    { id: 'missing', key: 'dexFilterMissing' },
+  ];
+  const filterBtns = statuses.map(s => {
+    const btn = h('button', {
+      class: 'pill pill-sm' + (s.id === status ? ' active' : ''),
+      'data-testid': 'dex-filter-' + s.id,
+      onclick: () => {
+        status = s.id;
+        filterBtns.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        render();
+      },
+    }, t(s.key));
+    return btn;
+  });
+  const searchInp = h('input', {
+    class: 'search-input',
+    type: 'search',
+    placeholder: t('searchPlaceholder'),
+    'aria-label': t('searchPlaceholder'),
+    'data-testid': 'dex-search-input',
+    style: 'flex:1;min-width:160px',
+    oninput: (e: Event) => {
+      query = (e.target as HTMLInputElement).value;
+      render();
+    },
+  });
+  filterBar.append(...filterBtns, searchInp);
+
+  const countEl = h('p', { class: 'muted' }, t('found', { n: items.filter(i => i.key in got).length, t: items.length }));
+  const groupsWrap = h('div', { class: 'dex-groups' });
+
+  const render = () => {
+    const l = lang();
+    const q = query.trim().toLowerCase();
+    const filtered = items.filter(it => {
       const have = it.key in got;
-      return h('button', { class: 'dex-cell' + (have ? ' have' : ''), 'data-testid': 'dex-' + it.key, title: have ? tr(it.name, lang()) : t('locked'),
-        onclick: () => { closeModal('dex'); closeModal('collection'); go(it); } },
-        h('span', { class: 'dex-emoji', 'aria-hidden': 'true' }, have ? it.emoji : '❔'), h('span', { class: 'dex-name' }, have ? tr(it.name, lang()) : '???'));
-    })));
-  }
+      if (status === 'found' && !have) return false;
+      if (status === 'missing' && have) return false;
+      if (q) {
+        const hay = `${it.name.en} ${it.name.zh ?? ''} ${subName(it.sub, 'en')} ${subName(it.sub, 'zh')}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+    groupsWrap.replaceChildren();
+    if (filtered.length === 0) {
+      groupsWrap.append(h('p', { class: 'muted', 'data-testid': 'dex-empty' }, t('dexEmptyFilter')));
+      return;
+    }
+    const groups = new Map<string, CatalogueItem[]>();
+    for (const it of filtered) {
+      const k = it.sub;
+      groups.set(k, [...(groups.get(k) ?? []), it]);
+    }
+    for (const [g, list] of groups) {
+      groupsWrap.append(
+        h('h3', { class: 'dex-group' }, subName(g, l)),
+        h('div', { class: 'dex-grid' }, ...list.map(it => {
+          const have = it.key in got;
+          return h('button', {
+            class: 'dex-cell' + (have ? ' have' : ''),
+            'data-testid': 'dex-' + it.key,
+            title: have ? tr(it.name, l) : t('locked'),
+            onclick: () => { closeModal('dex'); closeModal('collection'); go(it); },
+          },
+            h('span', { class: 'dex-emoji', 'aria-hidden': 'true' }, have ? it.emoji : '❔'),
+            h('span', { class: 'dex-name' }, have ? tr(it.name, l) : '???'));
+        })),
+      );
+    }
+  };
+
+  render();
+  const body = h('div', { class: 'dex' }, countEl, filterBar, groupsWrap);
   openModal('dex', title, body, { wide: true });
 }
 

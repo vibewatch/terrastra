@@ -22,11 +22,16 @@ export interface ExplorerStats {
   countriesVisited: string[];
   northernmost: CatalogueItem | null;
   southernmost: CatalogueItem | null;
+  highestPeak: CatalogueItem | null;
   dexCount: number;
   logsCount: number;
   foundCount: number;
   stickersCount: number;
   lessonsCompleted: number;
+  quizAnswered: number;
+  quizAccuracyPct: number | null;
+  dailyPlayed: number;
+  dailyMaxStreak: number;
 }
 
 export function computeExplorerStats(progress: Progress, journal?: LessonJournal): ExplorerStats {
@@ -34,6 +39,7 @@ export function computeExplorerStats(progress: Progress, journal?: LessonJournal
   const countries = new Set<string>();
   let northernmost: CatalogueItem | null = null;
   let southernmost: CatalogueItem | null = null;
+  let highestPeak: CatalogueItem | null = null;
 
   for (const key of Object.keys(progress.seen)) {
     const it = BY_KEY.get(key);
@@ -47,6 +53,10 @@ export function computeExplorerStats(progress: Progress, journal?: LessonJournal
     if (!it.route && Number.isFinite(it.lat)) {
       if (!northernmost || it.lat > northernmost.lat) northernmost = it;
       if (!southernmost || it.lat < southernmost.lat) southernmost = it;
+      const h = it.facts?.heightM;
+      if (typeof h === 'number' && h > 0 && (!highestPeak || h > (highestPeak.facts?.heightM ?? 0))) {
+        highestPeak = it;
+      }
     }
   }
 
@@ -54,17 +64,28 @@ export function computeExplorerStats(progress: Progress, journal?: LessonJournal
     ? Object.values(journal).filter(e => e.completedAt !== null).length
     : 0;
 
+  const quizAnswered = Math.max(0, progress.quiz?.answered ?? 0);
+  const quizCorrect = Math.min(quizAnswered, Math.max(0, progress.quiz?.correct ?? 0));
+  const quizAccuracyPct = quizAnswered > 0 ? Math.round((quizCorrect / quizAnswered) * 100) : null;
+  const dailyPlayed = Math.max(0, progress.daily?.played ?? 0);
+  const dailyMaxStreak = Math.max(0, progress.daily?.maxStreak ?? 0);
+
   return {
     stampsCount: Object.keys(progress.seen).length,
     continentsVisited: [...continents],
     countriesVisited: [...countries].sort(),
     northernmost,
     southernmost,
+    highestPeak,
     dexCount: Object.keys(progress.dex).length,
     logsCount: Object.keys(progress.logs).length,
     foundCount: Object.keys(progress.found).length,
     stickersCount: Object.keys(progress.stickers).length,
     lessonsCompleted,
+    quizAnswered,
+    quizAccuracyPct,
+    dailyPlayed,
+    dailyMaxStreak,
   };
 }
 
@@ -108,6 +129,26 @@ export function formatFieldLogMarkdown(
     lines.push(isZh
       ? `- **最南足迹**: ${stats.southernmost.emoji} ${tr(stats.southernmost.name, lang)} (${formatCoordPair(stats.southernmost.lat, stats.southernmost.lon)})`
       : `- **Southernmost**: ${stats.southernmost.emoji} ${tr(stats.southernmost.name, lang)} (${formatCoordPair(stats.southernmost.lat, stats.southernmost.lon)})`);
+    if (stats.highestPeak && typeof stats.highestPeak.facts?.heightM === 'number') {
+      lines.push(isZh
+        ? `- **最高海拔**: ${stats.highestPeak.emoji} ${tr(stats.highestPeak.name, lang)} (${Math.round(stats.highestPeak.facts.heightM).toLocaleString()} m)`
+        : `- **Highest elevation**: ${stats.highestPeak.emoji} ${tr(stats.highestPeak.name, lang)} (${Math.round(stats.highestPeak.facts.heightM).toLocaleString()} m)`);
+    }
+  }
+
+  if (stats.quizAccuracyPct !== null || stats.dailyMaxStreak > 0) {
+    lines.push('');
+    lines.push(isZh ? '## 挑战掌握度' : '## Challenge Mastery');
+    if (stats.quizAccuracyPct !== null) {
+      lines.push(isZh
+        ? `- **知识问答正确率**: ${stats.quizAccuracyPct}% (${stats.quizAnswered} 题)`
+        : `- **Quiz accuracy**: ${stats.quizAccuracyPct}% (${stats.quizAnswered} answered)`);
+    }
+    if (stats.dailyMaxStreak > 0) {
+      lines.push(isZh
+        ? `- **每日挑战最高连胜**: ${stats.dailyMaxStreak} 天 (累计参与 ${stats.dailyPlayed} 局)`
+        : `- **Daily challenge max streak**: ${stats.dailyMaxStreak}d (${stats.dailyPlayed} played)`);
+    }
   }
 
   lines.push('');

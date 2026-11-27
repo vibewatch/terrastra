@@ -82,11 +82,12 @@ function buildCompressedAsset(raw: Buffer, mtimeMs = 0): CompressedAsset {
   };
 }
 
-/** Negotiates `br` or `gzip` from `Accept-Encoding`, honoring `q=0` exclusions. */
+/** Negotiates `br` or `gzip` from `Accept-Encoding`, honoring `q=0` exclusions and `*` defaults. */
 export function negotiateEncoding(header: string | undefined): 'br' | 'gzip' | null {
   if (!header) return null;
-  let brQ = -1;
-  let gzipQ = -1;
+  let brQ: number | null = null;
+  let gzipQ: number | null = null;
+  let starQ: number | null = null;
   for (const rawPart of header.split(',')) {
     const [tokenRaw, ...params] = rawPart.trim().toLowerCase().split(';');
     const token = tokenRaw.trim();
@@ -97,16 +98,23 @@ export function negotiateEncoding(header: string | undefined): 'br' | 'gzip' | n
       if (m) q = Number(m[1]);
     }
     if (token === 'br') brQ = q;
-    else if (token === 'gzip' || token === 'x-gzip') gzipQ = Math.max(gzipQ, q);
+    else if (token === 'gzip' || token === 'x-gzip') gzipQ = gzipQ === null ? q : Math.max(gzipQ, q);
+    else if (token === '*') starQ = q;
   }
-  if (brQ <= 0 && gzipQ <= 0) return null;
-  return brQ >= gzipQ && brQ > 0 ? 'br' : gzipQ > 0 ? 'gzip' : null;
+  const effBr = brQ ?? starQ ?? -1;
+  const effGzip = gzipQ ?? starQ ?? -1;
+  if (effBr <= 0 && effGzip <= 0) return null;
+  return effBr >= effGzip && effBr > 0 ? 'br' : effGzip > 0 ? 'gzip' : null;
 }
 
-function matchesIfNoneMatch(header: string | undefined, etag: string): boolean {
+const stripWeakTag = (tag: string): string => tag.trim().replace(/^W\//i, '');
+
+export function matchesIfNoneMatch(header: string | undefined, etag: string): boolean {
   if (!header) return false;
   if (header.trim() === '*') return true;
-  return header.split(',').some(part => part.trim() === etag);
+  const target = stripWeakTag(etag);
+  if (!target.startsWith('"')) return false;
+  return header.split(',').some(part => stripWeakTag(part) === target);
 }
 
 function cookies(req: Request): Record<string, string> {
@@ -146,6 +154,10 @@ export function createApp(o: AppOptions): express.Express {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
     res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), payment=(), usb=(), geolocation=(self)');
+    if (o.secureCookies) {
+      res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    }
     const origSend = res.send.bind(res);
     res.send = ((body?: unknown) => {
       if (res.headersSent || res.getHeader('Content-Encoding')) return origSend(body);
@@ -276,6 +288,7 @@ export function createApp(o: AppOptions): express.Express {
     if (!EMAIL_RE.test(email) || email.length > 254) return res.status(400).json({ error: 'Please enter a valid email' });
     const client = clientKey(req.ip);
     if (!authLimit(client.host) || (client.wide && !authWideLimit(client.wide)) || !authLimit(client.host + ':' + email) || !mailLimit(email)) {
+      res.setHeader('Retry-After', '60');
       return res.status(429).json({ error: 'Too many requests, try again later' });
     }
     const token = randomBytes(24).toString('base64url');
@@ -384,6 +397,7 @@ export function createApp(o: AppOptions): express.Express {
     const u = requireUser(req, res); if (!u) return;
     const hostKey = clientKey(req.ip).host;
     if (!redeemLimit(`user:${u.id}`) || !redeemLimit(`ip:${hostKey}`)) {
+      res.setHeader('Retry-After', '60');
       return res.status(429).json({ error: 'Too many redemption attempts, please try again later' });
     }
     try {
@@ -425,13 +439,33 @@ export function createApp(o: AppOptions): express.Express {
     res.json({ user: { ...u, handle } });
   });
 
+  const parseStoredProgress = (raw: string | undefined): Progress | null => {
+    if (!raw) return null;
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      return isProgress(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  };
+  const parseStoredExtras = (raw: string | undefined): SyncExtras | null => {
+    if (!raw) return null;
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      return isSyncExtras(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  };
+
   app.get('/api/progress', (req, res) => {
     const u = requireUser(req, res); if (!u) return;
     const row = progressSelectStmt.get(u.id) as { json: string } | undefined;
     const extrasRow = extrasSelectStmt.get(u.id) as { json: string } | undefined;
+    const parsedExtras = parseStoredExtras(extrasRow?.json);
     res.json({
-      progress: row ? JSON.parse(row.json) as Progress : null,
-      ...(extrasRow ? { extras: JSON.parse(extrasRow.json) as SyncExtras } : {}),
+      progress: parseStoredProgress(row?.json),
+      ...(parsedExtras ? { extras: parsedExtras } : {}),
     });
   });
 
@@ -444,12 +478,12 @@ export function createApp(o: AppOptions): express.Express {
     const synced = transaction(db, () => {
       const now = Date.now();
       const row = progressSelectStmt.get(u.id) as { json: string } | undefined;
-      const result = fitProgress(mergeProgress(row ? JSON.parse(row.json) as Progress : emptyProgress(), incoming));
+      const result = fitProgress(mergeProgress(parseStoredProgress(row?.json) ?? emptyProgress(), incoming));
       if (!isProgress(result) || !fitsSyncRequest(result)) return null;
       let mergedExtras: SyncExtras | undefined;
       if (rawExtras !== undefined) {
         const storedRow = extrasSelectStmt.get(u.id) as { json: string } | undefined;
-        const storedExtras = storedRow ? JSON.parse(storedRow.json) as SyncExtras : emptySyncExtras();
+        const storedExtras = parseStoredExtras(storedRow?.json) ?? emptySyncExtras();
         const filtered = filterIncomingExtrasForPlan(rawExtras, u.plan, paywall);
         mergedExtras = fitSyncExtras(result, mergeSyncExtras(storedExtras, filtered), MAX_SYNC_REQUEST_BYTES);
         const totalBytes = new TextEncoder().encode(JSON.stringify({ progress: result, extras: mergedExtras })).byteLength;

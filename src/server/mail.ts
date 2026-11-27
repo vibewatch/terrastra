@@ -5,6 +5,7 @@
  * - `SMTP_URL=smtps://user:pass@host:465` (implicit TLS) or `smtp://user:pass@host:587` (STARTTLS required).
  * Both need `MAIL_FROM`. `SMTP_CA_FILE` trusts a private CA (e.g. an internal relay). A failed send rejects, so the API can say so instead of pretending the mail went out.
  */
+import { randomUUID } from 'node:crypto';
 import { connect as tlsConnect, type TLSSocket } from 'node:tls';
 import { connect as netConnect, type Socket } from 'node:net';
 import { readFileSync } from 'node:fs';
@@ -12,10 +13,10 @@ import { readFileSync } from 'node:fs';
 export type SendMail = (to: string, link: string) => Promise<void>;
 type Env = Record<string, string | undefined>;
 
-function mailBody(link: string): { subject: string; text: string; html: string } {
+export function mailBody(link: string): { subject: string; text: string; html: string } {
   const subject = 'Your Terrastra sign-in link · 寰星登录链接';
   const text = `Tap this link to sign in to Terrastra. It works once and expires in 15 minutes.\n点击下面的链接登录寰星。链接只能使用一次，15 分钟后失效。\n\n${link}\n\nIf you didn't ask for this, you can ignore this email.\n如果不是你本人操作，请忽略这封邮件。`;
-  const esc = link.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+  const esc = link.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
   const html = `<p>Tap the button to sign in to Terrastra. It works once and expires in 15 minutes.<br>点击按钮登录寰星。链接只能使用一次，15 分钟后失效。</p><p><a href="${esc}" style="display:inline-block;padding:10px 18px;background:#ffb547;color:#111;text-decoration:none;font-weight:600">Sign in · 登录</a></p><p style="color:#666;font-size:12px">If you didn't ask for this, ignore this email. 如果不是你本人操作，请忽略这封邮件。</p>`;
   return { subject, text, html };
 }
@@ -116,6 +117,7 @@ function smtpMailer(u: URL, from: string, { user, pass }: { user: string; pass: 
       const enc = (s: string) => '=?UTF-8?B?' + Buffer.from(s).toString('base64') + '?=';
       const msg = [
         `From: ${from}`, `To: ${to}`, `Subject: ${enc(subject)}`, `Date: ${new Date().toUTCString()}`,
+        `Message-ID: <${randomUUID()}@${host}>`,
         'MIME-Version: 1.0', 'Content-Type: text/plain; charset=utf-8', 'Content-Transfer-Encoding: base64', '',
         Buffer.from(text).toString('base64').replace(/.{76}/g, '$&\r\n'),
       ].join('\r\n');

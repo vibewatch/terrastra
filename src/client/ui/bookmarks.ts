@@ -1,5 +1,5 @@
 /** Saved views: keep a place, object or sky event on this device and share a link that reopens it. */
-import { h, openModal, closeModal, toast } from './dom.ts';
+import { h, openModal, closeModal, toast, copyText } from './dom.ts';
 import { icon } from './icons.ts';
 import { t, lang } from '../lib/i18n.ts';
 import { tr, type Lang } from '../../shared/data/types.ts';
@@ -12,10 +12,7 @@ export interface BookmarkHost {
   open: (hash: string) => void;
 }
 
-export async function copyText(text: string, okMsg: string): Promise<void> {
-  try { await navigator.clipboard.writeText(text); toast(okMsg); }
-  catch { prompt(okMsg, text); }
-}
+export { copyText };
 
 function formatBmCoord(b: Bookmark): string {
   if (!b.cam) return b.route.split('/')[0] || 'globe';
@@ -29,7 +26,11 @@ export function formatBookmarksMarkdown(bs: readonly Bookmark[], l: Lang = lang(
   bs.forEach((b, idx) => {
     const dateStr = new Date(b.at).toISOString().slice(0, 10);
     const meta = formatBmCoord(b);
-    lines.push(`${idx + 1}. **${tr(b.label, l)}** (${meta} · ${dateStr}) — \`#${encodeView(b)}\``);
+    const hash = `#${encodeView(b)}`;
+    const link = typeof location !== 'undefined' && location.origin && location.origin !== 'null'
+      ? `[**${tr(b.label, l)}**](${viewUrl(b)})`
+      : `**${tr(b.label, l)}**`;
+    lines.push(`${idx + 1}. ${link} (${meta} · ${dateStr}) — \`${hash}\``);
   });
   lines.push('');
   return lines.join('\n');
