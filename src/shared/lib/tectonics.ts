@@ -143,6 +143,37 @@ export function isSubductionMegathrustCandidate(
   return boundaryKind === 'trench' && mag >= 6.0 && depthKm <= 70;
 }
 
+const MMI_ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X+'] as const;
+export type MmiRoman = typeof MMI_ROMAN[number];
+
+/**
+ * Estimates epicentral Modified Mercalli Intensity (`MMI I`..`X+`) from magnitude `mag`
+ * and focal depth `depthKm` using hypocentral geometric spreading (`R = hypot(depthKm, 10)`).
+ */
+export function estimateEpicentralMmi(mag: number, depthKm: number): { mmi: number; roman: MmiRoman } {
+  const m = Math.max(0, Math.min(10, Number.isFinite(mag) ? mag : 0));
+  const d = Math.max(1, Math.min(800, Number.isFinite(depthKm) ? depthKm : 10));
+  const hypKm = Math.hypot(d, 10);
+  const raw = 1.5 * m - 3.5 * Math.log10(hypKm) + 3.0;
+  const mmi = Math.max(1, Math.min(10, Math.round(raw)));
+  return { mmi, roman: MMI_ROMAN[mmi - 1] };
+}
+
+/**
+ * Estimates crustal/upper-mantle P-wave (`~6.2 km/s`) and S-wave (`~3.6 km/s`) travel times
+ * and `S−P` arrival lag in seconds for epicentral surface distance `distanceKm` and `depthKm`.
+ */
+export function seismicWaveArrivalSec(
+  distanceKm: number,
+  depthKm = 15,
+): { pSec: number; sSec: number; spLagSec: number } {
+  const hypKm = Math.hypot(Math.max(0, distanceKm), Math.max(0, depthKm));
+  const pSec = Math.round((hypKm / 6.2) * 10) / 10;
+  const sSec = Math.round((hypKm / 3.6) * 10) / 10;
+  const spLagSec = Math.round((sSec - pSec) * 10) / 10;
+  return { pSec, sSec, spLagSec };
+}
+
 export interface LiveEarthBriefInput {
   lang: 'en' | 'zh';
   kp: number;
@@ -173,8 +204,9 @@ export function formatLiveEarthBriefMarkdown(input: LiveEarthBriefInput): string
       lines.push('', '## 显著地震事件');
       for (const q of top) {
         const tec = analyzeQuakeTectonics(q.lat, q.lon);
+        const mmi = estimateEpicentralMmi(q.mag, q.depthKm);
         const tag = isSubductionMegathrustCandidate(q.mag, q.depthKm, tec.boundaryKind) ? ' · 🌊 浅源俯冲带警示' : '';
-        lines.push(`- **M${q.mag.toFixed(1)}** ${q.place}（震源深度 ${Math.round(q.depthKm)} km · ${tec.boundaryName}${tag}）`);
+        lines.push(`- **M${q.mag.toFixed(1)}**（震中烈度 MMI ${mmi.roman}）${q.place}（震源深度 ${Math.round(q.depthKm)} km · ${tec.boundaryName}${tag}）`);
       }
     }
     return lines.join('\n');
@@ -192,8 +224,9 @@ export function formatLiveEarthBriefMarkdown(input: LiveEarthBriefInput): string
     lines.push('', '## Notable Seismic Events');
     for (const q of top) {
       const tec = analyzeQuakeTectonics(q.lat, q.lon);
+      const mmi = estimateEpicentralMmi(q.mag, q.depthKm);
       const tag = isSubductionMegathrustCandidate(q.mag, q.depthKm, tec.boundaryKind) ? ' · 🌊 Shallow subduction zone' : '';
-      lines.push(`- **M${q.mag.toFixed(1)}** ${q.place} (depth ${Math.round(q.depthKm)} km · ${tec.boundaryName}${tag})`);
+      lines.push(`- **M${q.mag.toFixed(1)}** (MMI ${mmi.roman}) ${q.place} (depth ${Math.round(q.depthKm)} km · ${tec.boundaryName}${tag})`);
     }
   }
   return lines.join('\n');

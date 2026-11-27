@@ -18,12 +18,15 @@ import {
   getQuakeFeedStatus,
   getQuakeFeedUpdatedAt,
   quakeDepthBand,
+  sortQuakes,
   type QuakeDepthBand,
   type QuakeEvent,
   type QuakeFilter,
+  type QuakeSortBy,
 } from '../lib/earthquakes.ts';
 import {
   analyzeQuakeTectonics,
+  estimateEpicentralMmi,
   formatLiveEarthBriefMarkdown,
   isSubductionMegathrustCandidate,
   summarizeQuakeFeed,
@@ -53,6 +56,7 @@ function formatQuakeAge(q: QuakeEvent, isStale: boolean): string {
 export function openLiveEarth(globe: Globe, onIss: () => void): void {
   const eqLayer = globe.layers?.earthquakes;
   let filter: QuakeFilter = eqLayer ? { ...eqLayer.filter } : { ...DEFAULT_QUAKE_FILTER };
+  let sortBy: QuakeSortBy = 'mag';
   let allEvents: QuakeEvent[] = eqLayer?.allEvents.length ? eqLayer.allEvents : getCachedQuakes();
   let refreshing = false;
 
@@ -113,7 +117,7 @@ export function openLiveEarth(globe: Globe, onIss: () => void): void {
     const kp = currentKpStatus();
     const iss = propagateIss(Date.now());
     const sun = earthSolarSummary(globe.simTime ?? Date.now());
-    const filtered = filterQuakes(allEvents, filter);
+    const filtered = sortQuakes(filterQuakes(allEvents, filter), sortBy);
     const feedSum = summarizeQuakeFeed(filtered);
     const isStale = effStatus === 'stale';
 
@@ -131,13 +135,22 @@ export function openLiveEarth(globe: Globe, onIss: () => void): void {
       onclick: () => applyFilter({ depth: d }),
     }, label);
 
+    const sortBtn = (s: QuakeSortBy, label: string) => h('button', {
+      class: 'pill pill-sm' + (sortBy === s ? ' active' : ''),
+      'data-testid': `quake-sort-${s}`,
+      'aria-pressed': String(sortBy === s),
+      onclick: () => { sfx.tap(); sortBy = s; render(); },
+    }, label);
+
     const rows = filtered.map(q => {
       const l = lang();
       const band = quakeDepthBand(q.depthKm);
       const bandLabel = t(band === 'shallow' ? 'quake.bandShallow' : band === 'intermediate' ? 'quake.bandInter' : 'quake.bandDeep');
+      const mmi = estimateEpicentralMmi(q.mag, q.depthKm);
       const tec = analyzeQuakeTectonics(q.lat, q.lon);
       const boundaryLabel = t(`quake.boundary_${tec.boundaryKind}` as const);
       const tecParts = [
+        t('quake.mmiTag', { mmi: mmi.roman }),
         tec.boundaryKind === 'intraplate'
           ? boundaryLabel
           : `${boundaryLabel} · ${tec.boundaryName} (${fmtNum(tec.boundaryDistanceKm)} km)`,
@@ -227,7 +240,8 @@ export function openLiveEarth(globe: Globe, onIss: () => void): void {
             h('span', { html: icon('aurora', 16) }),
             h('strong', {}, t('liveEarth.spaceWeather')),
             h('small', { class: 'muted' }, kp.live ? t('liveEarth.noaaLive') : t('liveEarth.noaaEst'))),
-          h('p', { class: 'le-card-val' }, `Kp ${kp.kp.toFixed(1)} · ${t(kp.levelKey)}`),
+          h('p', { class: 'le-card-val' }, `Kp ${kp.kp.toFixed(1)}${kp.noaaGScale > 0 ? ` (G${kp.noaaGScale})` : ''} · ${t(kp.levelKey)}`),
+          h('p', { class: 'muted small le-sun-note' }, t('liveEarth.auroraReach', { lat: kp.auroraLatDeg.toFixed(0) })),
           h('button', {
             class: 'pill pill-sm' + (store.settings.aurora ? ' active' : ''),
             'data-testid': 'live-earth-aurora-toggle',
@@ -256,9 +270,9 @@ export function openLiveEarth(globe: Globe, onIss: () => void): void {
               decl: (sun.declinationDeg > 0 ? '+' : '') + sun.declinationDeg.toFixed(1),
             })),
           h('p', { class: 'muted small le-sun-note' },
-            sun.polarDayHemisphere
+            `${sun.polarDayHemisphere
               ? t('sun.polarNote', { lat: sun.polarDayLat.toFixed(1), hem: sun.polarDayHemisphere })
-              : t('sun.equinoxNote')),
+              : t('sun.equinoxNote')} · ${t('sun.eotNote', { eot: (sun.equationOfTimeMin > 0 ? '+' : '') + sun.equationOfTimeMin.toFixed(1) })}`),
           h('button', {
             class: 'pill pill-sm',
             'data-testid': 'live-earth-subsolar-fly',
@@ -287,7 +301,12 @@ export function openLiveEarth(globe: Globe, onIss: () => void): void {
           depthBtn('all', t('liveEarth.depthAll')),
           depthBtn('shallow', t('quake.bandShallow')),
           depthBtn('intermediate', t('quake.bandInter')),
-          depthBtn('deep', t('quake.bandDeep')))),
+          depthBtn('deep', t('quake.bandDeep'))),
+        h('div', { class: 'le-filter-group', 'data-testid': 'quake-filter-sort' },
+          h('span', { class: 'muted small' }, t('liveEarth.sortBy')),
+          sortBtn('mag', t('liveEarth.sortMag')),
+          sortBtn('time', t('liveEarth.sortTime')),
+          sortBtn('depth', t('liveEarth.sortDepth')))),
 
       h('div', { class: 'le-summary-row', 'data-testid': 'quake-summary-bar' },
         h('span', { class: 'muted small le-count', 'data-testid': 'quake-count' },

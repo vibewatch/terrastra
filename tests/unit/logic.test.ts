@@ -1073,6 +1073,59 @@ describe('static i18n key coverage, geodesic lab, quake tectonics & explorer fie
     expect(lowFxFrom(new URLSearchParams(''), true)).toBe(true);
     expect(lowFxFrom(new URLSearchParams(''), false)).toBe(false);
   });
+
+  it('computes Wave 4 Earth-science, weather, ISS, seismic MMI, and seasonal physics accurately', async () => {
+    const { oceanDepthPhysics, earthRotationPhysics } = await import('../../src/shared/lib/geodesic.ts');
+    const { equationOfTimeMinutes, nextSolarTerm, earthSolarSummary: solarSum } = await import('../../src/shared/lib/sun.ts');
+    const { beaufortScale, estimateFeelsLikeC, kpStormMetrics } = await import('../../src/client/lib/weather.ts');
+    const { issFootprintRadiusKm, issOrbitalPeriodMin } = await import('../../src/client/lib/iss.ts');
+    const { estimateEpicentralMmi, seismicWaveArrivalSec } = await import('../../src/shared/lib/tectonics.ts');
+    const { sortQuakes, fallbackQuakes } = await import('../../src/client/lib/earthquakes.ts');
+    const { astronomicalSeasonAt } = await import('../../src/shared/lib/season.ts');
+
+    // Challenger Deep (~10,928 m)
+    const challenger = oceanDepthPhysics(10928);
+    expect(challenger.lightZone).toBe('hadal');
+    expect(challenger.pressureAtm).toBeGreaterThan(1080);
+    expect(challenger.pressureMPa).toBeGreaterThan(109);
+    expect(oceanDepthPhysics(500).lightZone).toBe('mesopelagic');
+
+    // Earth rotation & Coriolis
+    expect(earthRotationPhysics(0)).toEqual({ linearSpeedKmh: 1674, coriolisPerSec: 0, deflection: 'none' });
+    expect(earthRotationPhysics(60).linearSpeedKmh).toBeCloseTo(837, -1);
+    expect(earthRotationPhysics(45).deflection).toBe('right');
+    expect(earthRotationPhysics(-35).deflection).toBe('left');
+
+    // Equation of time & next solar term
+    expect(Math.abs(equationOfTimeMinutes(Date.UTC(2026, 1, 11)))).toBeGreaterThan(10);
+    expect(typeof solarSum(Date.UTC(2026, 5, 21)).equationOfTimeMin).toBe('number');
+    expect(nextSolarTerm(Date.UTC(2026, 4, 1)).term).toBe('juneSolstice');
+
+    // Weather Beaufort & wind chill & NOAA G-scale
+    expect(beaufortScale(0)).toBe(0);
+    expect(beaufortScale(25)).toBe(4);
+    expect(beaufortScale(125)).toBe(12);
+    expect(estimateFeelsLikeC(-5, 30)).toBeLessThan(-10);
+    expect(kpStormMetrics(7).noaaGScale).toBe(3);
+    expect(kpStormMetrics(7).auroraLatDeg).toBeLessThan(55);
+
+    // ISS orbital footprint & period
+    expect(issFootprintRadiusKm(418)).toBeGreaterThan(2200);
+    expect(issOrbitalPeriodMin(418)).toBeCloseTo(92.9, 0);
+
+    // Shallow vs deep earthquake MMI & P/S lag
+    expect(estimateEpicentralMmi(6.5, 10).mmi).toBeGreaterThan(estimateEpicentralMmi(6.5, 550).mmi);
+    const waves = seismicWaveArrivalSec(300, 20);
+    expect(waves.sSec).toBeGreaterThan(waves.pSec);
+    expect(waves.spLagSec).toBeCloseTo(waves.sSec - waves.pSec, 1);
+
+    // Quake sorting & hemisphere seasons
+    const byDepth = sortQuakes(fallbackQuakes(), 'depth');
+    expect(byDepth[0].depthKm).toBeGreaterThanOrEqual(byDepth[byDepth.length - 1].depthKm);
+    expect(astronomicalSeasonAt(40, new Date(Date.UTC(2026, 6, 15)))).toBe('summer');
+    expect(astronomicalSeasonAt(-40, new Date(Date.UTC(2026, 6, 15)))).toBe('winter');
+    expect(astronomicalSeasonAt(5, new Date(Date.UTC(2026, 6, 15)))).toBe('tropical');
+  });
 });
 
 

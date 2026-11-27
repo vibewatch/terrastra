@@ -162,3 +162,49 @@ export function altitudePhysics(heightM: number): AltitudePhysics {
   const boilingPointC = Math.round(((1 / invTb) - 273.15) * 10) / 10;
   return { pressurePct, tempDropC, boilingPointC };
 }
+
+export interface OceanDepthPhysics {
+  pressureAtm: number;
+  pressureMPa: number;
+  lightZone: 'epipelagic' | 'mesopelagic' | 'bathypelagic' | 'abyssopelagic' | 'hadal';
+}
+
+/**
+ * Hydrostatic seawater pressure and pelagic light zone at `depthM` meters below sea level:
+ * - `pressureAtm`: total ambient pressure in standard atmospheres (~1 atm per 10.06 m seawater + 1 atm surface)
+ * - `pressureMPa`: ambient pressure in megapascals (MPa)
+ * - `lightZone`: standard oceanography pelagic depth zone
+ */
+export function oceanDepthPhysics(depthM: number): OceanDepthPhysics {
+  const d = Math.max(0, Math.min(12000, Number.isFinite(depthM) ? depthM : 0));
+  const pressureAtm = Math.round((1 + d / 10.06) * 10) / 10;
+  const pressureMPa = Math.round(pressureAtm * 0.101325 * 10) / 10;
+  const lightZone: OceanDepthPhysics['lightZone'] =
+    d < 200 ? 'epipelagic'
+    : d < 1000 ? 'mesopelagic'
+    : d < 4000 ? 'bathypelagic'
+    : d < 6000 ? 'abyssopelagic'
+    : 'hadal';
+  return { pressureAtm, pressureMPa, lightZone };
+}
+
+export interface EarthRotationPhysics {
+  linearSpeedKmh: number;
+  coriolisPerSec: number;
+  deflection: 'right' | 'left' | 'none';
+}
+
+/**
+ * Earth's rotational linear surface speed (`1674.4 · cos φ km/h`) and Coriolis parameter (`2Ω sin φ`)
+ * at geographic latitude `latDeg`.
+ */
+export function earthRotationPhysics(latDeg: number): EarthRotationPhysics {
+  const clamped = Math.max(-90, Math.min(90, Number.isFinite(latDeg) ? latDeg : 0));
+  const rad = (clamped * Math.PI) / 180;
+  const linearSpeedKmh = Math.max(0, Math.round(1674.4 * Math.cos(rad)));
+  const coriolisPerSec = Math.round(2 * 7.2921159e-5 * Math.sin(rad) * 1e7) / 1e7;
+  const deflection: EarthRotationPhysics['deflection'] =
+    clamped > 0.5 ? 'right' : clamped < -0.5 ? 'left' : 'none';
+  return { linearSpeedKmh, coriolisPerSec, deflection };
+}
+

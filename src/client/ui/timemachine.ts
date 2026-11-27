@@ -21,12 +21,54 @@ function stopLabel(s: Stop): string {
 export class TimeMachine {
   readonly el = h('div', { class: 'time-bar hidden', 'data-testid': 'time-bar', role: 'group' });
   private idx = STOPS.length - 1;
+  private playTimer: number | null = null;
   constructor(private globe: Globe, private go: (it: CatalogueItem) => void) {}
 
   get open(): boolean { return !this.el.classList.contains('hidden'); }
 
+  private stopPlay(): void {
+    if (this.playTimer !== null) {
+      window.clearInterval(this.playTimer);
+      this.playTimer = null;
+    }
+  }
+
+  private togglePlay(): void {
+    if (this.playTimer !== null) {
+      this.stopPlay();
+      sfx.tap();
+      this.render();
+      return;
+    }
+    const allowedIndices = STOPS.map((s, i) => (canUsePro() || isFreeTimeStop(s) ? i : -1)).filter(i => i >= 0);
+    if (allowedIndices.length < 2) return;
+    if (this.idx >= allowedIndices[allowedIndices.length - 1]) {
+      this.idx = allowedIndices[0];
+      this.apply(STOPS[this.idx]);
+    }
+    sfx.tap();
+    this.playTimer = window.setInterval(() => {
+      if (!this.open) {
+        this.stopPlay();
+        return;
+      }
+      const nextIdx = allowedIndices.find(i => i > this.idx);
+      if (nextIdx === undefined) {
+        this.stopPlay();
+        this.render();
+        return;
+      }
+      this.idx = nextIdx;
+      sfx.tap();
+      this.apply(STOPS[this.idx]);
+      this.render();
+    }, 2400);
+    this.render();
+  }
+
   toggle(force?: boolean): void {
     const show = force ?? !this.open;
+    if (!show) this.stopPlay();
     this.el.classList.toggle('hidden', !show);
     document.body.classList.toggle('time-travel', show);
     if (show) { this.idx = STOPS.length - 1; this.render(); }
@@ -43,6 +85,7 @@ export class TimeMachine {
   private readonly range = (() => {
     const r = h('input', { type: 'range', min: '0', max: String(STOPS.length - 1), step: '1', 'data-testid': 'time-range' }) as HTMLInputElement;
     r.addEventListener('input', () => {
+      this.stopPlay();
       const next = Number(r.value);
       if (!canUsePro() && !isFreeTimeStop(STOPS[next])) {
         r.value = String(this.idx);
@@ -62,6 +105,7 @@ export class TimeMachine {
   })();
 
   private step(delta: number): void {
+    this.stopPlay();
     const next = Math.max(0, Math.min(STOPS.length - 1, this.idx + delta));
     if (next === this.idx) return;
     if (!canUsePro() && !isFreeTimeStop(STOPS[next])) {
@@ -108,6 +152,15 @@ export class TimeMachine {
           disabled: this.idx >= STOPS.length - 1,
           html: icon('chevron', 14),
           onclick: () => this.step(1),
+        }),
+        h('button', {
+          class: 'icon-btn time-step',
+          'aria-label': t(this.playTimer !== null ? 'tmPause' : 'tmPlay'),
+          title: t(this.playTimer !== null ? 'tmPause' : 'tmPlay'),
+          'data-testid': 'time-play',
+          'aria-pressed': String(this.playTimer !== null),
+          html: icon(this.playTimer !== null ? 'pause' : 'play', 14),
+          onclick: () => this.togglePlay(),
         }),
         h('span', { class: 'muted', title: t('tmNote') }, t('tmCount', { n: shown })),
         h('button', { class: 'icon-btn', 'aria-label': t('close'), 'data-testid': 'time-close', html: icon('close', 15), onclick: () => this.toggle(false) })),

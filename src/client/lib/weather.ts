@@ -39,11 +39,32 @@ export function solarStatusAt(lat: number, lon: number, ms = Date.now()): SolarS
 
 export interface LocalWeather {
   tempC: number;
+  feelsLikeC: number;
   windKmh: number;
+  beaufort: number;
   code: number;
   isDay: boolean;
   icon: string;
   labelKey: WeatherLabelKey;
+}
+
+/** Standard WMO Beaufort wind force scale (0..12) from 10 m wind speed in km/h. */
+export function beaufortScale(windKmh: number): number {
+  const v = Math.max(0, Number.isFinite(windKmh) ? windKmh : 0);
+  const thresholds = [1, 6, 12, 20, 29, 39, 50, 62, 75, 89, 103, 118];
+  let b = 0;
+  while (b < thresholds.length && v >= thresholds[b]) b++;
+  return b;
+}
+
+/** Canadian/NWS wind-chill approximation (°C) when air <= 10 °C and wind > 4.8 km/h; otherwise returns `tempC`. */
+export function estimateFeelsLikeC(tempC: number, windKmh: number): number {
+  if (tempC <= 10 && windKmh > 4.8) {
+    const v16 = Math.pow(windKmh, 0.16);
+    const wc = 13.12 + 0.6215 * tempC - 11.37 * v16 + 0.3965 * tempC * v16;
+    return Math.round(wc * 10) / 10;
+  }
+  return Math.round(tempC * 10) / 10;
 }
 
 /** Maps a WMO weather interpretation code (0..99) to an emoji icon and i18n key. */
@@ -80,20 +101,33 @@ export async function fetchLocalWeather(lat: number, lon: number): Promise<Local
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), 4500);
     try {
-      const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(2)}&longitude=${lon.toFixed(2)}&current=temperature_2m,weather_code,wind_speed_10m,is_day`;
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(2)}&longitude=${lon.toFixed(2)}&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m,is_day`;
       const res = await fetch(url, { signal: ctl.signal });
       if (!res.ok) return null;
       const json = (await res.json()) as {
-        current?: { temperature_2m?: number; weather_code?: number; wind_speed_10m?: number; is_day?: number };
+        current?: {
+          temperature_2m?: number;
+          apparent_temperature?: number;
+          weather_code?: number;
+          wind_speed_10m?: number;
+          is_day?: number;
+        };
       };
       const cur = json?.current;
       if (!cur || typeof cur.temperature_2m !== 'number') return null;
       const code = typeof cur.weather_code === 'number' ? cur.weather_code : 0;
       const isDay = cur.is_day !== undefined ? cur.is_day === 1 : solarStatusAt(lat, lon).phase !== 'night';
       const { icon, labelKey } = describeWmoCode(code, isDay);
+      const tempC = Math.round(cur.temperature_2m * 10) / 10;
+      const windKmh = Math.round(cur.wind_speed_10m ?? 0);
+      const feelsLikeC = typeof cur.apparent_temperature === 'number' && Number.isFinite(cur.apparent_temperature)
+        ? Math.round(cur.apparent_temperature * 10) / 10
+        : estimateFeelsLikeC(tempC, windKmh);
       const data: LocalWeather = {
-        tempC: Math.round(cur.temperature_2m * 10) / 10,
-        windKmh: Math.round(cur.wind_speed_10m ?? 0),
+        tempC,
+        feelsLikeC,
+        windKmh,
+        beaufort: beaufortScale(windKmh),
         code,
         isDay,
         icon,
@@ -120,10 +154,22 @@ export async function fetchLocalWeather(lat: number, lon: number): Promise<Local
 export interface KpStatus {
   /** Planetary Kp index (0..9). */
   kp: number;
+  /** NOAA Geomagnetic Storm G-scale (0 = none, 1 = G1 Minor .. 5 = G5 Extreme). */
+  noaaGScale: 0 | 1 | 2 | 3 | 4 | 5;
+  /** Approximate equatorward geomagnetic latitude (°) where aurora can be seen on the horizon. */
+  auroraLatDeg: number;
   /** Shader intensity multiplier (0.75..1.90). */
   auroraBoost: number;
   levelKey: KpLevelKey;
   live: boolean;
+}
+
+/** Maps planetary Kp (0..9) to NOAA G-scale (G0..G5) and equatorward aurora visibility latitude (°). */
+export function kpStormMetrics(kp: number): { noaaGScale: 0 | 1 | 2 | 3 | 4 | 5; auroraLatDeg: number } {
+  const k = Math.max(0, Math.min(9, Number.isFinite(kp) ? kp : 0));
+  const noaaGScale = (k >= 9 ? 5 : k >= 8 ? 4 : k >= 7 ? 3 : k >= 6 ? 2 : k >= 5 ? 1 : 0) as 0 | 1 | 2 | 3 | 4 | 5;
+  const auroraLatDeg = Math.round(Math.max(40, Math.min(68, 67.5 - 2.3 * k)) * 10) / 10;
+  return { noaaGScale, auroraLatDeg };
 }
 
 /** Parses NOAA SWPC planetary K-index JSON array into a KpStatus. */
@@ -136,13 +182,14 @@ export function parseNoaaKp(raw: unknown): KpStatus | null {
       const kp = Math.round(val * 10) / 10;
       const auroraBoost = 0.78 + (kp / 9) * 1.12;
       const levelKey = kp >= 5 ? 'kpStorm' : kp >= 4 ? 'kpActive' : 'kpQuiet';
-      return { kp, auroraBoost, levelKey, live: true };
+      const { noaaGScale, auroraLatDeg } = kpStormMetrics(kp);
+      return { kp, noaaGScale, auroraLatDeg, auroraBoost, levelKey, live: true };
     }
   }
   return null;
 }
 
-const KP_FALLBACK: KpStatus = { kp: 3.0, auroraBoost: 1.0, levelKey: 'kpQuiet', live: false };
+const KP_FALLBACK: KpStatus = { kp: 3.0, noaaGScale: 0, auroraLatDeg: 60.6, auroraBoost: 1.0, levelKey: 'kpQuiet', live: false };
 let kpCached: { at: number; status: KpStatus } | null = null;
 let kpInflight: Promise<KpStatus> | null = null;
 

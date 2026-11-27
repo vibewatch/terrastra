@@ -32,6 +32,15 @@ export function quakeDepthBand(depthKm: number): QuakeDepthBand {
   return 'deep';
 }
 
+export type QuakeSortBy = 'mag' | 'time' | 'depth';
+
+export function sortQuakes(events: readonly QuakeEvent[], sortBy: QuakeSortBy = 'mag'): QuakeEvent[] {
+  const copy = [...events];
+  if (sortBy === 'time') return copy.sort((a, b) => b.timeMs - a.timeMs || b.mag - a.mag);
+  if (sortBy === 'depth') return copy.sort((a, b) => b.depthKm - a.depthKm || b.mag - a.mag);
+  return copy.sort((a, b) => b.mag - a.mag || b.timeMs - a.timeMs);
+}
+
 export function filterQuakes(events: readonly QuakeEvent[], filter: QuakeFilter = DEFAULT_QUAKE_FILTER): QuakeEvent[] {
   return events.filter(q => {
     if (q.mag < filter.minMag) return false;

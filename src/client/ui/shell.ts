@@ -35,7 +35,7 @@ import { renderHub, hubTab, type HubTab } from './hub.ts';
 import { fetchLocalWeather, solarStatusAt } from '../lib/weather.ts';
 import { onIssTelemetry, propagateIss, type IssTelemetry } from '../lib/iss.ts';
 import { getQuakeFeedStatus, type QuakeEvent } from '../lib/earthquakes.ts';
-import { antipodeOf, altitudePhysics, formatCoordPair, nearestCatalogueItem } from '../../shared/lib/geodesic.ts';
+import { antipodeOf, altitudePhysics, earthRotationPhysics, formatCoordPair, nearestCatalogueItem, oceanDepthPhysics } from '../../shared/lib/geodesic.ts';
 import { haversineKm } from '../../shared/lib/geo.ts';
 import { subsolar, dayLengthHours, solarNoonAltitudeDeg } from '../../shared/lib/sun.ts';
 import { countryCatalogueCount } from '../globe/overlay.ts';
@@ -879,6 +879,19 @@ export class Shell {
           dt: Math.round(phys.tempDropC),
         })]);
       }
+      if (f.depthM && f.depthM >= 200) {
+        const op = oceanDepthPhysics(f.depthM);
+        const zoneLabel = op.lightZone === 'epipelagic' ? t('oceanZone_epipelagic')
+          : op.lightZone === 'mesopelagic' ? t('oceanZone_mesopelagic')
+          : op.lightZone === 'bathypelagic' ? t('oceanZone_bathypelagic')
+          : op.lightZone === 'abyssopelagic' ? t('oceanZone_abyssopelagic')
+          : t('oceanZone_hadal');
+        extra.push([t('oceanPhysicsLabel'), t('oceanPhysicsVal', {
+          atm: fmtNum(Math.round(op.pressureAtm)),
+          mpa: op.pressureMPa.toFixed(1),
+          zone: zoneLabel,
+        })]);
+      }
     }
     const countryTotal = it.country ? countryCatalogueCount(it.country) : 0;
     const countryBtnLabel = countryTotal > 1 ? countryName(it.country, l) : '';
@@ -968,9 +981,16 @@ export class Shell {
     const antiText = nearAnti
       ? `${antiCoord} (${t('antipode.near', { name: `${nearAnti.item.emoji} ${tr(nearAnti.item.name, l)}`, km: fmtNum(Math.round(nearAnti.distanceKm)) })})`
       : antiCoord;
+    const spin = earthRotationPhysics(place.lat);
+    const spinText = spin.deflection === 'right'
+      ? t('earthSpinRight', { v: fmtNum(spin.linearSpeedKmh) })
+      : spin.deflection === 'left'
+        ? t('earthSpinLeft', { v: fmtNum(spin.linearSpeedKmh) })
+        : t('earthSpinNone', { v: fmtNum(spin.linearSpeedKmh) });
     const extra: [string, string][] = [
       [t('latitude'), coordStr],
       [t('sun.daylightLabel'), dlText],
+      [t('earthSpinLabel'), spinText],
       [t('antipode.label'), antiText],
     ];
 
@@ -986,7 +1006,8 @@ export class Shell {
     if (!classroom()) {
       void fetchLocalWeather(place.lat, place.lon).then(w => {
         if (!w || this.currentPlace?.key !== place.key || !weatherRow.isConnected) return;
-        weatherSpan.textContent = `${w.icon} ${w.tempC > 0 ? `+${w.tempC}` : w.tempC}°C · ${t(w.labelKey)} · ${t('weather.wind', { kmh: w.windKmh })}`;
+        const bft = t('weather.beaufort', { b: w.beaufort });
+        weatherSpan.textContent = `${w.icon} ${w.tempC > 0 ? `+${w.tempC}` : w.tempC}°C · ${t(w.labelKey)} · ${t('weather.wind', { kmh: w.windKmh })} (${bft})`;
       });
     }
 
@@ -1094,19 +1115,21 @@ export class Shell {
   private formatIssTelemetryText(tel: IssTelemetry): string {
     const coord = `${Math.abs(tel.lat).toFixed(1)}°${tel.lat >= 0 ? 'N' : 'S'} · ${Math.abs(tel.lon).toFixed(1)}°${tel.lon >= 0 ? 'E' : 'W'}`;
     const alt = Math.round(tel.altitudeKm), vel = fmtNum(Math.round(tel.velocityKmh));
+    const visIcon = tel.visibility === 'daylight' ? '☀️' : '🌑';
+    const fp = t('iss.footprint', { r: fmtNum(tel.footprintRadiusKm) });
     if (tel.status === 'fresh') {
       const ageMin = Math.max(0, Math.floor((tel.ageMs ?? 0) / 60_000));
       const ageLabel = ageMin < 1 ? t('iss.justNow') : t('iss.agoMin', { m: ageMin });
-      return `${t('iss.telemetry', { alt, vel })} · ${coord} · ${ageLabel}`;
+      return `${visIcon} ${t('iss.telemetry', { alt, vel })} · ${coord} · ${fp} · ${ageLabel}`;
     }
     if (tel.status === 'stale') {
       const ageMin = Math.max(1, Math.round((tel.ageMs ?? 0) / 60_000));
-      return `${t('iss.telemetryStale', { alt, vel })} · ${coord} · ${t('iss.agoMin', { m: ageMin })}`;
+      return `${visIcon} ${t('iss.telemetryStale', { alt, vel })} · ${coord} · ${fp} · ${t('iss.agoMin', { m: ageMin })}`;
     }
     if (tel.status === 'unavailable') {
-      return `${t('iss.telemetryUnavailable', { alt, vel })} · ${coord}`;
+      return `${visIcon} ${t('iss.telemetryUnavailable', { alt, vel })} · ${coord} · ${fp}`;
     }
-    return `${t('iss.telemetryEst', { alt, vel })} · ${coord}`;
+    return `${visIcon} ${t('iss.telemetryEst', { alt, vel })} · ${coord} · ${fp}`;
   }
 
   /** Renders live ISS orbital telemetry + Astronaut View for `sp_iss`, or live local solar status + Open-Meteo weather for surface items. */
@@ -1161,7 +1184,8 @@ export class Shell {
     if (!classroom()) {
       void fetchLocalWeather(it.lat, it.lon).then(w => {
         if (!w || this.current?.key !== it.key || !row.isConnected) return;
-        weatherSpan.textContent = `${w.icon} ${w.tempC > 0 ? `+${w.tempC}` : w.tempC}°C · ${t(w.labelKey)} · ${t('weather.wind', { kmh: w.windKmh })}`;
+        const bft = t('weather.beaufort', { b: w.beaufort });
+        weatherSpan.textContent = `${w.icon} ${w.tempC > 0 ? `+${w.tempC}` : w.tempC}°C · ${t(w.labelKey)} · ${t('weather.wind', { kmh: w.windKmh })} (${bft})`;
       });
     }
     return row;

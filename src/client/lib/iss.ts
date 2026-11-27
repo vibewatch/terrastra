@@ -17,6 +17,10 @@ export interface IssTelemetry {
   lon: number;
   altitudeKm: number;
   velocityKmh: number;
+  /** Radius (km) along Earth's surface of the spherical horizon cap visible from the ISS. */
+  footprintRadiusKm: number;
+  /** Keplerian orbital period in minutes at `altitudeKm`. */
+  periodMin: number;
   visibility: 'daylight' | 'eclipsed';
   /** Timestamp (ms) of the last live observation when available, or `nowMs` when estimated. */
   timestampMs: number;
@@ -32,6 +36,20 @@ export interface IssTelemetry {
   live: boolean;
   /** True when the orbital track is currently heading north-east (ascending). */
   ascending: boolean;
+}
+
+/** Surface great-circle radius (km) of the horizon footprint visible from altitude `altitudeKm`. */
+export function issFootprintRadiusKm(altitudeKm: number): number {
+  const h = Math.max(80, Math.min(2000, Number.isFinite(altitudeKm) ? altitudeKm : 418));
+  return Math.round(6371 * Math.acos(6371 / (6371 + h)));
+}
+
+/** Keplerian low-Earth orbital period in minutes at `altitudeKm` (`μ = 398600.4418 km³/s²`). */
+export function issOrbitalPeriodMin(altitudeKm: number): number {
+  const h = Math.max(80, Math.min(2000, Number.isFinite(altitudeKm) ? altitudeKm : 418));
+  const a = 6371 + h;
+  const sec = 2 * Math.PI * Math.sqrt((a * a * a) / 398600.4418);
+  return Math.round((sec / 60) * 10) / 10;
 }
 
 const INCL_DEG = 51.64;
@@ -121,11 +139,14 @@ export function propagateIss(nowMs = Date.now()): IssTelemetry {
     ? (ageMs! <= ISS_FRESH_TTL_MS ? 'fresh' : 'stale')
     : (hasFailedFetch ? 'unavailable' : 'estimated');
   const live = status === 'fresh';
+  const altKm = Math.round(anchor.altitudeKm);
   return {
     lat: Math.round(lat * 100) / 100,
     lon: Math.round(lon * 100) / 100,
-    altitudeKm: Math.round(anchor.altitudeKm),
+    altitudeKm: altKm,
     velocityKmh: Math.round(anchor.velocityKmh),
+    footprintRadiusKm: issFootprintRadiusKm(altKm),
+    periodMin: issOrbitalPeriodMin(altKm),
     visibility,
     timestampMs: observedAtMs ?? nowMs,
     observedAtMs,
