@@ -301,3 +301,35 @@ export function earthRotationPhysics(latDeg: number): EarthRotationPhysics {
   return { linearSpeedKmh, coriolisPerSec, deflection };
 }
 
+/**
+ * Distance to the refracted sea-level horizon (`km`) from observer elevation `heightM` (meters),
+ * accounting for standard terrestrial atmospheric refraction (`R_eff ≈ 7/6 · R_Earth` → `d ≈ 3.856 · √h`).
+ */
+export function geometricHorizonKm(heightM: number): number {
+  const h = Math.max(0, Math.min(450_000, Number.isFinite(heightM) ? heightM : 0));
+  if (h === 0) return 0;
+  return Math.round(3.856 * Math.sqrt(h) * 10) / 10;
+}
+
+/**
+ * WGS-84 Somigliana normal surface gravitational acceleration `g` (`m/s²`) at latitude `latDeg`
+ * and elevation `heightM` (`m`), including centrifugal + oblate relief (`9.780 m/s²` at the Equator
+ * vs. `9.832 m/s²` at the Poles) and free-air altitude gradient (`−3.086×10⁻⁶ · h`).
+ */
+export function normalGravityMps2(
+  latDeg: number,
+  heightM = 0,
+): { gMps2: number; poleDeltaPct: number } {
+  const phi = (Math.max(-90, Math.min(90, Number.isFinite(latDeg) ? latDeg : 0)) * Math.PI) / 180;
+  const h = Math.max(0, Math.min(100_000, Number.isFinite(heightM) ? heightM : 0));
+  const sin2 = Math.sin(phi) ** 2;
+  const g0 = (9.7803253359 * (1 + 0.00193185265241 * sin2)) / Math.sqrt(1 - 0.00669437999014 * sin2);
+  const g = g0 - 3.086e-6 * h;
+  const gPole = 9.8321849378;
+  const poleDeltaPct = Math.round(((g - gPole) / gPole) * 10000) / 100;
+  return {
+    gMps2: Math.round(g * 1000) / 1000,
+    poleDeltaPct: Object.is(poleDeltaPct, -0) ? 0 : poleDeltaPct,
+  };
+}
+

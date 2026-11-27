@@ -4,6 +4,7 @@
  */
 
 import { classroom } from './classroom.ts';
+import { analyzeQuakeTectonics } from '../../shared/lib/tectonics.ts';
 
 export interface QuakeEvent {
   id: string;
@@ -22,6 +23,7 @@ export type QuakeFeedStatus = 'loading' | 'live' | 'empty' | 'stale' | 'unavaila
 export interface QuakeFilter {
   minMag: number;
   depth: 'all' | QuakeDepthBand;
+  query?: string;
 }
 
 export const DEFAULT_QUAKE_FILTER: QuakeFilter = { minMag: 2.5, depth: 'all' };
@@ -42,9 +44,22 @@ export function sortQuakes(events: readonly QuakeEvent[], sortBy: QuakeSortBy = 
 }
 
 export function filterQuakes(events: readonly QuakeEvent[], filter: QuakeFilter = DEFAULT_QUAKE_FILTER): QuakeEvent[] {
+  const qNorm = filter.query?.trim().toLowerCase() ?? '';
   return events.filter(q => {
     if (q.mag < filter.minMag) return false;
     if (filter.depth !== 'all' && quakeDepthBand(q.depthKm) !== filter.depth) return false;
+    if (qNorm) {
+      if (q.place.toLowerCase().includes(qNorm)) return true;
+      const tec = analyzeQuakeTectonics(q.lat, q.lon);
+      if (
+        tec.boundaryName.toLowerCase().includes(qNorm)
+        || tec.boundaryNameZh.toLowerCase().includes(qNorm)
+        || tec.boundaryKind.toLowerCase().includes(qNorm)
+      ) {
+        return true;
+      }
+      return false;
+    }
     return true;
   });
 }

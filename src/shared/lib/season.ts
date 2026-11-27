@@ -1,4 +1,5 @@
 import type { CatalogueItem } from '../data/types.ts';
+import { solarLongitudeDeg } from './sun.ts';
 
 /** Festivals start glowing this many days before they begin and keep glowing this long after they end. */
 export const LEAD_DAYS = 3;
@@ -70,19 +71,17 @@ export function upcomingFestivals<T extends Seasonal>(
 export type HemisphereSeason = 'spring' | 'summer' | 'autumn' | 'winter' | 'tropical';
 
 /**
- * Astronomical hemisphere season at `latDeg` on `date` (`|lat| < 15°` returns `'tropical'`).
+ * Astronomical hemisphere season at `latDeg` on `date` (`|lat| < 15°` returns `'tropical'`),
+ * computed directly from apparent solar ecliptic longitude `λ☉` (`0°/90°/180°/270°`).
  * Northern and Southern hemispheres are mirror-inverted across equinoxes/solstices.
  */
 export function astronomicalSeasonAt(latDeg: number, date: Date = new Date()): HemisphereSeason {
   if (Math.abs(latDeg) < 15) return 'tropical';
-  const m = date.getUTCMonth() + 1;
-  const d = date.getUTCDate();
-  const md = m * 100 + d;
-  // North season boundaries (~Mar 20, Jun 21, Sep 22, Dec 21)
+  const lon = solarLongitudeDeg(date.getTime());
   let north: Exclude<HemisphereSeason, 'tropical'>;
-  if (md >= 320 && md < 621) north = 'spring';
-  else if (md >= 621 && md < 922) north = 'summer';
-  else if (md >= 922 && md < 1221) north = 'autumn';
+  if (lon >= 0 && lon < 90) north = 'spring';
+  else if (lon >= 90 && lon < 180) north = 'summer';
+  else if (lon >= 180 && lon < 270) north = 'autumn';
   else north = 'winter';
   if (latDeg >= 0) return north;
   return north === 'spring' ? 'autumn'

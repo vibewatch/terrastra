@@ -51,11 +51,13 @@ describe('time machine', () => {
     expect(visibleAt(timeless, 1)).toBe(true);
     for (const x of [dino, old, modern, timeless]) expect(visibleAt(x, 'now')).toBe(true);
   });
-  it('lists each dated item at exactly one stop', () => {
-    const dated = CATALOGUE.filter(i => i.facts?.mya === undefined && dateOf(i) !== undefined && dateOf(i)! <= 2000);
+  it('lists each dated item at exactly one stop (including post-2000 items at now)', () => {
+    const dated = CATALOGUE.filter(i => i.facts?.mya === undefined && dateOf(i) !== undefined);
     const listed = STOPS.flatMap((_, i) => (STOPS[i] === 'dino' ? [] : appearingAt(CATALOGUE, i)));
     expect(listed.length).toBe(dated.length);
     expect(new Set(listed.map(i => i.key)).size).toBe(listed.length);
+    const nowIdx = STOPS.indexOf('now');
+    expect(appearingAt(CATALOGUE, nowIdx).every(i => (dateOf(i) ?? 0) > 2000)).toBe(true);
   });
 });
 

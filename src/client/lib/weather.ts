@@ -40,6 +40,8 @@ export function solarStatusAt(lat: number, lon: number, ms = Date.now()): SolarS
 export interface LocalWeather {
   tempC: number;
   feelsLikeC: number;
+  humidityPct?: number;
+  pressureHpa?: number;
   windKmh: number;
   beaufort: number;
   code: number;
@@ -57,12 +59,32 @@ export function beaufortScale(windKmh: number): number {
   return b;
 }
 
-/** Canadian/NWS wind-chill approximation (°C) when air <= 10 °C and wind > 4.8 km/h; otherwise returns `tempC`. */
-export function estimateFeelsLikeC(tempC: number, windKmh: number): number {
+/**
+ * Apparent temperature (°C):
+ * - Cold wind chill (`tempC <= 10` and `windKmh > 4.8`): NWS / Environment Canada formula
+ * - Warm humid heat index (`tempC >= 27` and `humidityPct >= 40`): NOAA Rothfusz regression
+ * - Otherwise returns rounded `tempC`.
+ */
+export function estimateFeelsLikeC(tempC: number, windKmh: number, humidityPct?: number): number {
   if (tempC <= 10 && windKmh > 4.8) {
     const v16 = Math.pow(windKmh, 0.16);
     const wc = 13.12 + 0.6215 * tempC - 11.37 * v16 + 0.3965 * tempC * v16;
     return Math.round(wc * 10) / 10;
+  }
+  if (tempC >= 27 && humidityPct !== undefined && Number.isFinite(humidityPct) && humidityPct >= 40) {
+    const tf = tempC * 1.8 + 32;
+    const rh = Math.max(0, Math.min(100, humidityPct));
+    const hiF = -42.379
+      + 2.04901523 * tf
+      + 10.14333127 * rh
+      - 0.22475541 * tf * rh
+      - 0.00683783 * tf * tf
+      - 0.05481717 * rh * rh
+      + 0.00122874 * tf * tf * rh
+      + 0.00085282 * tf * rh * rh
+      - 0.00000199 * tf * tf * rh * rh;
+    const hiC = (hiF - 32) / 1.8;
+    return Math.round(Math.max(tempC, hiC) * 10) / 10;
   }
   return Math.round(tempC * 10) / 10;
 }
@@ -101,13 +123,15 @@ export async function fetchLocalWeather(lat: number, lon: number): Promise<Local
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), 4500);
     try {
-      const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(2)}&longitude=${lon.toFixed(2)}&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m,is_day`;
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(2)}&longitude=${lon.toFixed(2)}&current=temperature_2m,apparent_temperature,relative_humidity_2m,surface_pressure,weather_code,wind_speed_10m,is_day`;
       const res = await fetch(url, { signal: ctl.signal });
       if (!res.ok) return null;
       const json = (await res.json()) as {
         current?: {
           temperature_2m?: number;
           apparent_temperature?: number;
+          relative_humidity_2m?: number;
+          surface_pressure?: number;
           weather_code?: number;
           wind_speed_10m?: number;
           is_day?: number;
@@ -120,12 +144,20 @@ export async function fetchLocalWeather(lat: number, lon: number): Promise<Local
       const { icon, labelKey } = describeWmoCode(code, isDay);
       const tempC = Math.round(cur.temperature_2m * 10) / 10;
       const windKmh = Math.round(cur.wind_speed_10m ?? 0);
+      const humidityPct = typeof cur.relative_humidity_2m === 'number' && Number.isFinite(cur.relative_humidity_2m)
+        ? Math.max(0, Math.min(100, Math.round(cur.relative_humidity_2m)))
+        : undefined;
+      const pressureHpa = typeof cur.surface_pressure === 'number' && Number.isFinite(cur.surface_pressure)
+        ? Math.round(cur.surface_pressure)
+        : undefined;
       const feelsLikeC = typeof cur.apparent_temperature === 'number' && Number.isFinite(cur.apparent_temperature)
         ? Math.round(cur.apparent_temperature * 10) / 10
-        : estimateFeelsLikeC(tempC, windKmh);
+        : estimateFeelsLikeC(tempC, windKmh, humidityPct);
       const data: LocalWeather = {
         tempC,
         feelsLikeC,
+        humidityPct,
+        pressureHpa,
         windKmh,
         beaufort: beaufortScale(windKmh),
         code,

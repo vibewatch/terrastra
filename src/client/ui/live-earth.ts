@@ -30,10 +30,11 @@ import {
   formatLiveEarthBriefMarkdown,
   isSubductionMegathrustCandidate,
   summarizeQuakeFeed,
+  tsunamiWaveSpeedKmh,
 } from '../../shared/lib/tectonics.ts';
-import { earthSolarSummary } from '../../shared/lib/sun.ts';
+import { currentSolarTerm24, earthOrbitalSummary, earthSolarSummary } from '../../shared/lib/sun.ts';
 import { currentKpStatus, fetchKpStatus } from '../lib/weather.ts';
-import { propagateIss, refreshIssTelemetry } from '../lib/iss.ts';
+import { issNextDaylightTransition, issOrbitsPerDay, propagateIss, refreshIssTelemetry } from '../lib/iss.ts';
 import type { Globe } from '../globe/scene.ts';
 
 const DEPTH_SWATCH: Record<QuakeDepthBand, string> = {
@@ -61,6 +62,22 @@ export function openLiveEarth(globe: Globe, onIss: () => void): void {
   let refreshing = false;
 
   const wrap = h('div', { class: 'live-earth', 'data-testid': 'live-earth' });
+
+  const searchInput = h('input', {
+    type: 'search',
+    class: 'search-in',
+    style: 'max-width:240px;padding:4px 10px;font-size:12.5px',
+    placeholder: t('quake.searchPlaceholder'),
+    'aria-label': t('quake.searchPlaceholder'),
+    value: filter.query ?? '',
+    'data-testid': 'quake-search',
+  }) as HTMLInputElement;
+  searchInput.addEventListener('input', () => {
+    filter = { ...filter, query: searchInput.value };
+    eqLayer?.setFilter(filter);
+    globe.markDirty();
+    render();
+  });
 
   const applyFilter = (next: Partial<QuakeFilter>) => {
     sfx.tap();
@@ -115,11 +132,19 @@ export function openLiveEarth(globe: Globe, onIss: () => void): void {
         : t('liveEarth.sampleNote');
 
     const kp = currentKpStatus();
+    const nowMs = globe.simTime ?? Date.now();
     const iss = propagateIss(Date.now());
-    const sun = earthSolarSummary(globe.simTime ?? Date.now());
+    const issOrbits = issOrbitsPerDay(iss.altitudeKm);
+    const issTrans = issNextDaylightTransition(Date.now());
+    const sun = earthSolarSummary(nowMs);
+    const term24 = currentSolarTerm24(nowMs);
+    const orb = earthOrbitalSummary(nowMs);
     const filtered = sortQuakes(filterQuakes(allEvents, filter), sortBy);
     const feedSum = summarizeQuakeFeed(filtered);
     const isStale = effStatus === 'stale';
+    searchInput.placeholder = t('quake.searchPlaceholder');
+    searchInput.setAttribute('aria-label', t('quake.searchPlaceholder'));
+    if (searchInput.value !== (filter.query ?? '')) searchInput.value = filter.query ?? '';
 
     const magBtn = (m: number, label: string) => h('button', {
       class: 'pill pill-sm' + (filter.minMag === m ? ' active' : ''),
@@ -149,14 +174,17 @@ export function openLiveEarth(globe: Globe, onIss: () => void): void {
       const mmi = estimateEpicentralMmi(q.mag, q.depthKm);
       const tec = analyzeQuakeTectonics(q.lat, q.lon);
       const boundaryLabel = t(`quake.boundary_${tec.boundaryKind}` as const);
+      const bName = l === 'zh' ? tec.boundaryNameZh : tec.boundaryName;
+      const ratePart = tec.rateMmYr ? ` · ${t('quake.plateRate', { mm: tec.rateMmYr })}` : '';
       const tecParts = [
         t('quake.mmiTag', { mmi: mmi.roman }),
         tec.boundaryKind === 'intraplate'
           ? boundaryLabel
-          : `${boundaryLabel} · ${tec.boundaryName} (${fmtNum(tec.boundaryDistanceKm)} km)`,
+          : `${boundaryLabel} · ${bName} (${fmtNum(tec.boundaryDistanceKm)} km)${ratePart}`,
       ];
       if (isSubductionMegathrustCandidate(q.mag, q.depthKm, tec.boundaryKind)) {
-        tecParts.push(`🌊 ${t('quake.subductionAlert')}`);
+        const tsu = tsunamiWaveSpeedKmh(4000);
+        tecParts.push(`🌊 ${t('quake.subductionAlert')} (${t('quake.tsunamiSpeed', { kmh: fmtNum(tsu.speedKmh) })})`);
       }
       if (tec.nearestVolcano) {
         tecParts.push(t('quake.nearVolcano', {
@@ -254,6 +282,10 @@ export function openLiveEarth(globe: Globe, onIss: () => void): void {
             h('strong', {}, t('issLive')),
             h('small', { class: 'muted' }, iss.live ? t('iss.justNow') : t('liveEarth.orbitModel'))),
           h('p', { class: 'le-card-val' }, `${formatCoord(iss.lat, iss.lon)} · ${Math.round(iss.altitudeKm)} km · ${fmtNum(Math.round(iss.velocityKmh))} km/h`),
+          h('p', { class: 'muted small le-sun-note', 'data-testid': 'live-earth-iss-meta' },
+            `${t('iss.orbitMeta', { orbits: issOrbits.toFixed(1), p: iss.periodMin.toFixed(1) })}${issTrans
+              ? ` · ${t(issTrans.nextVisibility === 'daylight' ? 'iss.nextSunrise' : 'iss.nextSunset', { m: issTrans.minutesUntil })}`
+              : ''}`),
           h('button', {
             class: 'pill pill-sm',
             'data-testid': 'live-earth-iss',
@@ -273,6 +305,17 @@ export function openLiveEarth(globe: Globe, onIss: () => void): void {
             `${sun.polarDayHemisphere
               ? t('sun.polarNote', { lat: sun.polarDayLat.toFixed(1), hem: sun.polarDayHemisphere })
               : t('sun.equinoxNote')} · ${t('sun.eotNote', { eot: (sun.equationOfTimeMin > 0 ? '+' : '') + sun.equationOfTimeMin.toFixed(1) })}`),
+          h('p', { class: 'muted small le-sun-note', 'data-testid': 'live-earth-solar-term' },
+            `${t('sun.solarTermNote', {
+              cur: tr(term24.current, lang()),
+              lon: term24.longitudeDeg.toFixed(1),
+              next: tr(term24.next, lang()),
+              days: term24.approxDaysToNext.toFixed(0),
+            })} · ${t('sun.orbitalNote', {
+              au: orb.distanceAu.toFixed(3),
+              kms: orb.orbitalSpeedKms.toFixed(1),
+              wm2: fmtNum(orb.toaIrradianceWm2),
+            })}`),
           h('button', {
             class: 'pill pill-sm',
             'data-testid': 'live-earth-subsolar-fly',
@@ -306,7 +349,9 @@ export function openLiveEarth(globe: Globe, onIss: () => void): void {
           h('span', { class: 'muted small' }, t('liveEarth.sortBy')),
           sortBtn('mag', t('liveEarth.sortMag')),
           sortBtn('time', t('liveEarth.sortTime')),
-          sortBtn('depth', t('liveEarth.sortDepth')))),
+          sortBtn('depth', t('liveEarth.sortDepth'))),
+        h('div', { class: 'le-filter-group', 'data-testid': 'quake-filter-search' },
+          searchInput)),
 
       h('div', { class: 'le-summary-row', 'data-testid': 'quake-summary-bar' },
         h('span', { class: 'muted small le-count', 'data-testid': 'quake-count' },

@@ -32,10 +32,11 @@ import { narrate, narrationSupported, splitSentences, stopNarration, type Narrat
 import { diagnosticsReport, errorCount } from '../lib/diagnostics.ts';
 import { classroom, setClassroom, setStill, motion, onClassroom } from '../lib/classroom.ts';
 import { renderHub, hubTab, type HubTab } from './hub.ts';
-import { fetchLocalWeather, solarStatusAt } from '../lib/weather.ts';
+import { fetchLocalWeather, solarStatusAt, type LocalWeather } from '../lib/weather.ts';
 import { onIssTelemetry, propagateIss, type IssTelemetry } from '../lib/iss.ts';
 import { getQuakeFeedStatus, type QuakeEvent } from '../lib/earthquakes.ts';
-import { antipodeOf, altitudePhysics, earthRotationPhysics, formatCoordPair, nearestCatalogueItem, oceanDepthPhysics } from '../../shared/lib/geodesic.ts';
+import { analyzeQuakeTectonics, estimateEpicentralMmi, formatEnergyJoules, quakeEnergyJoules } from '../../shared/lib/tectonics.ts';
+import { antipodeOf, altitudePhysics, earthRotationPhysics, formatCoordPair, geometricHorizonKm, nearestCatalogueItem, normalGravityMps2, oceanDepthPhysics } from '../../shared/lib/geodesic.ts';
 import { haversineKm } from '../../shared/lib/geo.ts';
 import { subsolar, dayLengthHours, solarNoonAltitudeDeg } from '../../shared/lib/sun.ts';
 import { countryCatalogueCount } from '../globe/overlay.ts';
@@ -225,10 +226,16 @@ export class Shell {
         ? t('quake.agoMin', { m: ageMin })
         : t('quake.agoHr', { h: Math.round(ageMin / 60) });
     const ageTxt = isStale ? `${baseAge} · ${t('quake.stale')}` : baseAge;
+    const mmi = estimateEpicentralMmi(q.mag, q.depthKm);
+    const tec = analyzeQuakeTectonics(q.lat, q.lon);
+    const bName = tec.boundaryKind === 'intraplate'
+      ? t('quake.boundary_intraplate')
+      : (lang() === 'zh' ? tec.boundaryNameZh : tec.boundaryName);
+    const eLabel = formatEnergyJoules(quakeEnergyJoules(q.mag));
     this.tipEl.replaceChildren(
       h('span', { class: 'tip-emoji' }, q.mag >= 5.5 ? '🌋' : '🔴'),
-      h('span', { class: 'tip-name' }, `${t('quake.title', { mag: q.mag.toFixed(1) })} · ${q.place}`),
-      h('span', { class: 'tip-sub' }, `${t('quake.depthKm', { km: Math.round(q.depthKm) })} · ${ageTxt}`),
+      h('span', { class: 'tip-name' }, `${t('quake.title', { mag: q.mag.toFixed(1) })} (${t('quake.mmiTag', { mmi: mmi.roman })}) · ${q.place}`),
+      h('span', { class: 'tip-sub' }, `${t('quake.depthKm', { km: Math.round(q.depthKm) })} · ${eLabel} · ${bName} · ${ageTxt}`),
     );
     this.tipEl.style.transform = `translate(${screen.x.toFixed(1)}px, ${(screen.y - 26).toFixed(1)}px) translate(-50%, -100%)`;
     this.tipEl.classList.remove('hidden');
@@ -871,6 +878,14 @@ export class Shell {
               alt: noonAlt,
             });
       extra.push([t('sun.daylightLabel'), dlText]);
+      if (f.heightM && f.heightM >= 80 && ['landmark', 'volcano', 'discovery', 'plant'].includes(it.type)) {
+        const hz = geometricHorizonKm(f.heightM);
+        const grav = normalGravityMps2(it.lat, f.heightM);
+        extra.push([t('horizonGravityLabel'), t('horizonGravityVal', {
+          hz: hz.toFixed(1),
+          g: grav.gMps2.toFixed(3),
+        })]);
+      }
       if (f.heightM && f.heightM >= 1500 && ['landmark', 'volcano', 'discovery', 'plant'].includes(it.type)) {
         const phys = altitudePhysics(f.heightM);
         extra.push([t('altitudePhysicsLabel'), t('altitudePhysicsVal', {
@@ -992,10 +1007,12 @@ export class Shell {
       : spin.deflection === 'left'
         ? t('earthSpinLeft', { v: fmtNum(spin.linearSpeedKmh) })
         : t('earthSpinNone', { v: fmtNum(spin.linearSpeedKmh) });
+    const grav = normalGravityMps2(place.lat, 0);
     const extra: [string, string][] = [
       [t('latitude'), coordStr],
       [t('sun.daylightLabel'), dlText],
       [t('earthSpinLabel'), spinText],
+      [t('gravityLabel'), t('gravityVal', { g: grav.gMps2.toFixed(3), delta: grav.poleDeltaPct.toFixed(2) })],
       [t('antipode.label'), antiText],
     ];
 
@@ -1011,8 +1028,7 @@ export class Shell {
     if (!classroom()) {
       void fetchLocalWeather(place.lat, place.lon).then(w => {
         if (!w || this.currentPlace?.key !== place.key || !weatherRow.isConnected) return;
-        const bft = t('weather.beaufort', { b: w.beaufort });
-        weatherSpan.textContent = `${w.icon} ${w.tempC > 0 ? `+${w.tempC}` : w.tempC}°C · ${t(w.labelKey)} · ${t('weather.wind', { kmh: w.windKmh })} (${bft})`;
+        weatherSpan.textContent = this.formatWeatherLine(w);
       });
     }
 
@@ -1142,6 +1158,16 @@ export class Shell {
     return `${visIcon} ${t('iss.telemetryEst', { alt, vel })} · ${coord} · ${fp}`;
   }
 
+  private formatWeatherLine(w: LocalWeather): string {
+    const bft = t('weather.beaufort', { b: w.beaufort });
+    const tempTxt = `${w.icon} ${w.tempC > 0 ? `+${w.tempC}` : w.tempC}°C`;
+    const feelsTxt = Math.abs(w.feelsLikeC - w.tempC) >= 2
+      ? ` (${t('weather.feelsLike', { t: w.feelsLikeC > 0 ? `+${w.feelsLikeC}` : w.feelsLikeC })})`
+      : '';
+    const rhTxt = w.humidityPct !== undefined ? ` · ${t('weather.humidity', { rh: w.humidityPct })}` : '';
+    return `${tempTxt}${feelsTxt} · ${t(w.labelKey)}${rhTxt} · ${t('weather.wind', { kmh: w.windKmh })} (${bft})`;
+  }
+
   /** Renders live ISS orbital telemetry + Astronaut View for `sp_iss`, or live local solar status + Open-Meteo weather for surface items. */
   private liveTelemetryRow(it: CatalogueItem): HTMLElement | null {
     this.issRowCleanup?.();
@@ -1194,8 +1220,7 @@ export class Shell {
     if (!classroom()) {
       void fetchLocalWeather(it.lat, it.lon).then(w => {
         if (!w || this.current?.key !== it.key || !row.isConnected) return;
-        const bft = t('weather.beaufort', { b: w.beaufort });
-        weatherSpan.textContent = `${w.icon} ${w.tempC > 0 ? `+${w.tempC}` : w.tempC}°C · ${t(w.labelKey)} · ${t('weather.wind', { kmh: w.windKmh })} (${bft})`;
+        weatherSpan.textContent = this.formatWeatherLine(w);
       });
     }
     return row;

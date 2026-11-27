@@ -52,6 +52,11 @@ export function issOrbitalPeriodMin(altitudeKm: number): number {
   return Math.round((sec / 60) * 10) / 10;
 }
 
+/** Number of complete revolutions around Earth per 24-hour solar day (~15.5 orbits/day at ~418 km). */
+export function issOrbitsPerDay(altitudeKm: number): number {
+  return Math.round((1440 / issOrbitalPeriodMin(altitudeKm)) * 10) / 10;
+}
+
 const INCL_DEG = 51.64;
 const INCL_RAD = (INCL_DEG * Math.PI) / 180;
 /** Mean orbital angular rate (rad/s) for a ~92.9-minute LEO orbit. */
@@ -390,7 +395,7 @@ export function predictIssPasses(
         : obsSolar.phase !== 'day'
           ? 'visible'
           : 'daylight';
-    const durationMin = Math.max(1, Math.round((lastAboveMs - passStartMs) / 60_000) + 1);
+    const durationMin = Math.max(1, Math.round((lastAboveMs - passStartMs + stepMs) / 60_000));
     passes.push({
       startMs: passStartMs,
       maxTimeMs,
@@ -430,5 +435,22 @@ export function predictIssPasses(
   }
   if (inPass && passes.length < 6) closePass();
   return passes;
+}
+
+/**
+ * Predicts minutes until the ISS next crosses Earth's orbital terminator
+ * (orbital sunrise into `'daylight'` or orbital sunset into `'eclipsed'`).
+ */
+export function issNextDaylightTransition(
+  nowMs = Date.now(),
+): { nextVisibility: 'daylight' | 'eclipsed'; minutesUntil: number } | null {
+  const initial = propagateIss(nowMs).visibility;
+  for (let min = 1; min <= 100; min++) {
+    const next = propagateIss(nowMs + min * 60_000).visibility;
+    if (next !== initial) {
+      return { nextVisibility: next, minutesUntil: min };
+    }
+  }
+  return null;
 }
 

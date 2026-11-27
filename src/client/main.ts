@@ -38,6 +38,7 @@ import { lazy, withBusy, showLoadError } from './ui/lazy.ts';
 import { SceneModeController } from './lib/scene-mode.ts';
 import { refreshIssTelemetry, currentIssOrbitPts } from './lib/iss.ts';
 import { getQuakeFeedStatus } from './lib/earthquakes.ts';
+import { analyzeQuakeTectonics, estimateEpicentralMmi, formatEnergyJoules, quakeEnergyJoules } from '../shared/lib/tectonics.ts';
 import type { ScaleId } from '../shared/data/cosmos.ts';
 
 /** Panels not needed for the first screen load on first use (their chunks stay out of the entry). */
@@ -151,12 +152,18 @@ async function boot(): Promise<void> {
     onQuake: q => {
       globe.flyTo(q.lat, q.lon, Math.min(globe.h, 1.4), 1000);
       const isStale = q.live && getQuakeFeedStatus() === 'stale';
+      const mmi = estimateEpicentralMmi(q.mag, q.depthKm);
+      const tec = analyzeQuakeTectonics(q.lat, q.lon);
+      const bName = tec.boundaryKind === 'intraplate'
+        ? t('quake.boundary_intraplate')
+        : (lang() === 'zh' ? tec.boundaryNameZh : tec.boundaryName);
+      const eLabel = formatEnergyJoules(quakeEnergyJoules(q.mag));
       const detail = !q.live
-        ? `${t('quake.depthKm', { km: Math.round(q.depthKm) })} · ${t('quake.demo')}`
+        ? `${t('quake.depthKm', { km: Math.round(q.depthKm) })} · ${eLabel} · ${bName} · ${t('quake.demo')}`
         : isStale
-          ? `${t('quake.depthKm', { km: Math.round(q.depthKm) })} · ${t('quake.stale')}`
-          : t('quake.depthKm', { km: Math.round(q.depthKm) });
-      toast(`🌋 ${t('quake.title', { mag: q.mag.toFixed(1) })} · ${q.place} (${detail})`, 4200);
+          ? `${t('quake.depthKm', { km: Math.round(q.depthKm) })} · ${eLabel} · ${bName} · ${t('quake.stale')}`
+          : `${t('quake.depthKm', { km: Math.round(q.depthKm) })} · ${eLabel} · ${bName}`;
+      toast(`🌋 ${t('quake.title', { mag: q.mag.toFixed(1) })} (${t('quake.mmiTag', { mmi: mmi.roman })}) · ${q.place} (${detail})`, 4600);
     },
     onView: (z, la, lo) => {
       shell.setZoom(z, la, lo);

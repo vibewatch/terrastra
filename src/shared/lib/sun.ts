@@ -121,3 +121,103 @@ export function earthSolarSummary(ms: number): EarthSolarSummary {
   };
 }
 
+/**
+ * Apparent geocentric solar ecliptic longitude `λ☉` in degrees `[0, 360)` at UTC timestamp `ms`
+ * (Meeus low-precision J2000 expansion, accurate to ~0.02°).
+ * `0°` = March Equinox (`春分`), `90°` = June Solstice (`夏至`), `180°` = September Equinox (`秋分`), `270°` = December Solstice (`冬至`).
+ */
+export function solarLongitudeDeg(ms: number): number {
+  const T = (ms / 864e5 - 10957.5) / 36525;
+  const L0 = 280.46646 + 36000.76983 * T + 0.0003032 * T * T;
+  const M = (357.52911 + 35999.05029 * T - 0.0001537 * T * T) * DEG2RAD;
+  const C = (1.914602 - 0.004817 * T - 0.000014 * T * T) * Math.sin(M)
+    + (0.019993 - 0.000101 * T) * Math.sin(2 * M)
+    + 0.000289 * Math.sin(3 * M);
+  return (((L0 + C) % 360) + 360) % 360;
+}
+
+/** The 24 Traditional East Asian Solar Terms (`二十四节气`), ordered by 15° steps of apparent solar longitude `λ☉` starting at `0°` (`春分`). */
+export const SOLAR_TERMS_24: readonly { lon: number; en: string; zh: string }[] = [
+  { lon: 0, en: 'Spring Equinox', zh: '春分' },
+  { lon: 15, en: 'Pure Brightness', zh: '清明' },
+  { lon: 30, en: 'Grain Rain', zh: '谷雨' },
+  { lon: 45, en: 'Start of Summer', zh: '立夏' },
+  { lon: 60, en: 'Grain Buds', zh: '小满' },
+  { lon: 75, en: 'Grain in Ear', zh: '芒种' },
+  { lon: 90, en: 'Summer Solstice', zh: '夏至' },
+  { lon: 105, en: 'Minor Heat', zh: '小暑' },
+  { lon: 120, en: 'Major Heat', zh: '大暑' },
+  { lon: 135, en: 'Start of Autumn', zh: '立秋' },
+  { lon: 150, en: 'End of Heat', zh: '处暑' },
+  { lon: 165, en: 'White Dew', zh: '白露' },
+  { lon: 180, en: 'Autumn Equinox', zh: '秋分' },
+  { lon: 195, en: 'Cold Dew', zh: '寒露' },
+  { lon: 210, en: 'Frost Descent', zh: '霜降' },
+  { lon: 225, en: 'Start of Winter', zh: '立冬' },
+  { lon: 240, en: 'Minor Snow', zh: '小雪' },
+  { lon: 255, en: 'Major Snow', zh: '大雪' },
+  { lon: 270, en: 'Winter Solstice', zh: '冬至' },
+  { lon: 285, en: 'Minor Cold', zh: '小寒' },
+  { lon: 300, en: 'Major Cold', zh: '大寒' },
+  { lon: 315, en: 'Start of Spring', zh: '立春' },
+  { lon: 330, en: 'Rain Water', zh: '雨水' },
+  { lon: 345, en: 'Awakening of Insects', zh: '惊蛰' },
+];
+
+export interface SolarTerm24Status {
+  /** Index `0..23` in `SOLAR_TERMS_24` (`0` = `春分` at `0°`). */
+  index: number;
+  longitudeDeg: number;
+  current: { en: string; zh: string };
+  next: { en: string; zh: string };
+  degToNext: number;
+  approxDaysToNext: number;
+}
+
+/** Identifies the active 15° Solar Term (`二十四节气`) and days remaining until the next term. */
+export function currentSolarTerm24(ms: number): SolarTerm24Status {
+  const lon = solarLongitudeDeg(ms);
+  const idx = Math.floor(lon / 15) % 24;
+  const nextIdx = (idx + 1) % 24;
+  const degToNext = Math.max(0, (idx + 1) * 15 - lon);
+  return {
+    index: idx,
+    longitudeDeg: Math.round(lon * 10) / 10,
+    current: { en: SOLAR_TERMS_24[idx].en, zh: SOLAR_TERMS_24[idx].zh },
+    next: { en: SOLAR_TERMS_24[nextIdx].en, zh: SOLAR_TERMS_24[nextIdx].zh },
+    degToNext: Math.round(degToNext * 10) / 10,
+    approxDaysToNext: Math.round((degToNext / 0.9856) * 10) / 10,
+  };
+}
+
+export interface EarthOrbitalSummary {
+  /** Heliocentric Earth–Sun distance in Astronomical Units (`~0.9833..1.0167 AU`). */
+  distanceAu: number;
+  /** Instantaneous Keplerian heliocentric orbital speed in km/s (`~29.29..30.29 km/s`, fastest at Jan perihelion). */
+  orbitalSpeedKms: number;
+  /** Top-of-atmosphere normal solar irradiance in W/m² (`S0 / r²`, `~1316..1408 W/m²`). */
+  toaIrradianceWm2: number;
+  apsis: 'perihelion' | 'aphelion' | 'mean';
+}
+
+/**
+ * Computes Earth's heliocentric distance (`AU`), Keplerian orbital speed (`km/s` — Kepler's 2nd Law),
+ * and top-of-atmosphere solar irradiance (`W/m²`) at UTC timestamp `ms`.
+ */
+export function earthOrbitalSummary(ms: number): EarthOrbitalSummary {
+  const T = (ms / 864e5 - 10957.5) / 36525;
+  const e = 0.016708634 - 0.000042037 * T;
+  const M = (357.52911 + 35999.05029 * T) * DEG2RAD;
+  const nu = M + (2 * e) * Math.sin(M) + 1.25 * e * e * Math.sin(2 * M);
+  const r = (1 - e * e) / (1 + e * Math.cos(nu));
+  const v = 29.7847 * Math.sqrt(Math.max(0.5, 2 / r - 1));
+  const toa = 1361 / (r * r);
+  const apsis: EarthOrbitalSummary['apsis'] = r <= 0.9855 ? 'perihelion' : r >= 1.0145 ? 'aphelion' : 'mean';
+  return {
+    distanceAu: Math.round(r * 10000) / 10000,
+    orbitalSpeedKms: Math.round(v * 100) / 100,
+    toaIrradianceWm2: Math.round(toa),
+    apsis,
+  };
+}
+

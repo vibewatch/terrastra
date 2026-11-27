@@ -70,11 +70,15 @@ export function visibleAt(it: CatalogueItem, stop: Stop): boolean {
   return d === undefined || d <= stop;
 }
 
-/** Items that first appear at this stop (dated after the previous stop), newest first. */
+/** Items that first appear at this stop (dated after the previous stop, including post-2000 items at `'now'`), newest first. */
 export function appearingAt(items: CatalogueItem[], idx: number): CatalogueItem[] {
   const stop = STOPS[idx];
-  if (typeof stop !== 'number') return stop === 'dino' ? items.filter(i => i.facts?.mya !== undefined) : [];
+  if (stop === undefined) return [];
+  if (stop === 'dino') return items.filter(i => i.facts?.mya !== undefined);
   const prev = typeof STOPS[idx - 1] === 'number' ? (STOPS[idx - 1] as number) : -Infinity;
-  return items.filter(i => { const d = dateOf(i); return i.facts?.mya === undefined && d !== undefined && d > prev && d <= stop; })
-    .sort((a, b) => dateOf(b)! - dateOf(a)!);
+  const maxYear = typeof stop === 'number' ? stop : Infinity;
+  return items.filter(i => {
+    const d = dateOf(i);
+    return i.facts?.mya === undefined && d !== undefined && d > prev && d <= maxYear;
+  }).sort((a, b) => dateOf(b)! - dateOf(a)!);
 }

@@ -19,10 +19,18 @@ function stopLabel(s: Stop): string {
 
 /** Bottom bar with a timeline slider that filters the globe to things that existed at that time. */
 export class TimeMachine {
-  readonly el = h('div', { class: 'time-bar hidden', 'data-testid': 'time-bar', role: 'group' });
+  readonly el = h('div', { class: 'time-bar hidden', 'data-testid': 'time-bar', role: 'group', tabindex: '-1' });
   private idx = STOPS.length - 1;
   private playTimer: number | null = null;
-  constructor(private globe: Globe, private go: (it: CatalogueItem) => void) {}
+  constructor(private globe: Globe, private go: (it: CatalogueItem) => void) {
+    this.el.addEventListener('keydown', (ev: KeyboardEvent) => {
+      const target = ev.target as HTMLElement | null;
+      if (target === this.range && (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight')) return;
+      if (ev.key === 'ArrowLeft') { ev.preventDefault(); this.step(-1); }
+      else if (ev.key === 'ArrowRight') { ev.preventDefault(); this.step(1); }
+      else if (ev.key === ' ') { ev.preventDefault(); this.togglePlay(); }
+    });
+  }
 
   get open(): boolean { return !this.el.classList.contains('hidden'); }
 
@@ -128,7 +136,9 @@ export class TimeMachine {
     range.setAttribute('aria-label', t('timeMachine'));
     range.setAttribute('aria-valuetext', stopLabel(stop));
     const shown = CATALOGUE.filter(it => visibleAt(it, stop)).length;
-    const fresh = appearingAt(CATALOGUE, this.idx).slice(0, 4);
+    const allFresh = appearingAt(CATALOGUE, this.idx);
+    const fresh = allFresh.slice(0, 6);
+    const moreFresh = Math.max(0, allFresh.length - fresh.length);
     for (const n of [...this.el.children]) if (n !== range) n.remove();
     if (!range.isConnected) this.el.append(range);
     range.before(
@@ -168,7 +178,8 @@ export class TimeMachine {
     range.after(...[
       h('div', { class: 'time-ticks', 'aria-hidden': 'true' }, ...STOPS.map((s, i) => h('span', { class: i === this.idx ? 'on' : '' }, i === 0 ? h('b', { html: icon('dino', 13) }) : s === 'now' ? '•' : ''))),
       fresh.length ? h('div', { class: 'time-new' }, h('span', { class: 'muted' }, t('tmAppear')),
-        ...fresh.map(it => h('button', { class: 'chip chip-ico', title: tr(it.name, l), 'aria-label': tr(it.name, l), onclick: () => this.go(it) }, h('span', { class: 'chip-emoji', 'aria-hidden': 'true' }, it.emoji)))) : null,
+        ...fresh.map(it => h('button', { class: 'chip chip-ico', title: tr(it.name, l), 'aria-label': tr(it.name, l), onclick: () => this.go(it) }, h('span', { class: 'chip-emoji', 'aria-hidden': 'true' }, it.emoji))),
+        moreFresh > 0 ? h('span', { class: 'muted small' }, `+${moreFresh}`) : null) : null,
     ].filter((n): n is HTMLDivElement => !!n));
   }
 }

@@ -1155,6 +1155,87 @@ describe('static i18n key coverage, geodesic lab, quake tectonics & explorer fie
     expect(countryCapitalCity('CN')).toBe('Beijing');
     expect(countryCapitalCity('US')).toBe('Washington');
   });
+
+  it('computes Wave 14 bilingual plate kinematics, tsunami wave speed, Somigliana gravity, 24 solar terms, Rothfusz heat index & ISS transitions', async () => {
+    const { PLATE_BOUNDARIES } = await import('../../src/shared/data/plates.ts');
+    const { analyzeQuakeTectonics, focalDepthRegime, formatLiveEarthBriefMarkdown, summarizeQuakeFeed, tsunamiWaveSpeedKmh } = await import('../../src/shared/lib/tectonics.ts');
+    const { geometricHorizonKm, normalGravityMps2 } = await import('../../src/shared/lib/geodesic.ts');
+    const { currentSolarTerm24, earthOrbitalSummary, solarLongitudeDeg } = await import('../../src/shared/lib/sun.ts');
+    const { estimateFeelsLikeC } = await import('../../src/client/lib/weather.ts');
+    const { issNextDaylightTransition, issOrbitsPerDay } = await import('../../src/client/lib/iss.ts');
+    const { fallbackQuakes, filterQuakes } = await import('../../src/client/lib/earthquakes.ts');
+
+    // #131: Bilingual plate boundaries & Sichuan Longmenshan fault coverage
+    for (const b of PLATE_BOUNDARIES) {
+      expect(b.name.length).toBeGreaterThan(0);
+      expect(b.nameZh.length).toBeGreaterThan(0);
+    }
+    const sichuanTec = analyzeQuakeTectonics(31.0, 103.4); // Wenchuan/Longmenshan
+    expect(sichuanTec.boundaryNameZh).toContain('龙门山');
+    expect(sichuanTec.rateMmYr).toBe(10);
+
+    // #132: Wadati-Benioff focal regime & tsunami jet speed over 4,000 m abyssal ocean
+    expect(focalDepthRegime(25)).toBe('crustal');
+    expect(focalDepthRegime(150)).toBe('upperMantleSlab');
+    expect(focalDepthRegime(540)).toBe('transitionZoneSlab');
+    const tsu = tsunamiWaveSpeedKmh(4000);
+    expect(tsu.speedKmh).toBeGreaterThan(700);
+    expect(tsu.speedKmh).toBeLessThan(725);
+
+    const briefZh = formatLiveEarthBriefMarkdown({
+      lang: 'zh',
+      kp: 3.2,
+      issCoord: '10.0°N · 120.0°E',
+      issVelocityKmh: 27580,
+      subsolarCoord: '12.0°N · 120.0°E',
+      declinationDeg: 12.0,
+      events: [{ mag: 6.8, depthKm: 28, place: 'Honshu, Japan', lat: 38.2, lon: 142.5 }],
+    });
+    expect(briefZh).toContain('日本海沟');
+    expect(briefZh).toContain('深海海啸波速约');
+
+    // #134: Somigliana gravity (equator < pole, altitude decreases g) & geometric horizon
+    const gEq = normalGravityMps2(0, 0);
+    const gPole = normalGravityMps2(90, 0);
+    const gEverest = normalGravityMps2(27.99, 8849);
+    expect(gEq.gMps2).toBeCloseTo(9.780, 3);
+    expect(gPole.gMps2).toBeCloseTo(9.832, 3);
+    expect(gEq.poleDeltaPct).toBeLessThan(-0.5);
+    expect(gEverest.gMps2).toBeLessThan(normalGravityMps2(27.99, 0).gMps2 - 0.02);
+    expect(geometricHorizonKm(0)).toBe(0);
+    expect(geometricHorizonKm(828)).toBeGreaterThan(105); // Burj Khalifa ~111 km
+    expect(geometricHorizonKm(8849)).toBeGreaterThan(350); // Everest ~363 km
+
+    // #135 & #140: 24 Solar Terms (二十四节气) & Keplerian Earth orbital anomaly (perihelion Jan vs aphelion Jul)
+    expect(solarLongitudeDeg(Date.UTC(2026, 2, 21, 0, 0, 0))).toBeLessThan(2); // Just after Vernal Equinox
+    expect(currentSolarTerm24(Date.UTC(2026, 2, 21, 0, 0, 0)).current.zh).toBe('春分');
+    expect(currentSolarTerm24(Date.UTC(2026, 5, 22, 0, 0, 0)).current.zh).toBe('夏至');
+    expect(currentSolarTerm24(Date.UTC(2026, 11, 22, 12, 0, 0)).current.zh).toBe('冬至');
+    const janOrb = earthOrbitalSummary(Date.UTC(2026, 0, 4, 0, 0, 0));
+    const julOrb = earthOrbitalSummary(Date.UTC(2026, 6, 4, 0, 0, 0));
+    expect(janOrb.distanceAu).toBeLessThan(0.985);
+    expect(julOrb.distanceAu).toBeGreaterThan(1.015);
+    expect(janOrb.orbitalSpeedKms).toBeGreaterThan(julOrb.orbitalSpeedKms + 0.8);
+    expect(janOrb.toaIrradianceWm2).toBeGreaterThan(julOrb.toaIrradianceWm2 + 80);
+
+    // #136: Rothfusz heat index for hot humid air
+    expect(estimateFeelsLikeC(33, 5, 80)).toBeGreaterThan(42);
+    expect(estimateFeelsLikeC(22, 5, 50)).toBe(22);
+
+    // #137: ISS orbits per day & orbital sunrise/sunset transition
+    expect(issOrbitsPerDay(418)).toBeCloseTo(15.5, 1);
+    const trans = issNextDaylightTransition(Date.UTC(2026, 3, 15, 12, 0, 0));
+    expect(trans).not.toBeNull();
+    expect(trans!.minutesUntil).toBeGreaterThanOrEqual(1);
+    expect(trans!.minutesUntil).toBeLessThanOrEqual(65);
+
+    // #138: Quake query filter & depth-band counts
+    const fb = fallbackQuakes();
+    const sumFb = summarizeQuakeFeed(fb)!;
+    expect(sumFb.shallowCount + sumFb.intermediateCount + sumFb.deepCount).toBe(fb.length);
+    expect(filterQuakes(fb, { minMag: 2.5, depth: 'all', query: '日本海沟' }).some(q => q.id === 'fb_jp_honshu')).toBe(true);
+    expect(filterQuakes(fb, { minMag: 2.5, depth: 'all', query: 'Tonga' }).some(q => q.id === 'fb_to_tonga')).toBe(true);
+  });
 });
 
 
