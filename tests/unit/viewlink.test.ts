@@ -22,8 +22,13 @@ describe('view links', () => {
       expect(parseView('eiffel@' + tail)).toEqual({ route: 'eiffel', bad: true });
   });
 
-  it('clamps and wraps the camera', () => {
+  it('clamps and wraps the camera and strips leading # or percent-encoded routes', () => {
     expect(parseView('@v1:89,190,99').cam).toEqual({ lat: 85, lon: -170, h: 20 });
+    expect(parseView('#geo%3Amariana-trench@v1:11.35,142.2,0.72')).toEqual({
+      route: 'geo:mariana-trench',
+      cam: { lat: 11.35, lon: 142.2, h: 0.72 },
+      bad: false,
+    });
   });
 
   it('validates root-globe camera bookmarks and sorts deterministic ties in mergeBookmarks', () => {

@@ -16,11 +16,17 @@ export interface Bookmark extends View { label: I18n; at: number }
 
 const num = (v: string) => (/^-?\d+(\.\d+)?$/.test(v) ? Number(v) : NaN);
 
+function safeDecodeRoute(s: string): string {
+  if (!s.includes('%')) return s;
+  try { return decodeURIComponent(s); } catch { return s; }
+}
+
 /** Split a decoded hash into its route and camera. `bad` is set when a camera suffix was present but unusable. */
 export function parseView(hash: string): View & { bad: boolean } {
-  const at = hash.lastIndexOf('@');
-  if (at < 0) return { route: hash, bad: false };
-  const route = hash.slice(0, at), tail = hash.slice(at + 1);
+  const clean = hash.trim().replace(/^#+/, '');
+  const at = clean.lastIndexOf('@');
+  if (at < 0) return { route: safeDecodeRoute(clean), bad: false };
+  const route = safeDecodeRoute(clean.slice(0, at)), tail = clean.slice(at + 1);
   const m = /^v(\d+):([^,]+),([^,]+),([^,]+)$/.exec(tail);
   if (!m || Number(m[1]) !== VIEW_VERSION) return { route, bad: true };
   const [lat, lon, h] = [num(m[2]), num(m[3]), num(m[4])];
@@ -37,7 +43,21 @@ export function viewUrl(v: View): string {
   return location.origin + location.pathname + location.search + '#' + encodeView(v);
 }
 
-export const bookmarks = (): Bookmark[] => load<Bookmark[]>('bookmarks', []).filter(b => b && typeof b.route === 'string' && b.label);
+function isValidStoredBookmark(b: unknown): b is Bookmark {
+  if (!b || typeof b !== 'object') return false;
+  const x = b as Partial<Bookmark>;
+  if (typeof x.route !== 'string' || (x.route.length === 0 && x.cam === undefined)) return false;
+  if (typeof x.at !== 'number' || !Number.isFinite(x.at) || x.at < 0) return false;
+  if (!x.label || typeof x.label !== 'object' || typeof x.label.en !== 'string') return false;
+  if (x.cam !== undefined) {
+    if (!x.cam || typeof x.cam !== 'object') return false;
+    const { lat, lon, h } = x.cam;
+    if (![lat, lon, h].every(Number.isFinite) || Math.abs(lat) > 90 || Math.abs(lon) > 180 || h <= 0 || h > 20) return false;
+  }
+  return true;
+}
+
+export const bookmarks = (): Bookmark[] => load<unknown[]>('bookmarks', []).filter(isValidStoredBookmark);
 
 /** Save a view (newest first). Saving the same place again moves it to the top. */
 export function addBookmark(b: Bookmark): void {

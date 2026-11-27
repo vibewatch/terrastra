@@ -6,14 +6,14 @@ import { CHINA_CAPITALS } from '../../shared/data/china-capitals.ts';
 import { CITIES, CITY_ZH } from '../../shared/data/cities.ts';
 import { GAZETTEER, GAZETTEER_BY_KEY, type GeoKind } from '../../shared/data/gazetteer.ts';
 import { CONTINENT_NAMES } from '../../shared/data/iso.ts';
-import { matchedAlias, norm, scoreTerms } from '../../shared/lib/search.ts';
+import { matchedAlias, norm, parseCoordinateQuery, queryTokens, scoreTerms } from '../../shared/lib/search.ts';
 import type { CatalogueItem, Lang } from '../../shared/data/types.ts';
 import type { SpaceHit } from '../solar/space-index.ts';
 import type { CountryInfo } from '../globe/painter.ts';
 import { adminName, type AdminArea } from '../globe/admin.ts';
 import { countryName } from './i18n.ts';
 
-export type PlaceKind = 'country' | 'state' | 'capital' | 'city' | GeoKind;
+export type PlaceKind = 'country' | 'state' | 'capital' | 'city' | 'coord' | GeoKind;
 
 export interface PlaceHit {
   key: string;
@@ -44,6 +44,51 @@ export interface SearchPlaces {
 }
 
 const CHINA_CAP_NORMS = new Set(CHINA_CAPITALS.flatMap(c => [norm(c.en), norm(c.zh)]));
+
+const COUNTRY_ALIASES: Record<string, readonly string[]> = {
+  GB: ['UK', 'Britain', 'Great Britain', 'England', '英国', '大不列颠'],
+  US: ['USA', 'America', 'United States of America', '美国', '美利坚'],
+  AE: ['UAE', 'Emirates', '阿联酋'],
+  NL: ['Holland', '荷兰'],
+  CH: ['Swiss', '瑞士'],
+  NZ: ['Aotearoa', '新西兰'],
+  KR: ['ROK', 'Korea', '韩国'],
+  CN: ['PRC', 'Zhongguo', '中国', '中华'],
+  JP: ['Nippon', 'Nihon', '日本'],
+  ZA: ['RSA', '南非'],
+};
+
+export function coordToPlaceHit(lat: number, lon: number): PlaceHit {
+  const latStr = `${Math.abs(lat).toFixed(2)}°${lat >= 0 ? 'N' : 'S'}`;
+  const lonStr = `${Math.abs(lon).toFixed(2)}°${lon >= 0 ? 'E' : 'W'}`;
+  const labelEn = `${latStr}, ${lonStr}`;
+  const labelZh = `${lat >= 0 ? '北纬' : '南纬'} ${Math.abs(lat).toFixed(2)}°，${lon >= 0 ? '东经' : '西经'} ${Math.abs(lon).toFixed(2)}°`;
+  const hemNS = lat >= 0 ? ['Northern Hemisphere', '北半球'] : ['Southern Hemisphere', '南半球'];
+  // Textbook East/West Hemisphere boundary: 20°W to 160°E is Eastern Hemisphere!
+  const isEastHem = lon >= -20 && lon <= 160;
+  const hemEW = isEastHem ? ['Eastern Hemisphere', '东半球'] : ['Western Hemisphere', '西半球'];
+  const absLat = Math.abs(lat);
+  const zone = absLat <= 23.44
+    ? ['Tropical (Torrid) Zone', '热带']
+    : absLat <= 66.56
+      ? (lat >= 0 ? ['North Temperate Zone', '北温带'] : ['South Temperate Zone', '南温带'])
+      : (lat >= 0 ? ['North Frigid Zone', '北寒带'] : ['South Frigid Zone', '南寒带']);
+  return {
+    key: `coord:${lat.toFixed(4)},${lon.toFixed(4)}`,
+    placeKind: 'coord',
+    emoji: '🎯',
+    name: { en: labelEn, zh: labelZh },
+    sub: { en: `${hemNS[0]} · ${hemEW[0]}`, zh: `${hemNS[1]} · ${hemEW[1]}` },
+    lat,
+    lon,
+    h: 0.65,
+    isGeo: true,
+    desc: {
+      en: `Custom geographic coordinate in the ${hemNS[0]}, ${hemEW[0]} (20°W–160°E rule), and ${zone[0]}.`,
+      zh: `自定义经纬度坐标点：位于${hemNS[1]}、${hemEW[1]}（按 20°W—160°E 东西半球划分），属于五带中的${zone[1]}。`,
+    },
+  };
+}
 
 export function gazetteerToPlaceHit(g: (typeof GAZETTEER)[number]): PlaceHit {
   return {
@@ -143,6 +188,10 @@ export function cityToPlaceHit([cEn, a2, lat, lon, popM, isCap]: (typeof CITIES)
 }
 
 export function resolvePlaceByKey(key: string, places?: SearchPlaces): PlaceHit | null {
+  if (key.startsWith('coord:')) {
+    const c = parseCoordinateQuery(key.slice('coord:'.length));
+    return c ? coordToPlaceHit(c.lat, c.lon) : null;
+  }
   if (key.startsWith('geo:')) {
     const g = GAZETTEER_BY_KEY.get(key);
     return g ? gazetteerToPlaceHit(g) : null;
@@ -178,19 +227,27 @@ export function searchAll(
   places?: SearchPlaces,
 ): SearchHit[] {
   const q = norm(query);
+  const tokens = query ? queryTokens(query) : [];
   const out: SearchHit[] = [];
+  if (query && (filter === 'all' || filter === 'geo')) {
+    const coord = parseCoordinateQuery(query);
+    if (coord) {
+      out.push({ kind: 'place', score: 120, hit: coordToPlaceHit(coord.lat, coord.lon) });
+    }
+  }
   if (filter !== 'space' && filter !== 'geo') {
     for (const item of CATALOGUE) {
       if (filter !== 'all' && item.type !== filter) continue;
       const aliases = ALIASES[item.key];
       const names = [item.name.en, item.name.zh ?? ''];
-      const score = q ? scoreTerms(q, {
+      const baseScore = q ? scoreTerms(q, {
         names,
         aliases,
         other: [countryName(item.country, l), countryName(item.country, 'en'), item.sub, SUB_ZH[item.sub] ?? ''],
-      }) : 1;
-      if (score > 0) {
-        out.push({ kind: 'item', item, score, alias: q ? matchedAlias(q, names, aliases) : undefined });
+      }, tokens) : 1;
+      if (baseScore > 0) {
+        const tierTie = q ? (3 - item.tier) * 0.01 : 0;
+        out.push({ kind: 'item', item, score: baseScore + tierTie, alias: q ? matchedAlias(q, names, aliases) : undefined });
       }
     }
   }
@@ -201,7 +258,7 @@ export function searchAll(
         names,
         aliases: g.aliases,
         other: [g.region.en, g.region.zh],
-      }) : 1;
+      }, tokens) : 1;
       if (score > 0) {
         out.push({
           kind: 'place',
@@ -219,32 +276,35 @@ export function searchAll(
       if (!key || seenCountries.has(key)) continue;
       seenCountries.add(key);
       const hit = countryToPlaceHit(c);
-      const aliases = c.a2 ? [c.a2] : undefined;
-      const score = scoreTerms(q, { names: [hit.name.en, hit.name.zh, c.name], aliases });
+      const aliases = c.a2 ? [c.a2, ...(COUNTRY_ALIASES[c.a2] ?? [])] : undefined;
+      const score = scoreTerms(q, { names: [hit.name.en, hit.name.zh, c.name], aliases }, tokens);
       if (score > 0) out.push({ kind: 'place', score: score - 0.1, hit });
     }
     for (const area of places?.regions ?? []) {
       const hit = adminToPlaceHit(area);
-      const score = scoreTerms(q, { names: [hit.name.en, hit.name.zh], aliases: area.code ? [area.code] : undefined });
+      const score = scoreTerms(q, { names: [hit.name.en, hit.name.zh], aliases: area.code ? [area.code] : undefined }, tokens);
       if (score > 0) out.push({ kind: 'place', score: score - 0.2, hit });
     }
     for (const cap of CHINA_CAPITALS) {
-      const score = scoreTerms(q, { names: [cap.en, cap.zh] });
+      const score = scoreTerms(q, { names: [cap.en, cap.zh] }, tokens);
       if (score > 0) out.push({ kind: 'place', score: score - 0.15, hit: chinaCapitalToPlaceHit(cap) });
     }
     for (const city of CITIES) {
       const cEn = city[0];
       if (CHINA_CAP_NORMS.has(norm(cEn))) continue;
       const cZh = CITY_ZH[cEn] ?? cEn;
-      const score = scoreTerms(q, { names: [cEn, cZh] });
-      if (score > 0) out.push({ kind: 'place', score: score - 0.18, hit: cityToPlaceHit(city) });
+      const score = scoreTerms(q, { names: [cEn, cZh] }, tokens);
+      if (score > 0) {
+        const popBonus = Math.min(0.025, Math.max(0, city[4]) * 0.0005);
+        out.push({ kind: 'place', score: score - 0.18 + popBonus, hit: cityToPlaceHit(city) });
+      }
     }
   }
   if (space && (filter === 'space' || (filter === 'all' && q))) {
     for (const hit of space) {
       const aliases = ALIASES[hit.key];
       const names = [hit.name.en, hit.name.zh ?? ''];
-      const score = q ? scoreTerms(q, { names, aliases }) : 1;
+      const score = q ? scoreTerms(q, { names, aliases }, tokens) : 1;
       if (score > 0) out.push({ kind: 'space', hit, score, alias: q ? matchedAlias(q, names, aliases) : undefined });
     }
   }

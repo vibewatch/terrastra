@@ -4,7 +4,7 @@ import { spaceIndex } from '../../src/client/solar/space-index.ts';
 import { ALIASES } from '../../src/shared/data/aliases.ts';
 import { CATALOGUE } from '../../src/shared/data/catalogue.ts';
 import { GAZETTEER, GAZETTEER_BY_KEY, KEY_LESSON_OVERRIDES, relatedLessonsForPlace } from '../../src/shared/data/gazetteer.ts';
-import { isRecentSearchEntry, matchedAlias, norm, pushRecentSearch, type RecentSearchEntry } from '../../src/shared/lib/search.ts';
+import { isRecentSearchEntry, matchedAlias, norm, parseCoordinateQuery, pushRecentSearch, type RecentSearchEntry } from '../../src/shared/lib/search.ts';
 
 const space = spaceIndex();
 const keyOf = (h: SearchHit) => h.kind === 'item' ? h.item.key : h.hit.key;
@@ -234,5 +234,46 @@ describe('search', () => {
     expect(isRecentSearchEntry(null)).toBe(false);
     expect(isRecentSearchEntry({ kind: 'item', key: '', emoji: '📍', name: { en: 'Empty' } })).toBe(false);
     expect(isRecentSearchEntry({ kind: 'unknown', key: 'x', emoji: '📍', name: { en: 'X', zh: 'X' } })).toBe(false);
+  });
+
+  it('parses decimal, DMS, and bilingual coordinate queries and resolves coord: deep-links', async () => {
+    const { resolvePlaceByKey } = await import('../../src/client/lib/search.ts');
+    expect(parseCoordinateQuery('35.68, 139.76')).toEqual({ lat: 35.68, lon: 139.76 });
+    expect(parseCoordinateQuery('23°26′N 113°12′E')).toEqual({ lat: 23.4333, lon: 113.2 });
+    expect(parseCoordinateQuery('南纬15.8度 西经69.3度')).toEqual({ lat: -15.8, lon: -69.3 });
+    expect(parseCoordinateQuery('120°E, 30°N')).toEqual({ lat: 30, lon: 120 });
+    expect(parseCoordinateQuery('M31')).toBeNull();
+    expect(parseCoordinateQuery('95.0, 10.0')).toBeNull();
+
+    const hits = searchAll('23.5°N, 113.2°E', 'zh', space);
+    expect(hits[0]?.kind === 'place' && hits[0].hit.placeKind).toBe('coord');
+    expect(hits[0]?.kind === 'place' && hits[0].hit.key).toBe('coord:23.5000,113.2000');
+
+    const resolved = resolvePlaceByKey('coord:-15.0000,-170.0000');
+    expect(resolved?.placeKind).toBe('coord');
+    expect(resolved?.sub.en).toContain('Western Hemisphere');
+    // 10°W is in the Eastern Hemisphere by the 20°W–160°E geography textbook rule!
+    expect(resolvePlaceByKey('coord:40.0000,-10.0000')?.sub.en).toContain('Eastern Hemisphere');
+  });
+
+  it('supports Traditional Chinese queries, leading-zero catalogue numbers, multi-token queries, and country aliases', () => {
+    expect(norm('馬里亞納海溝')).toBe(norm('马里亚纳海沟'));
+    expect(norm('M031')).toBe('m31');
+    expect(norm('NGC 0224')).toBe('ngc224');
+
+    expect(keyOf(searchAll('馬里亞納海溝', 'zh', space)[0])).toBe('geo:mariana-trench');
+    expect(keyOf(searchAll('安第斯山脈', 'zh', space)[0])).toBe('geo:andes');
+    expect(keyOf(searchAll('Tower Eiffel', 'en', space)[0])).toBe('eiffel');
+    expect(searchAll('雅典卫城', 'zh', space).slice(0, 3).map(keyOf)).toContain('parthenon');
+    expect(searchAll('基尔运河', 'zh', space).slice(0, 3).map(keyOf)).toContain('geo:kiel-canal');
+
+    const places = {
+      countries: [
+        { a2: 'GB', name: 'United Kingdom', continent: 'europe', lat: 54, lon: -2, area: 24 },
+        { a2: 'US', name: 'United States', continent: 'north-america', lat: 39, lon: -98, area: 900 },
+      ],
+    } as Parameters<typeof searchAll>[4];
+    expect(searchAll('UK', 'en', space, 'all', places).some(h => h.kind === 'place' && h.hit.key === 'country:GB')).toBe(true);
+    expect(searchAll('USA', 'en', space, 'all', places).some(h => h.kind === 'place' && h.hit.key === 'country:US')).toBe(true);
   });
 });

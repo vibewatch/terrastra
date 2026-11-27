@@ -247,6 +247,7 @@ export class Shell {
     let activeIdx = 0;
     let kbdMoved = Boolean(initialQuery.trim());
     const recentWrap = h('div', { class: 'search-recent hidden', 'data-testid': 'search-recent' });
+    const countEl = h('p', { class: 'muted small', 'data-testid': 'search-count', 'aria-live': 'polite', style: 'margin:4px 0 6px' });
     const listEl = h('div', { class: 'dex-grid search-grid' });
     let space: SpaceHit[] | null = null;
     let regions: readonly AdminArea[] = this.globe.adminRegions();
@@ -310,8 +311,17 @@ export class Shell {
       const hits = searchAll(query, l, space, filter, { countries: this.globe.fineShapes(), regions });
       if (!hits.length) {
         activeIdx = 0;
+        countEl.textContent = '';
+        countEl.classList.add('hidden');
         listEl.replaceChildren(h('p', { class: 'muted' }, filter === 'space' && !space ? '…' : t('notFound')));
         return;
+      }
+      if (query.trim() || filter !== 'all') {
+        countEl.textContent = t('searchCount', { n: hits.length });
+        countEl.classList.remove('hidden');
+      } else {
+        countEl.textContent = '';
+        countEl.classList.add('hidden');
       }
       const shown = hits.slice(0, 400);
       if (activeIdx >= shown.length) activeIdx = 0;
@@ -388,6 +398,16 @@ export class Shell {
           activeIdx = kbdMoved ? Math.max(0, activeIdx - 1) : 0;
           kbdMoved = true;
           syncActiveCard(true);
+        } else if (e.key === 'Home' && e.ctrlKey) {
+          e.preventDefault();
+          activeIdx = 0;
+          kbdMoved = true;
+          syncActiveCard(true);
+        } else if (e.key === 'End' && e.ctrlKey) {
+          e.preventDefault();
+          activeIdx = cards.length - 1;
+          kbdMoved = true;
+          syncActiveCard(true);
         } else if (e.key === 'Enter' && (Boolean(query.trim()) || kbdMoved)) {
           e.preventDefault();
           cards[activeIdx]?.click();
@@ -418,7 +438,7 @@ export class Shell {
     );
     renderList();
     const random = h('button', { class: 'pill search-random', 'data-testid': 'btn-random', title: t('randomHop'), html: icon('shuffle', 15), onclick: () => { sfx.tap(); closeModal(); this.randomHop(); } }, h('span', {}, t('randomHop')));
-    openModal('search', t('search'), h('div', { class: 'search-modal' }, h('div', { class: 'search-row' }, input, random), filterBar, recentWrap, listEl), { wide: true });
+    openModal('search', t('search'), h('div', { class: 'search-modal' }, h('div', { class: 'search-row' }, input, random), filterBar, recentWrap, countEl, listEl), { wide: true });
     setTimeout(() => input.focus(), 40);
   }
 
