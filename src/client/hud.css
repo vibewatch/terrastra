@@ -607,9 +607,15 @@ ul.lesson-reveal { display: grid; gap: 2px; }
 .lesson-group { display: grid; gap: 8px; }
 .lesson-grade { margin: 6px 0 0; font-family: var(--font-hud); font-size: .78rem; letter-spacing: .08em; text-transform: uppercase; color: var(--hud-dim); display: flex; justify-content: space-between; gap: 8px; }
 .lesson-grade small { font-size: .72rem; letter-spacing: .04em; }
-.lesson-track { display: grid; gap: 4px; }
+.lesson-track { display: grid; gap: 6px; margin-bottom: 8px; }
 .lesson-track .xsel { width: 100%; }
 .lesson-track p { margin: 0; font-size: .82rem; }
+.lesson-filter-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 2px; }
+.lesson-search-input { flex: 1 1 180px; min-width: 140px; padding: 6px 10px; font-size: .86rem; color: var(--text, #e9ecef); background: rgba(4, 11, 20, .72); border: 1px solid var(--hud-line, rgba(255, 255, 255, .16)); border-radius: 6px; }
+.lesson-search-input:focus { outline: none; border-color: var(--accent, #4dabf7); }
+.lesson-filter-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.lesson-chip.on { border-color: var(--accent, #4dabf7); background: rgba(77, 171, 247, .18); color: #fff; }
+.lesson-empty-box { padding: 14px 12px; text-align: center; border: 1px dashed var(--hud-line, rgba(255, 255, 255, .16)); border-radius: 6px; display: grid; gap: 8px; justify-items: center; }
 .lesson-keys { margin: 0; padding: 8px 10px 8px 26px; display: grid; gap: 3px; font-size: .9rem; line-height: 1.45; border-left: 3px solid var(--accent); background: rgba(77, 171, 247, .06); }
 .lesson-keys-h { margin: 0; font-family: var(--font-hud); font-size: .75rem; letter-spacing: .08em; text-transform: uppercase; color: var(--hud-dim); }
 

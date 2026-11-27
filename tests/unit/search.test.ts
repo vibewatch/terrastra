@@ -3,7 +3,7 @@ import { searchAll, type SearchHit } from '../../src/client/lib/search.ts';
 import { spaceIndex } from '../../src/client/solar/space-index.ts';
 import { ALIASES } from '../../src/shared/data/aliases.ts';
 import { CATALOGUE } from '../../src/shared/data/catalogue.ts';
-import { GAZETTEER, GAZETTEER_BY_KEY } from '../../src/shared/data/gazetteer.ts';
+import { GAZETTEER, GAZETTEER_BY_KEY, KEY_LESSON_OVERRIDES, relatedLessonsForPlace } from '../../src/shared/data/gazetteer.ts';
 import { matchedAlias, norm } from '../../src/shared/lib/search.ts';
 
 const space = spaceIndex();
@@ -193,5 +193,25 @@ describe('search', () => {
     expect(pickGeoLabel(hits, 140, 210)?.key).toBe('geo:andes');
     expect(pickGeoLabel(hits, 181, 210)?.key).toBe('geo:amazon-plain');
     expect(pickGeoLabel(hits, 50, 50)).toBeNull();
+  });
+
+  it('maps every gazetteer place and key override to valid curriculum lessons without importing lesson chunks', async () => {
+    const { ALL_GEO_META } = await import('../../src/client/lessons/catalog.ts');
+    const validGeoIds = new Set(ALL_GEO_META.map(m => m.id));
+
+    for (const overrideKey of Object.keys(KEY_LESSON_OVERRIDES)) {
+      expect(GAZETTEER_BY_KEY.has(overrideKey), `Unknown gazetteer key in KEY_LESSON_OVERRIDES: ${overrideKey}`).toBe(true);
+    }
+    for (const g of GAZETTEER) {
+      const links = relatedLessonsForPlace(g.key, g.kind, g.region.en);
+      expect(links.length, `Missing related lessons for ${g.key}`).toBeGreaterThanOrEqual(1);
+      expect(links.length).toBeLessThanOrEqual(2);
+      for (const l of links) {
+        expect(validGeoIds.has(l.id), `Gazetteer ${g.key} points to unknown geography lesson "${l.id}"`).toBe(true);
+        expect(l.title.en.length).toBeGreaterThan(0);
+        expect(l.title.zh.length).toBeGreaterThan(0);
+      }
+    }
+    expect(relatedLessonsForPlace('city:tokyo', 'capital', 'Japan')).toEqual([]);
   });
 });

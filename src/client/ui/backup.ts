@@ -38,10 +38,23 @@ export function importProgress(): void {
     const now = summary(store.progress), merged = mergeProgress(store.progress, p);
     if (!canReplaceProgress(merged)) { toast('⚠️ ' + t('backupLimit'), 4000); return; }
     const after = summary(merged);
-    const line = (k: 'seen' | 'found' | 'stickers' | 'likes') => h('tr', {}, h('th', {}, t('bk_' + k)), h('td', {}, String(now[k])), h('td', {}, String(after[k])));
+    const curDone = load<string[]>('lessonsDone', []);
+    const afterDoneCount = new Set([...curDone, ...parsed.lessonsDone]).size;
+    const curMistakes = load<MistakeBook>('mistakeBook', {});
+    const afterMistakeCount = Object.keys(mergeMistakeBook(curMistakes, parsed.mistakeBook)).length;
+    const row = (label: string, beforeVal: number, afterVal: number) =>
+      h('tr', {}, h('th', {}, label), h('td', {}, String(beforeVal)), h('td', {}, String(afterVal)));
+    const line = (k: 'seen' | 'found' | 'stickers' | 'likes') => row(t('bk_' + k), now[k], after[k]);
     openModal('backup-import', t('backupImport'), h('div', { class: 'backup-preview', 'data-testid': 'backup-preview' },
       h('p', {}, t('backupMerge')),
-      h('table', { class: 'facts' }, h('tr', {}, h('th', {}), h('th', {}, t('bkNow')), h('th', {}, t('bkAfter'))), line('seen'), line('found'), line('stickers'), line('likes')),
+      h('table', { class: 'facts' },
+        h('tr', {}, h('th', {}), h('th', {}, t('bkNow')), h('th', {}, t('bkAfter'))),
+        line('seen'),
+        line('found'),
+        line('stickers'),
+        line('likes'),
+        row(t('bk_lessons'), curDone.length, afterDoneCount),
+        row(t('bk_mistakes'), Object.keys(curMistakes).length, afterMistakeCount)),
       h('div', { class: 'row' },
         h('button', { class: 'cta', 'data-testid': 'backup-merge', onclick: () => {
           const current = mergeProgress(store.progress, p);

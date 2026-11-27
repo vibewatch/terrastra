@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { createServer as createNetServer } from 'node:net';
 import type { Server } from 'node:http';
 import { join } from 'node:path';
-import { readdirSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { openDb } from '../../src/server/db.ts';
 import { issueRedemptionCodes } from '../../src/server/billing.ts';
 import { createApp } from '../../src/server/app.ts';
@@ -24,6 +24,13 @@ test('paywall enforcement: gates Pro lessons & chunks until signed-in activation
   page.on('pageerror', e => errors.push(e.message));
 
   const distDir = join(process.cwd(), 'dist');
+  const indexHtml = readFileSync(join(distDir, 'index.html'), 'utf8');
+  expect(indexHtml).not.toMatch(/lessons-(free|ssbs)|pro-lessons-/);
+  const assetFiles = readdirSync(join(distDir, 'assets'));
+  const modelEntry = assetFiles.find(f => /^model-[A-Za-z0-9_-]+\.js$/.test(f));
+  expect(modelEntry).toBeTruthy();
+  expect(readFileSync(join(distDir, 'assets', modelEntry!), 'utf8')).not.toMatch(/lessons-(free|ssbs)|pro-lessons-/);
+
   const proFiles = readdirSync(join(distDir, '.pro-assets'));
   for (const prefix of ['pro-lessons-earth-', 'pro-lessons-china-', 'pro-lessons-world-', 'pro-lessons-astro-', 'pro-lessons-exams-']) {
     expect(proFiles.some(f => f.startsWith(prefix)), `Missing ${prefix} chunk in dist/.pro-assets`).toBe(true);
@@ -33,7 +40,7 @@ test('paywall enforcement: gates Pro lessons & chunks until signed-in activation
   const port = await freePort();
   const origin = `http://localhost:${port}`;
   const db = openDb(':memory:');
-  const [proCode] = issueRedemptionCodes(db, { plan: 'pro', count: 1, note: 'e2e-paywall' });
+  const [proCode, oneClickCode] = issueRedemptionCodes(db, { plan: 'pro', count: 2, note: 'e2e-paywall' });
   let srv: Server | undefined;
 
   try {
@@ -73,12 +80,25 @@ test('paywall enforcement: gates Pro lessons & chunks until signed-in activation
     const anonChunkStatus = await page.evaluate(f => fetch(`/assets/${f}`).then(r => r.status), proChunkName);
     expect(anonChunkStatus).toBe(401);
 
-    // 2. Free starter lesson ('shape') launches immediately without hitting paywall
+    // 2. Free starter lesson ('shape') launches immediately without hitting paywall; test search & filter chips too!
     await page.getByTestId('btn-hub').click();
     await page.getByTestId('hub-tab-learn').click();
     await page.getByTestId('menu-lessons').click();
     await expect(page.getByTestId('lesson-list')).toBeVisible({ timeout: 30_000 });
+    await page.getByTestId('lesson-filter-free').click();
+    await expect(page.getByTestId('lesson-shape')).toBeVisible();
+    await page.getByTestId('lesson-filter-all').click();
+    await page.getByTestId('lesson-search').fill('板块');
+    await expect(page.getByTestId('lesson-plates')).toBeVisible();
+    await page.getByTestId('lesson-search').fill('');
     await page.getByTestId('lesson-shape').click();
+    await expect(page.getByTestId('lesson')).toBeVisible({ timeout: 30_000 });
+    await page.getByTestId('lesson-exit').click();
+
+    // Gazetteer textbook card (#geo:mariana-trench) renders related lesson chips and launches free 'plates' lesson!
+    await page.evaluate(() => { location.hash = 'geo:mariana-trench'; });
+    await expect(page.getByTestId('place-related-lessons')).toBeVisible({ timeout: 15_000 });
+    await page.getByTestId('place-lesson-plates').click();
     await expect(page.getByTestId('lesson')).toBeVisible({ timeout: 30_000 });
     await page.getByTestId('lesson-exit').click();
 
@@ -176,6 +196,26 @@ test('paywall enforcement: gates Pro lessons & chunks until signed-in activation
     await page.getByTestId('sign-out').click();
     await page.getByTestId('sign-out-clear').click();
     await expect.poll(() => page.evaluate(() => localStorage.getItem('pp.mistakeBook'))).toBe('{}');
+
+    // 6. Verify one-click #redeem=TRST-... link: scrubs URL, persists through magic-link sign-in, and pre-fills Account code!
+    await page.goto(`${origin}/?lowfx=1&notut#redeem=${oneClickCode}`);
+    await expect.poll(
+      () => page.evaluate(() => !!(window as unknown as { __pp?: { ready: boolean } }).__pp?.ready),
+      { timeout: 90_000 },
+    ).toBe(true);
+    await expect(page.getByTestId('paywall')).toBeVisible({ timeout: 30_000 });
+    expect(await page.evaluate(() => location.hash)).toBe('');
+    await expect(page.getByTestId('paywall-pending-code')).toContainText(oneClickCode!.slice(-4));
+    await page.getByTestId('paywall-signin-btn').click();
+    await page.getByTestId('email').fill('oneclick.buyer@example.com');
+    await page.getByTestId('send-link').click();
+    const link2 = await page.getByTestId('dev-link').getAttribute('href');
+    await page.goto(origin + link2!.replace(/^https?:\/\/[^/]+/, ''));
+    await page.getByRole('button', { name: /Sign in/ }).click();
+    await expect(page.getByTestId('acct-redeem-input')).toHaveValue(oneClickCode!, { timeout: 60_000 });
+    await page.getByTestId('acct-redeem-btn').click();
+    await expect(page.getByTestId('acct-plan-pill')).toContainText(/Explorer Pro/i);
+
     expect(errors).toEqual([]);
   } finally {
     if (srv) await new Promise<void>(r => srv!.close(() => r()));

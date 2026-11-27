@@ -17,7 +17,7 @@ import { ADMIN_GLOBE_ZOOM, ADMIN_MAP_ZOOM, fetchAdminData, type AdminData } from
 import { CATALOGUE, BY_KEY } from '../shared/data/catalogue.ts';
 import { gazetteerToPlaceHit, resolvePlaceByKey } from './lib/search.ts';
 import { Shell } from './ui/shell.ts';
-import { openPaywall } from './ui/paywall.ts';
+import { openPaywall, savePendingRedeemCode } from './ui/paywall.ts';
 import { h, toast, confetti, closeModal } from './ui/dom.ts';
 import { slerpLatLon } from '../shared/lib/geo.ts';
 import { store, subscribe, setStickerHandler, setSyncer, setMe, setBilling, applyRemoteExtras, canUsePro, getAccountEpoch, replaceProgress, ProgressLimitError } from './store.ts';
@@ -66,6 +66,15 @@ const loader = document.getElementById('loader');
 
 async function boot(): Promise<void> {
   if (lowfx) document.body.classList.add('lowfx');
+  // Capture & scrub `?redeem=TRST-...` immediately so codes never linger in browser history or screenshots.
+  let queryRedeem: string | null = null;
+  if (params.has('redeem')) {
+    queryRedeem = savePendingRedeemCode(params.get('redeem') ?? '');
+    const cleanParams = new URLSearchParams(location.search);
+    cleanParams.delete('redeem');
+    const qs = cleanParams.toString();
+    history.replaceState(null, '', location.pathname + (qs ? '?' + qs : '') + location.hash);
+  }
   applyClassroom();
   window.addEventListener('offline', () => toast('📴 ' + t('nowOffline'), 5000));
   document.body.classList.add('q-' + quality.tier);
@@ -577,7 +586,7 @@ async function boot(): Promise<void> {
     openGame, openPassport: showPassport, openAlbum: () => photoMod(m => void m.openAlbum()),
     openTutorial: () => openTutorial(openTours),
     openTours, openLessons, openAstro, openSsbs, openBookmarks,
-    continueLesson,
+    continueLesson, startLesson,
     openCompare: openCompareBench,
     openTonight: () => tonightMod(m => m.openTonight(navTo)),
     openAccount: () => account(m => m.openAccount()), openGuestbook: () => account(m => void m.openGuestbook()),
@@ -694,6 +703,13 @@ async function boot(): Promise<void> {
     const [head, rest = ''] = hsh.split('/');
     if (head === 'sky') { void openSky(rest || undefined); return; }
     if (sceneMode.inSky) sky?.close();
+    if (head === 'redeem' || hsh.startsWith('redeem=')) {
+      const rawCode = head === 'redeem' ? rest : hsh.slice('redeem='.length);
+      if (rawCode) savePendingRedeemCode(rawCode);
+      history.replaceState(null, '', location.pathname + location.search);
+      openPaywall();
+      return;
+    }
     if (head === 'map') { history.replaceState(null, '', location.pathname + location.search); void openMap(); return; }
     if (head === 'compare') { history.replaceState(null, '', location.pathname + location.search); openCompareBench(rest || undefined); return; }
     if (head === 'lesson') { if (rest) startLesson(rest); else openLessons(); history.replaceState(null, '', location.pathname + location.search); return; }
@@ -770,8 +786,10 @@ async function boot(): Promise<void> {
     } catch (err) { console.error('[sync] could not load progress:', err); toast('⚠️ ' + t(err instanceof ProgressLimitError ? 'syncLimit' : 'accountUnavailable'), 4000); }
   });
 
-  const deepLink = !!location.hash;
+  const startHash = location.hash;
+  const deepLink = !!startHash || !!queryRedeem;
   route();
+  if (queryRedeem && startHash !== '#signed-in') openPaywall();
   if (!deepLink && load<string | null>('tutorial', null) !== 'done' && !params.has('notut')) setTimeout(() => openTutorial(openTours), 600);
 }
 

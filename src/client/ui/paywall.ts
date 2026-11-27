@@ -5,7 +5,30 @@ import { t } from '../lib/i18n.ts';
 import { FULL_APP_URL, HAS_API } from '../lib/env.ts';
 import { ApiError, api } from '../lib/api.ts';
 import { store, setMe, setBilling, effectivePlan } from '../store.ts';
-import { PLANS, type Plan, type PlanSpec } from '../../shared/lib/entitlements.ts';
+import { PLANS, maskRedeemCode, normalizeRedeemCode, type Plan, type PlanSpec } from '../../shared/lib/entitlements.ts';
+
+const PENDING_REDEEM_KEY = 'pp.pendingRedeem';
+
+/** Saves a validated activation code in `sessionStorage` so it survives an email magic-link sign-in roundtrip. */
+export function savePendingRedeemCode(raw: string): string | null {
+  const norm = normalizeRedeemCode(raw);
+  if (!norm) return null;
+  try { sessionStorage.setItem(PENDING_REDEEM_KEY, norm); } catch { /* private mode */ }
+  return norm;
+}
+
+export function getPendingRedeemCode(): string | null {
+  try {
+    const raw = sessionStorage.getItem(PENDING_REDEEM_KEY);
+    return raw ? normalizeRedeemCode(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function clearPendingRedeemCode(): void {
+  try { sessionStorage.removeItem(PENDING_REDEEM_KEY); } catch { /* ignore */ }
+}
 
 export function planLabel(plan: Plan): string {
   return plan === 'classroom' ? t('planClassroom') : plan === 'pro' ? t('planPro') : t('planFree');
@@ -35,7 +58,21 @@ export function redeemErrorMessage(err: unknown): string {
 }
 
 export async function redeemAndRefresh(rawCode: string): Promise<Plan> {
-  const res = await api.redeemCode(rawCode.trim());
+  const trimmed = rawCode.trim();
+  let res;
+  try {
+    res = await api.redeemCode(trimmed);
+  } catch (err) {
+    if (
+      err instanceof ApiError &&
+      (err.code === 'CODE_ALREADY_USED' || err.code === 'ALREADY_ENTITLED') &&
+      normalizeRedeemCode(trimmed) === getPendingRedeemCode()
+    ) {
+      clearPendingRedeemCode();
+    }
+    throw err;
+  }
+  if (normalizeRedeemCode(trimmed) === getPendingRedeemCode()) clearPendingRedeemCode();
   if (res.user) setMe(res.user);
   const status = await api.billingStatus().catch(() => null);
   if (status) setBilling(status);
@@ -54,10 +91,12 @@ export async function redeemAndRefresh(rawCode: string): Promise<Plan> {
 }
 
 export function openPaywall(featureReason?: string, onUnlocked?: () => void): void {
+  const pendingCode = getPendingRedeemCode();
   const codeInput = h('input', {
     type: 'text',
     required: true,
     maxlength: 32,
+    value: pendingCode ?? '',
     autocapitalize: 'characters',
     spellcheck: 'false',
     placeholder: t('redeemPlaceholder'),
@@ -114,15 +153,32 @@ export function openPaywall(featureReason?: string, onUnlocked?: () => void): vo
         h('div', { class: 'redeem-row' }, codeInput, submitBtn),
         feedback)
       : h('div', { class: 'paywall-redeem', 'data-testid': 'paywall-signin-box' },
-          h('p', { class: 'muted small', style: 'margin:0' }, t('redeemSignInFirst')),
-          h('button', {
-            class: 'cta',
-            'data-testid': 'paywall-signin-btn',
-            onclick: () => {
-              closeModal('paywall');
-              void import('./account.ts').then(m => m.openAccount());
-            },
-          }, t('signIn')));
+          pendingCode
+            ? h('p', { class: 'small', 'data-testid': 'paywall-pending-code', style: 'margin:0;color:var(--sig,#ffb547)' },
+                '🔑 ', t('redeemPendingNotice', { code: maskRedeemCode(pendingCode) ?? pendingCode }))
+            : h('p', { class: 'muted small', style: 'margin:0' }, t('redeemSignInFirst')),
+          h('div', { class: 'redeem-row' },
+            codeInput,
+            h('button', {
+              class: 'cta',
+              type: 'button',
+              'data-testid': 'paywall-signin-btn',
+              onclick: () => {
+                const typed = codeInput.value.trim();
+                if (typed) {
+                  const saved = savePendingRedeemCode(typed);
+                  if (!saved) {
+                    feedback.className = 'small error';
+                    feedback.textContent = t('redeemErrInvalid');
+                    feedback.hidden = false;
+                    return;
+                  }
+                }
+                closeModal('paywall');
+                void import('./account.ts').then(m => m.openAccount());
+              },
+            }, pendingCode ? t('redeemSignInKeepBtn') : t('signIn'))),
+          feedback);
 
   const cur = effectivePlan();
   const proPricing = store.billing.pricing?.pro ?? PLANS.pro;

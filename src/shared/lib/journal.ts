@@ -1,3 +1,5 @@
+import { maskLicenseEmail } from './entitlements.ts';
+
 /**
  * Persistent Learning Journal: tracks per-lesson step progress, quiz/exam scores, attempts, and missed review topics.
  * Pure, conflict-free merge functions allow seamless local persistence and backup export/import.
@@ -385,6 +387,81 @@ export function removeMistake(book: MistakeBook, key: string): MistakeBook {
   const next = { ...book };
   delete next[key];
   return next;
+}
+
+/** Removes mastered items (optionally scoped by subject/lesson predicate) so learners can keep active mistakes tidy. */
+export function clearMasteredMistakes(
+  book: MistakeBook,
+  filterFn?: (lessonId: string) => boolean,
+): MistakeBook {
+  const kept: [string, MistakeEntry][] = [];
+  for (const [k, v] of Object.entries(book)) {
+    if (!isMistakeEntry(v)) continue;
+    if (v.mastered && (!filterFn || filterFn(v.lessonId))) continue;
+    kept.push([k, v]);
+  }
+  return Object.fromEntries(kept);
+}
+
+/**
+ * Formats a printable / copyable Markdown revision sheet from Mistake Notebook entries.
+ */
+export function formatMistakeSheetMarkdown(
+  entries: readonly MistakeEntry[],
+  opts: {
+    lang?: 'en' | 'zh';
+    subjectTitle?: string;
+    lessonTitleOf?: (lessonId: string) => string | undefined;
+    licensedEmail?: string | null;
+    lockedCount?: number;
+  } = {},
+): string {
+  const l = opts.lang ?? 'en';
+  const pick = (p: ReadonlyBiPair) => (l === 'zh' ? p[1] : p[0]);
+  const todoCount = entries.filter(e => !e.mastered).length;
+  const masteredCount = entries.length - todoCount;
+  const heading = opts.subjectTitle
+    ? (l === 'zh' ? `# 错题复习单 · ${opts.subjectTitle}` : `# Mistake Revision Sheet · ${opts.subjectTitle}`)
+    : (l === 'zh' ? '# 错题复习单' : '# Mistake Revision Sheet');
+  const summary = l === 'zh'
+    ? `> 待复习：${todoCount} 题 · 已掌握：${masteredCount} 题 · 共导出：${entries.length} 题`
+    : `> Needs review: ${todoCount} · Mastered: ${masteredCount} · Exported: ${entries.length}`;
+  const lines: string[] = [heading, '', summary, ''];
+
+  entries.forEach((e, idx) => {
+    const lessonName = opts.lessonTitleOf?.(e.lessonId) ?? e.lessonId;
+    const tagStr = e.tag ? ` · ${pick(e.tag)}` : '';
+    const statusStr = e.mastered
+      ? (l === 'zh' ? `已掌握 ✓（曾错 ${e.wrongCount} 次）` : `Mastered ✓ (missed ×${e.wrongCount})`)
+      : (l === 'zh' ? `待复习（错 ${e.wrongCount} 次）` : `Needs review (missed ×${e.wrongCount})`);
+    lines.push(`## ${idx + 1}. ${lessonName}${tagStr} — *${statusStr}*`, '', pick(e.q), '');
+    if (e.snapshot.options && e.snapshot.options.length > 0) {
+      e.snapshot.options.forEach((opt, oi) => {
+        const letter = String.fromCharCode(65 + oi);
+        lines.push(`- **${letter}.** ${pick(opt)}`);
+      });
+      lines.push('');
+    }
+    lines.push(
+      l === 'zh' ? `- **正确答案**：${pick(e.rightText)}` : `- **Correct answer**: ${pick(e.rightText)}`,
+      l === 'zh' ? `- **解析**：${pick(e.why)}` : `- **Explanation**: ${pick(e.why)}`,
+      '',
+    );
+  });
+
+  if (opts.lockedCount && opts.lockedCount > 0) {
+    lines.push(
+      l === 'zh'
+        ? `> 🔒 另有 ${opts.lockedCount} 道错题解锁寰星 Pro 后可完整导出与复习。`
+        : `> 🔒 ${opts.lockedCount} additional mistake(s) available with Terrastra Explorer Pro.`,
+      '',
+    );
+  }
+  if (opts.licensedEmail) {
+    const masked = maskLicenseEmail(opts.licensedEmail);
+    lines.push('---', l === 'zh' ? `*授权账号：${masked}*` : `*Licensed to ${masked}*`, '');
+  }
+  return lines.join('\n').trim() + '\n';
 }
 
 export function listMistakes(

@@ -14,6 +14,7 @@ import {
   isFreeTimeStop,
   isFreeTour,
   maskLicenseEmail,
+  maskRedeemCode,
   maxSessionsForPlan,
   normalizeRedeemCode,
   skyEventYear,
@@ -27,6 +28,8 @@ import {
 } from '../../src/shared/lib/sync-extras.ts';
 import { emptyProgress, MAX_SYNC_REQUEST_BYTES } from '../../src/shared/lib/progress.ts';
 import {
+  clearMasteredMistakes,
+  formatMistakeSheetMarkdown,
   recordLessonFinish,
   recordLessonStep,
   recordMistake,
@@ -90,6 +93,51 @@ describe('entitlements & redemption code rules', () => {
 
     expect(maskLicenseEmail('teacher@school.edu')).toBe('t***r@school.edu');
     expect(maskLicenseEmail('ab@x.cn')).toBe('a***@x.cn');
+    expect(maskRedeemCode('trst-abcd-2345-hjkl')).toBe('TRST-••••-••••-HJKL');
+    expect(maskRedeemCode('invalid')).toBeNull();
+  });
+
+  it('clears mastered mistakes and exports bilingual Markdown revision sheets', () => {
+    let book: MistakeBook = {};
+    book = recordMistake(book, 'plates', {
+      q: ['Which trench is the deepest?', '世界上最深的海沟是？'],
+      options: [['Mariana Trench', '马里亚纳海沟'], ['Java Trench', '爪哇海沟']],
+      answer: 0,
+      why: ['Subduction of the Pacific Plate.', '太平洋板块俯冲形成。'],
+    }, 1000);
+    book = recordMistake(book, 'continents', {
+      q: ['Largest ocean?', '面积最大的大洋是？'],
+      options: [['Pacific Ocean', '太平洋'], ['Atlantic Ocean', '大西洋']],
+      answer: 0,
+      why: ['Covers nearly half of Earth’s water surface.', '约占世界海洋总面积的一半。'],
+    }, 2000);
+    const firstKey = Object.keys(book).find(k => k.startsWith('plates::'))!;
+    book = recordMistakeReview(book, firstKey, true, 2100);
+    book = recordMistakeReview(book, firstKey, true, 2200);
+    expect(book[firstKey]?.mastered).toBe(true);
+
+    const entries = Object.values(book);
+    const mdZh = formatMistakeSheetMarkdown(entries, {
+      lang: 'zh',
+      subjectTitle: '地理课',
+      lessonTitleOf: id => id === 'plates' ? '板块的运动' : '七大洲和四大洋',
+      lockedCount: 2,
+      licensedEmail: 't***r@school.edu',
+    });
+    expect(mdZh).toContain('# 错题复习单 · 地理课');
+    expect(mdZh).toContain('马里亚纳海沟');
+    expect(mdZh).toContain('太平洋板块俯冲形成');
+    expect(mdZh).toContain('板块的运动');
+    expect(mdZh).toContain('另有 2 道错题');
+    expect(mdZh).toContain('t***r@school.edu');
+
+    const mdEn = formatMistakeSheetMarkdown(entries, { lang: 'en', subjectTitle: 'Geography' });
+    expect(mdEn).toContain('# Mistake Revision Sheet · Geography');
+    expect(mdEn).toContain('Mariana Trench');
+
+    const remaining = clearMasteredMistakes(book);
+    expect(Object.keys(remaining)).toHaveLength(1);
+    expect(Object.values(remaining)[0]?.lessonId).toBe('continents');
   });
 
   it('guarantees at least one free starter lesson in every curriculum view and routes all 122 lessons cleanly across packs', async () => {
@@ -238,6 +286,10 @@ describe('manage-codes CLI', () => {
       expect(rawCreated.status, rawCreated.stderr).toBe(0);
       expect(rawCreated.stdout.trim().split('\n')).toHaveLength(1);
       expect(normalizeRedeemCode(rawCreated.stdout.trim())).toBeTruthy();
+
+      const linkedRaw = run('create', '--plan', 'pro', '--count', '1', '--raw', '--links', '--base-url', 'https://terrastra.example/');
+      expect(linkedRaw.status, linkedRaw.stderr).toBe(0);
+      expect(linkedRaw.stdout.trim()).toMatch(/^https:\/\/terrastra\.example\/#redeem=TRST-[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}$/);
 
       const inspected = run('inspect', codes[0]!);
       expect(inspected.status, inspected.stderr).toBe(0);

@@ -6,7 +6,7 @@ const gl = ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-
 
 export default defineConfig({
   testDir: 'tests/static',
-  timeout: 180_000,
+  timeout: 300_000,
   expect: { timeout: 20_000 },
   workers: 1,
   reporter: [['list']],

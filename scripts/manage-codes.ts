@@ -32,7 +32,7 @@ function argVal(args: readonly string[], flag: string): string | undefined {
 
 function usage(): never {
   console.error(`Usage:
-  npm run codes -- create [--plan pro|classroom] [--count N] [--note TEXT] [--expires-days N] [--raw]
+  npm run codes -- create [--plan pro|classroom] [--count N] [--note TEXT] [--expires-days N] [--raw] [--links] [--base-url URL]
   npm run codes -- list [--limit N]
   npm run codes -- inspect <TRST-XXXX-XXXX-XXXX>
   npm run codes -- stats
@@ -70,12 +70,16 @@ try {
     }
     const note = argVal(args, '--note');
     const rawOnly = args.includes('--raw');
+    const asLinks = args.includes('--links');
+    const baseUrl = (argVal(args, '--base-url') ?? process.env.BASE_URL ?? 'http://localhost:8787').replace(/\/$/, '');
     const codes = issueRedemptionCodes(db, { plan: planRaw, count, note, expiresAt });
     if (!rawOnly) {
       const expSuffix = expiresAt ? ` (expires ${new Date(expiresAt).toISOString().slice(0, 10)})` : '';
       console.log(`Created ${codes.length} ${planRaw.toUpperCase()} activation code(s)${note ? ` [${note}]` : ''}${expSuffix}:`);
     }
-    for (const c of codes) console.log(c);
+    for (const c of codes) {
+      console.log(asLinks ? `${baseUrl}/#redeem=${c}` : c);
+    }
   } else if (cmd === 'list') {
     const limit = Math.max(1, Math.min(500, Number(argVal(args, '--limit') ?? '50') || 50));
     const now = Date.now();

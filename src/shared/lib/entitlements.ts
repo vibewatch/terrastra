@@ -81,6 +81,12 @@ export function normalizeRedeemCode(raw: string): string | null {
   return `TRST-${body.slice(0, 4)}-${body.slice(4, 8)}-${body.slice(8, 12)}`;
 }
 
+/** Masks a valid activation code as `TRST-••••-••••-XXXX` for safe UI confirmation. */
+export function maskRedeemCode(raw: string): string | null {
+  const norm = normalizeRedeemCode(raw);
+  return norm ? `TRST-••••-••••-${norm.slice(-4)}` : null;
+}
+
 /**
  * Starter lessons bundled in the public `lessons-free` chunk so every curriculum track
  * offers complete, interactive lessons for free without downloading Pro chunks.

@@ -56,9 +56,10 @@ const JSON_LIMIT = MAX_SYNC_REQUEST_BYTES;
 const EMAIL_RE = /^[^\s@]{1,64}@[^\s@]{1,255}\.[^\s@]{2,}$/;
 const BLOCKED = ['stupid', 'idiot', 'hate', 'kill', 'dumb', 'shut up', '笨蛋', '白痴', '傻瓜', '滚开'];
 const COMPRESS_MIN_BYTES = 1024;
+const MAX_STATIC_COMPRESS_BYTES = 8 * 1024 * 1024;
 const COMPRESSIBLE_TYPE_RE = /^(?:application\/(?:javascript|json|manifest\+json|xml)|text\/|image\/svg\+xml)\b/i;
-const COMPRESSIBLE_EXT_RE = /\.(?:js|css|json|svg|xml|webmanifest)$/i;
-const sha = (s: string) => createHash('sha256').update(s).digest('hex');
+const COMPRESSIBLE_EXT_RE = /\.(?:html|js|css|json|svg|xml|webmanifest|txt)$/i;
+const sha = (s: string | Buffer) => createHash('sha256').update(s).digest('hex');
 
 interface CompressedAsset {
   raw: Buffer;
@@ -70,11 +71,12 @@ interface CompressedAsset {
 }
 
 function buildCompressedAsset(raw: Buffer, mtimeMs = 0): CompressedAsset {
+  const brQuality = raw.byteLength > 1024 * 1024 ? 4 : 5;
   return {
     raw,
-    br: brotliCompressSync(raw, { params: { [zlibConstants.BROTLI_PARAM_QUALITY]: 5 } }),
+    br: brotliCompressSync(raw, { params: { [zlibConstants.BROTLI_PARAM_QUALITY]: brQuality } }),
     gzip: gzipSync(raw, { level: 6 }),
-    etag: `W/"${raw.byteLength.toString(16)}-${sha(raw.toString('latin1')).slice(0, 16)}"`,
+    etag: `W/"${raw.byteLength.toString(16)}-${sha(raw).slice(0, 16)}"`,
     mtimeMs,
     size: raw.byteLength,
   };
@@ -563,15 +565,16 @@ export function createApp(o: AppOptions): express.Express {
     });
     app.use((req, res, next) => {
       if ((req.method !== 'GET' && req.method !== 'HEAD') || req.headers.range) return next();
-      if (!COMPRESSIBLE_EXT_RE.test(req.path)) return next();
       let relPath = req.path;
       try { relPath = decodeURIComponent(req.path); } catch { return next(); }
       if (relPath.split('/').some(seg => seg.startsWith('.'))) return next();
-      const fullPath = resolve(dir, '.' + relPath);
+      const targetRel = relPath.endsWith('/') ? relPath + 'index.html' : relPath;
+      if (!COMPRESSIBLE_EXT_RE.test(targetRel)) return next();
+      const fullPath = resolve(dir, '.' + targetRel);
       if (!fullPath.startsWith(dir + '/') || !existsSync(fullPath)) return next();
       let st;
       try { st = statSync(fullPath); } catch { return next(); }
-      if (!st.isFile() || st.size < COMPRESS_MIN_BYTES || st.size > 4 * 1024 * 1024) return next();
+      if (!st.isFile() || st.size < COMPRESS_MIN_BYTES || st.size > MAX_STATIC_COMPRESS_BYTES) return next();
       let cached = staticAssetCache.get(fullPath);
       if (!cached || cached.mtimeMs !== st.mtimeMs || cached.size !== st.size) {
         if (staticAssetCache.size >= MAX_STATIC_CACHE) {
@@ -579,6 +582,10 @@ export function createApp(o: AppOptions): express.Express {
           if (oldest) staticAssetCache.delete(oldest);
         }
         cached = buildCompressedAsset(readFileSync(fullPath), st.mtimeMs);
+        staticAssetCache.set(fullPath, cached);
+      } else {
+        // Refresh LRU position so hot assets (/index.html, three.js, admin-1.json) stay resident.
+        staticAssetCache.delete(fullPath);
         staticAssetCache.set(fullPath, cached);
       }
       if (relPath.startsWith('/assets/')) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
@@ -591,7 +598,8 @@ export function createApp(o: AppOptions): express.Express {
       setHeaders: (res, p) => { if (p.includes('/assets/')) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable'); },
     }));
     const notFound = join(dir, '404.html');
-    app.use((_req, res) => { res.status(404).type('html').send(existsSync(notFound) ? readFileSync(notFound, 'utf8') : 'Not found'); });
+    const notFoundBody = existsSync(notFound) ? readFileSync(notFound, 'utf8') : 'Not found';
+    app.use((_req, res) => { res.status(404).type('html').send(notFoundBody); });
   }
   return app;
 }

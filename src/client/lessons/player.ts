@@ -12,7 +12,7 @@ import { t, lang, onLang } from '../lib/i18n.ts';
 import { api } from '../lib/api.ts';
 import { HAS_API } from '../lib/env.ts';
 import { load, save } from '../lib/storage.ts';
-import { canUsePro, getLastBillingSyncAt, isPaywallEnabled, scheduleSync, setBilling } from '../store.ts';
+import { canUsePro, effectivePlan, getLastBillingSyncAt, isPaywallEnabled, scheduleSync, setBilling, store } from '../store.ts';
 import { classroomLink } from '../lib/classroom.ts';
 import { ssbsLink } from '../lib/ssbs.ts';
 import { countryAt } from '../globe/borders.ts';
@@ -39,6 +39,8 @@ import { renderFig, type Fig } from './figs.ts';
 import { optionOrder, shuffled } from './shuffle.ts';
 import type { AstroScene, Home, LL, Pair } from './kit.ts';
 import {
+  clearMasteredMistakes,
+  formatMistakeSheetMarkdown,
   listMistakes,
   mistakeKey,
   pickContinueLesson,
@@ -727,18 +729,40 @@ function nextSolstice(): string | undefined {
 }
 
 /** The lesson picker of a subject: pick a curriculum, then its lessons in groups (textbook volumes, or themes). */
-export function openLessons(host: LessonHost, sub: Subject = 'geo'): void {
+export function openLessons(host: LessonHost, sub: Subject = 'geo', initialQuery = ''): void {
   const seen = done(), jMap = journal(), cat = META_CATALOGS[sub];
   const list = h('div', { class: 'tour-list lesson-list', 'data-testid': 'lesson-list' });
   const journalBox = h('div', { class: 'lesson-journal-wrap' });
   const mistakeBox = h('div', { class: 'lesson-mistake-wrap' });
+  const filterWrap = h('div', { class: 'lesson-filter-bar', 'data-testid': 'lesson-filter-bar' });
   const note = h('p', { class: 'muted small' });
   let notebookOpen = false;
+  let curView = view(sub);
+  let searchQuery = initialQuery.trim();
+  let filterMode: 'all' | 'free' | 'todo' | 'exam' = 'all';
+
+  const subjectTitle = () => t(sub === 'astro' ? 'astroLessons' : sub === 'ssbs' ? 'ssbsLessons' : 'lessons');
 
   const renderMistakes = () => {
     const all = listMistakes(mistakes(), { status: 'all', filterFn: id => subjectOf(id) === sub });
     const todo = all.filter(e => !e.mastered);
     const mastered = all.filter(e => e.mastered);
+    const exportSheet = () => {
+      const proOk = canUsePro();
+      const exported = proOk ? all : all.slice(0, FREE_MISTAKE_LIMIT);
+      const lockedCount = proOk ? 0 : Math.max(0, all.length - FREE_MISTAKE_LIMIT);
+      const md = formatMistakeSheetMarkdown(exported, {
+        lang: lang(),
+        subjectTitle: subjectTitle(),
+        lessonTitleOf: id => {
+          const m = lessonMetaById(id);
+          return m ? L(m.title) : undefined;
+        },
+        licensedEmail: effectivePlan() !== 'free' ? store.me?.email : null,
+        lockedCount,
+      });
+      void copyText(md, t('mistake.exported'), t('mistake.exportBtn'));
+    };
     mistakeBox.replaceChildren(
       h('section', { class: 'mistake-book-bar', 'data-testid': 'mistake-book-bar' },
         h('div', { class: 'mistake-book-head' },
@@ -767,6 +791,20 @@ export function openLessons(host: LessonHost, sub: Subject = 'geo'): void {
                 startMistakeReview(host, sub, (todo.length > 0 ? todo : all).slice(0, FREE_MISTAKE_LIMIT));
               },
             }, t('mistake.practiceFreeBtn', { n: FREE_MISTAKE_LIMIT })) : null,
+            h('button', {
+              class: 'pill pill-sm',
+              'data-testid': 'mistake-export-btn',
+              onclick: exportSheet,
+            }, t('mistake.exportBtn')),
+            mastered.length > 0 ? h('button', {
+              class: 'pill pill-sm',
+              'data-testid': 'mistake-clear-mastered-btn',
+              onclick: () => {
+                saveMistakes(clearMasteredMistakes(mistakes(), id => subjectOf(id) === sub));
+                toast(t('mistake.clearedMastered', { n: mastered.length }));
+                renderMistakes();
+              },
+            }, t('mistake.clearMastered', { n: mastered.length })) : null,
             h('button', {
               class: 'pill pill-sm',
               'data-testid': 'mistake-toggle-btn',
@@ -899,13 +937,90 @@ export function openLessons(host: LessonHost, sub: Subject = 'geo'): void {
         }, isMid ? t('journal.continueBtn') : t('journal.startNextBtn')) : null));
   };
 
-  const fill = (v: string) => {
-    note.textContent = L(cat.views[v].note);
-    renderJournal(v);
-    renderMistakes();
+  const searchInput = h('input', {
+    type: 'search',
+    class: 'lesson-search-input',
+    value: searchQuery,
+    placeholder: t('lessonSearchPlaceholder'),
+    'aria-label': t('lessonSearchPlaceholder'),
+    'data-testid': 'lesson-search',
+    oninput: () => {
+      searchQuery = searchInput.value.trim();
+      renderList();
+    },
+  }) as HTMLInputElement;
+  const chipsBox = h('div', { class: 'lesson-filter-chips' });
+
+  const renderChips = () => {
     const lockedUi = isPaywallEnabled() && !canUsePro();
-    const groups = cat.course(v).map(gr => h('section', { class: 'lesson-group' },
-      h('h3', { class: 'lesson-grade' }, h('span', {}, L(gr.name)), h('small', {}, `${gr.lessons.filter(x => seen.has(x.id)).length}/${gr.lessons.length}`)),
+    const hasExams = cat.course('all').some(g => g.lessons.some(x => x.exam));
+    if (filterMode === 'free' && !lockedUi) filterMode = 'all';
+    if (filterMode === 'exam' && !hasExams) filterMode = 'all';
+    const opts: { id: 'all' | 'free' | 'todo' | 'exam'; label: string }[] = [
+      { id: 'all', label: t('lessonFilterAll') },
+      ...(lockedUi ? [{ id: 'free' as const, label: t('lessonFilterFree') }] : []),
+      { id: 'todo', label: t('lessonFilterTodo') },
+      ...(hasExams ? [{ id: 'exam' as const, label: t('lessonFilterExam') }] : []),
+    ];
+    chipsBox.replaceChildren(...opts.map(o => h('button', {
+      type: 'button',
+      class: 'pill pill-sm lesson-chip' + (filterMode === o.id ? ' on' : ''),
+      'aria-pressed': String(filterMode === o.id),
+      'data-testid': 'lesson-filter-' + o.id,
+      onclick: () => {
+        filterMode = o.id;
+        renderChips();
+        renderList();
+      },
+    }, o.label)));
+  };
+
+  const renderList = () => {
+    const lockedUi = isPaywallEnabled() && !canUsePro();
+    const q = searchQuery.toLowerCase();
+    const matchesLesson = (x: import('./catalog.ts').LessonMeta) => {
+      if (filterMode === 'free' && !isFreeLesson(x.id)) return false;
+      if (filterMode === 'todo' && seen.has(x.id)) return false;
+      if (filterMode === 'exam' && !x.exam) return false;
+      if (!q) return true;
+      const hay = `${x.id} ${x.title[0]} ${x.title[1]} ${x.unit[0]} ${x.unit[1]} ${x.blurb[0]} ${x.blurb[1]}`.toLowerCase();
+      return hay.includes(q);
+    };
+
+    let rawGroups = cat.course(curView)
+      .map(gr => ({ total: gr.lessons.length, doneCount: gr.lessons.filter(x => seen.has(x.id)).length, name: gr.name, lessons: gr.lessons.filter(matchesLesson) }))
+      .filter(gr => gr.lessons.length > 0);
+    let usedCrossTrack = false;
+    if (rawGroups.length === 0 && q && curView !== 'all' && 'all' in cat.views) {
+      rawGroups = cat.course('all')
+        .map(gr => ({ total: gr.lessons.length, doneCount: gr.lessons.filter(x => seen.has(x.id)).length, name: gr.name, lessons: gr.lessons.filter(matchesLesson) }))
+        .filter(gr => gr.lessons.length > 0);
+      usedCrossTrack = rawGroups.length > 0;
+    }
+
+    if (rawGroups.length === 0) {
+      list.replaceChildren(
+        h('div', { class: 'lesson-empty-box', 'data-testid': 'lesson-empty' },
+          h('p', { class: 'muted small', style: 'margin:0' }, t('lessonFilterEmpty')),
+          h('button', {
+            type: 'button',
+            class: 'pill pill-sm',
+            'data-testid': 'lesson-filter-reset',
+            onclick: () => {
+              searchQuery = '';
+              searchInput.value = '';
+              filterMode = 'all';
+              renderChips();
+              renderList();
+            },
+          }, t('lessonFilterReset'))));
+      return;
+    }
+
+    const groups = rawGroups.map(gr => h('section', { class: 'lesson-group' },
+      h('h3', { class: 'lesson-grade' },
+        h('span', {}, L(gr.name)),
+        h('small', {}, q || filterMode !== 'all' ? `${gr.lessons.length}` : `${gr.doneCount}/${gr.total}`)),
       ...gr.lessons.map(x => {
         const je = jMap[x.id];
         const scoreTag = je && je.bestScore !== null && je.quizTotal > 0 ? `★ ${je.bestScore}/${je.quizTotal} · ` : '';
@@ -923,19 +1038,35 @@ export function openLessons(host: LessonHost, sub: Subject = 'geo'): void {
           h('button', { class: 'icon-btn tour-link', 'aria-label': t('classLink'), title: t('classLink'), html: icon('share', 14),
             onclick: () => void copyLink(sub === 'ssbs' ? ssbsLink(x.id) : classroomLink(x.id, 'lesson')) }));
       })));
-    list.replaceChildren(...groups);
+    list.replaceChildren(
+      ...(usedCrossTrack ? [h('p', { class: 'muted small', 'data-testid': 'lesson-cross-track', style: 'margin:0 0 6px' }, '🔎 ', t('lessonCrossTrackHint'))] : []),
+      ...groups);
   };
-  const sel = new Select({ label: t('lessonTrack'), testid: 'lesson-track', icon: 'book', value: view(sub),
+
+  const fill = (v: string) => {
+    curView = v;
+    note.textContent = L(cat.views[v].note);
+    renderJournal(v);
+    renderMistakes();
+    renderChips();
+    renderList();
+  };
+  filterWrap.append(searchInput, chipsBox);
+  const sel = new Select({ label: t('lessonTrack'), testid: 'lesson-track', icon: 'book', value: curView,
     options: Object.keys(cat.views).map(v => ({ value: v, label: L(cat.views[v].name) })),
     onChange: v => { save(cat.key, v); fill(v); } });
-  fill(view(sub));
-  openModal('lessons', t(sub === 'astro' ? 'astroLessons' : sub === 'ssbs' ? 'ssbsLessons' : 'lessons'), h('div', { class: 'lesson-pickwrap' }, h('p', { class: 'muted' }, t(sub === 'astro' ? 'astroIntro' : sub === 'ssbs' ? 'ssbsIntro' : 'lessonsIntro')),
+  fill(curView);
+  openModal('lessons', subjectTitle(), h('div', { class: 'lesson-pickwrap' }, h('p', { class: 'muted' }, t(sub === 'astro' ? 'astroIntro' : sub === 'ssbs' ? 'ssbsIntro' : 'lessonsIntro')),
     journalBox,
     mistakeBox,
-    h('div', { class: 'lesson-track' }, sel.el, note), list));
+    h('div', { class: 'lesson-track' }, sel.el, note, filterWrap), list));
+}
+
+async function copyText(text: string, okMsg: string, promptLabel: string): Promise<void> {
+  try { await navigator.clipboard.writeText(text); toast(okMsg); }
+  catch { prompt(promptLabel, text); }
 }
 
 async function copyLink(link: string): Promise<void> {
-  try { await navigator.clipboard.writeText(link); toast(t('classLinkCopied')); }
-  catch { prompt(t('classLink'), link); }
+  return copyText(link, t('classLinkCopied'), t('classLink'));
 }

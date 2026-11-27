@@ -18,7 +18,8 @@ import {
 import { HANDLE_PATTERN } from '../../shared/lib/profile.ts';
 import { emptyProgress, fitProgress, MAX_SYNC_REQUEST_BYTES, mergeProgress } from '../../shared/lib/progress.ts';
 import { fitSyncExtras } from '../../shared/lib/sync-extras.ts';
-import { openPaywall, planLabel, redeemAndRefresh, redeemErrorMessage } from './paywall.ts';
+import { maskRedeemCode } from '../../shared/lib/entitlements.ts';
+import { getPendingRedeemCode, openPaywall, planLabel, redeemAndRefresh, redeemErrorMessage } from './paywall.ts';
 
 export async function syncNow(quiet = false): Promise<boolean> {
   if (!store.me) return false;
@@ -45,10 +46,16 @@ export function openAccount(): void {
   const body = h('div', { class: 'account', 'data-testid': 'account' });
   const render = () => {
     const me = store.me;
+    const pendingRedeem = getPendingRedeemCode();
     if (!me) {
       const email = h('input', { type: 'email', required: true, autocomplete: 'email', 'aria-label': t('emailLabel'), placeholder: 'name@example.com', 'data-testid': 'email' });
       const out = h('div', { class: 'out', 'aria-live': 'polite' });
-      body.replaceChildren(h('p', { class: 'muted' }, t('signInSub')),
+      body.replaceChildren(
+        ...(pendingRedeem
+          ? [h('p', { class: 'small', 'data-testid': 'acct-pending-code', style: 'margin:0 0 8px;color:var(--sig,#ffb547)' },
+              '🔑 ', t('redeemPendingNotice', { code: maskRedeemCode(pendingRedeem) ?? pendingRedeem }))]
+          : []),
+        h('p', { class: 'muted' }, t('signInSub')),
         h('form', { class: 'row', onsubmit: async (e: Event) => {
           e.preventDefault();
           try {
@@ -88,6 +95,7 @@ export function openAccount(): void {
       type: 'text',
       required: true,
       maxlength: 32,
+      value: pendingRedeem ?? '',
       autocapitalize: 'characters',
       spellcheck: 'false',
       placeholder: t('redeemPlaceholder'),

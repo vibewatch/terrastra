@@ -846,3 +846,122 @@ export const GAZETTEER: readonly GazetteerEntry[] = [
 export const GAZETTEER_BY_KEY: ReadonlyMap<string, GazetteerEntry> = new Map(
   GAZETTEER.map(g => [g.key, g]),
 );
+
+export interface RelatedLessonLink {
+  id: string;
+  title: { en: string; zh: string };
+}
+
+const LESSON_REFS: Record<string, RelatedLessonLink> = {
+  graticule: { id: 'graticule', title: { en: 'Latitude and longitude', zh: '经线和纬线' } },
+  zones: { id: 'zones', title: { en: 'The five heat zones', zh: '五带的划分' } },
+  landforms: { id: 'landforms', title: { en: 'Five basic landforms', zh: '五种基本地形' } },
+  continents: { id: 'continents', title: { en: 'Seven continents, four oceans', zh: '七大洲和四大洋' } },
+  plates: { id: 'plates', title: { en: 'Plates on the move', zh: '板块的运动' } },
+  rivers: { id: 'rivers', title: { en: 'Rivers: from source to mouth', zh: '河流：从源头到河口' } },
+  coasts: { id: 'coasts', title: { en: 'Coasts', zh: '海岸' } },
+  watercycle: { id: 'watercycle', title: { en: 'The water cycle', zh: '水循环' } },
+  hForces: { id: 'h-forces', title: { en: 'The forces that shape the land', zh: '塑造地表形态的力量' } },
+  hOcean: { id: 'h-ocean', title: { en: 'Properties and motion of sea water', zh: '海水的性质和运动' } },
+  climates: { id: 'climates', title: { en: 'World climates: the tropics', zh: '世界的气候类型（一）：热带' } },
+  climates2: { id: 'climates2', title: { en: 'World climates: temperate, cold and highland', zh: '世界的气候类型（二）' } },
+  biomes: { id: 'biomes', title: { en: 'Biomes: climate and life', zh: '气候与自然植被' } },
+  seAsia: { id: 'se-asia', title: { en: 'Southeast Asia: Crossroads & Tropical Farming', zh: '东南亚：“十字路口”与热带农业' } },
+  middleeast: { id: 'middleeast', title: { en: 'The Middle East', zh: '中东' } },
+  europe: { id: 'europe', title: { en: 'Western Europe and the EU', zh: '欧洲西部' } },
+  africa: { id: 'africa', title: { en: 'Sub-Saharan Africa', zh: '撒哈拉以南非洲' } },
+  brazil: { id: 'brazil', title: { en: 'Brazil', zh: '巴西' } },
+  polar: { id: 'polar', title: { en: 'The polar regions', zh: '极地地区' } },
+  neighbours: { id: 'neighbours', title: { en: 'Japan and Southeast Asia', zh: '日本和东南亚' } },
+  steps: { id: 'steps', title: { en: 'Landforms and the three steps', zh: '地形多样，地势西高东低' } },
+  chinaClimate: { id: 'china-climate', title: { en: "China's climate and rivers", zh: '中国的气候和河流' } },
+  yangtze: { id: 'yangtze', title: { en: 'The Yangtze River', zh: '长江' } },
+  yellowRiver: { id: 'yellow-river', title: { en: 'The Yellow River', zh: '黄河' } },
+  loess: { id: 'loess', title: { en: 'The Loess Plateau', zh: '黄土高原' } },
+  sanjiangyuan: { id: 'sanjiangyuan', title: { en: 'Qinghai–Tibet: roof of the world, source of rivers', zh: '青藏地区：世界屋脊与江河源' } },
+  northeast: { id: 'northeast', title: { en: 'The Northeast: black soil and white snow', zh: '东北三省：白山黑水' } },
+  xinjiang: { id: 'xinjiang', title: { en: 'Xinjiang: mountains, deserts and oases', zh: '新疆：山地、沙漠与绿洲' } },
+  taiwan: { id: 'taiwan', title: { en: 'Taiwan Province', zh: '祖国的神圣领土——台湾省' } },
+};
+
+export const KEY_LESSON_OVERRIDES: Record<string, (keyof typeof LESSON_REFS)[]> = {
+  'geo:mediterranean-sea': ['climates2', 'europe'],
+  'geo:strait-of-malacca': ['seAsia', 'neighbours'],
+  'geo:persian-gulf': ['middleeast', 'continents'],
+  'geo:strait-of-hormuz': ['middleeast', 'continents'],
+  'geo:suez-canal': ['middleeast', 'continents'],
+  'geo:red-sea': ['plates', 'middleeast'],
+  'geo:amazon-plain': ['brazil', 'climates'],
+  'geo:amazon-river': ['brazil', 'rivers'],
+  'geo:brazilian-highlands': ['brazil', 'landforms'],
+  'geo:east-african-rift': ['plates', 'africa'],
+  'geo:sahara-desert': ['climates', 'africa'],
+  'geo:antarctica': ['polar', 'continents'],
+  'geo:arctic-ocean': ['polar', 'continents'],
+  'geo:greenland': ['polar', 'continents'],
+  'geo:japanese-archipelago': ['neighbours', 'plates'],
+  'geo:qinghai-tibet-plateau': ['sanjiangyuan', 'steps'],
+  'geo:loess-plateau': ['loess', 'steps'],
+  'geo:yangtze-river': ['yangtze', 'chinaClimate'],
+  'geo:yellow-river': ['yellowRiver', 'loess'],
+  'geo:huai-river': ['chinaClimate', 'rivers'],
+  'geo:tarim-basin': ['xinjiang', 'steps'],
+  'geo:taklamakan-desert': ['xinjiang', 'biomes'],
+  'geo:junggar-basin': ['xinjiang', 'steps'],
+  'geo:northeast-china-plain': ['northeast', 'steps'],
+  'geo:songhua-river': ['northeast', 'chinaClimate'],
+  'geo:taiwan-island': ['taiwan', 'plates'],
+  'geo:taiwan-strait': ['taiwan', 'coasts'],
+};
+
+/**
+ * Returns 1–2 curriculum lessons matching a physical-geography gazetteer place (`geo:*`),
+ * without importing lesson chunks into the cold-boot bundle.
+ */
+export function relatedLessonsForPlace(
+  placeKey: string,
+  placeKind: string,
+  regionEn = '',
+): RelatedLessonLink[] {
+  if (!placeKey.startsWith('geo:')) return [];
+  const override = KEY_LESSON_OVERRIDES[placeKey];
+  if (override) return override.map(k => LESSON_REFS[k]);
+
+  const inChina = /\bchina\b|tibet|xinjiang|zhejiang|shandong|liaoning|guangdong|hainan/i.test(regionEn);
+  if (inChina) {
+    if (placeKind === 'river' || placeKind === 'lake') return [LESSON_REFS.chinaClimate, LESSON_REFS.rivers];
+    if (placeKind === 'sea' || placeKind === 'strait' || placeKind === 'island' || placeKind === 'peninsula') {
+      return [LESSON_REFS.coasts, LESSON_REFS.continents];
+    }
+    return [LESSON_REFS.steps, LESSON_REFS.landforms];
+  }
+
+  switch (placeKind) {
+    case 'trench':
+    case 'rift':
+      return [LESSON_REFS.plates, LESSON_REFS.landforms];
+    case 'mountain':
+    case 'plateau':
+    case 'plain':
+    case 'basin':
+      return [LESSON_REFS.landforms, LESSON_REFS.hForces];
+    case 'continent':
+    case 'ocean':
+      return [LESSON_REFS.continents, LESSON_REFS.hOcean];
+    case 'sea':
+    case 'strait':
+    case 'canal':
+    case 'peninsula':
+    case 'island':
+      return [LESSON_REFS.continents, LESSON_REFS.coasts];
+    case 'river':
+    case 'lake':
+      return [LESSON_REFS.rivers, LESSON_REFS.watercycle];
+    case 'desert':
+      return [LESSON_REFS.climates, LESSON_REFS.biomes];
+    case 'line':
+      return [LESSON_REFS.graticule, LESSON_REFS.zones];
+    default:
+      return [LESSON_REFS.continents];
+  }
+}

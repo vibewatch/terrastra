@@ -1,6 +1,8 @@
 import { h, closeModal, openModal, toast, $ } from './dom.ts';
 import { t, lang, setLang, countryName, fmtNum, onLang } from '../lib/i18n.ts';
-import { store, updateProgress, updateSettings, resetSettings, subscribe } from '../store.ts';
+import { store, canUsePro, isPaywallEnabled, updateProgress, updateSettings, resetSettings, subscribe } from '../store.ts';
+import { isFreeLesson } from '../../shared/lib/entitlements.ts';
+import { relatedLessonsForPlace } from '../../shared/data/gazetteer.ts';
 import { isOn } from '../../shared/lib/progress.ts';
 import { tr, type CatalogueItem } from '../../shared/data/types.ts';
 import { CATALOGUE, BY_TYPE } from '../../shared/data/catalogue.ts';
@@ -44,6 +46,7 @@ const AURA_ORDER: AuraPreset[] = ['waves', 'aurora', 'ember', 'dusk', 'sculpture
 interface ShellHooks {
   openPhoto: () => void; openCollection: () => void; openGame: (kind: 'daily' | 'placeit' | 'quiz') => void; openPassport: () => void; openAlbum: () => void; openTutorial: () => void; openTours: () => void; openLessons: () => void; openAstro: () => void; openSsbs: () => void; openBookmarks: () => void; openCompare: (id?: string) => void; openTonight: () => void;
   continueLesson?: (id: string, resume: boolean) => void;
+  startLesson?: (id: string) => void;
   openAccount: () => void; openGuestbook: () => void;
   openSolar: () => void;
   openSky: () => void;
@@ -888,6 +891,10 @@ export class Shell {
       .filter(x => x.km <= 3200)
       .sort((a, b) => a.km - b.km)
       .slice(0, 3);
+    const relatedLessons = this.hooks.startLesson
+      ? relatedLessonsForPlace(place.key, place.placeKind, place.sub.en)
+      : [];
+    const proLockedUi = isPaywallEnabled() && !canUsePro();
 
     this.infoMain.replaceChildren(
       h('div', { class: 'info-hero place-hero', 'data-place-kind': place.placeKind },
@@ -918,6 +925,17 @@ export class Shell {
         descP,
         factP,
         listen,
+        relatedLessons.length > 0 ? h('div', { class: 'place-nearby', 'data-testid': 'place-related-lessons' },
+          h('span', { class: 'place-nearby-lbl' }, t('geo.relatedLessons')),
+          h('div', { class: 'place-nearby-list' },
+            ...relatedLessons.map(ls => {
+              const locked = proLockedUi && !isFreeLesson(ls.id);
+              return h('button', {
+                class: 'pill pill-sm',
+                'data-testid': 'place-lesson-' + ls.id,
+                onclick: () => { sfx.tap(); this.hooks.startLesson?.(ls.id); },
+              }, '📚 ', locked ? h('span', { class: 'pro-badge' }, t('planBadgePro')) : null, tr(ls.title, l));
+            }))) : null,
         nearbyModels.length > 0 ? h('div', { class: 'place-nearby', 'data-testid': 'place-nearby' },
           h('span', { class: 'place-nearby-lbl' }, t('geo.nearbyModels')),
           h('div', { class: 'place-nearby-list' },

@@ -635,8 +635,11 @@ describe('billing, redemption codes, session caps, sync v2 & gated pro chunks', 
   it('redeems single-use codes, enforces FIFO session caps (3 vs 10), syncs extras, and gates pro-lessons chunks', async () => {
     const staticDir = mkdtempSync(join(tmpdir(), 'terrastra-pro-gate-'));
     mkdirSync(join(staticDir, 'assets'), { recursive: true });
+    mkdirSync(join(staticDir, 'encyclopedia'), { recursive: true });
     mkdirSync(join(staticDir, '.pro-assets'), { recursive: true });
-    writeFileSync(join(staticDir, 'index.html'), '<!doctype html><html><head></head><body>ok</body></html>');
+    const htmlPad = '<!-- static page compressible body -->\n'.repeat(40);
+    writeFileSync(join(staticDir, 'index.html'), `<!doctype html><html><head></head><body>ok\n${htmlPad}</body></html>`);
+    writeFileSync(join(staticDir, 'encyclopedia', 'index.html'), `<!doctype html><html><head></head><body>enc\n${htmlPad}</body></html>`);
     const largePublicJs = 'export const pub = 1;\n' + '// compressible padding\n'.repeat(100);
     const largeProJs = 'export const secretLesson = true;\n' + '// pro lesson payload\n'.repeat(120);
     writeFileSync(join(staticDir, 'assets', 'public-test.js'), largePublicJs);
@@ -771,6 +774,20 @@ describe('billing, redemption codes, session caps, sync v2 & gated pro chunks', 
       expect(pubGzip.status).toBe(200);
       expect(pubGzip.headers.get('content-encoding')).toBe('gzip');
       expect(await pubGzip.text()).toContain('export const pub = 1;');
+
+      // Directory index.html routes get Brotli + ETag 304 while preserving trailing-slash redirects
+      const rootHtml = await fetch(srvBase + '/', { headers: { 'accept-encoding': 'br, gzip' } });
+      expect(rootHtml.status).toBe(200);
+      expect(rootHtml.headers.get('content-encoding')).toBe('br');
+      const rootEtag = rootHtml.headers.get('etag');
+      expect(rootEtag).toBeTruthy();
+      expect((await fetch(srvBase + '/', { headers: { 'if-none-match': rootEtag! } })).status).toBe(304);
+      const slashRedirect = await fetch(srvBase + '/encyclopedia', { redirect: 'manual' });
+      expect(slashRedirect.status).toBe(301);
+      expect(slashRedirect.headers.get('location')).toBe('/encyclopedia/');
+      const encHtml = await fetch(srvBase + '/encyclopedia/', { headers: { 'accept-encoding': 'br' } });
+      expect(encHtml.status).toBe(200);
+      expect(encHtml.headers.get('content-encoding')).toBe('br');
 
       // 5b. Redeeming another Pro code on an already-lifetime-Pro account returns 409 ALREADY_ENTITLED WITHOUT burning the code!
       const [spareProCode, singleUseDeleteTestCode] = issueRedemptionCodes(paywallDb, { plan: 'pro', count: 2, note: 'audit-regression' });
