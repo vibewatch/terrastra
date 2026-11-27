@@ -4,18 +4,29 @@
  */
 export interface ErrorEntry { at: number; kind: 'error' | 'rejection'; message: string; where: string; count: number; scene: string }
 
-/** Browser noise that says nothing about the app: opaque cross-origin script errors and ResizeObserver warnings. */
-const NOISE = /^(Script error\.?|ResizeObserver loop (limit exceeded|completed with undelivered notifications)\.?)$/;
+/** Browser noise that says nothing about the app: opaque cross-origin script errors, ResizeObserver warnings, and intentional AbortController cancellations. */
+const NOISE = /^(Script error\.?|ResizeObserver loop (limit exceeded|completed with undelivered notifications)\.?|AbortError(:.*)?)$/;
+
+/** Strips origins, query parameters (such as magic-link tokens), and redeem hashes so diagnostic strings never leak secrets. */
+export function sanitizeDiagText(s: string): string {
+  return s
+    .replace(/https?:\/\/[^/\s?#)]+/g, '')
+    .replace(/\?[A-Za-z0-9_.~%+&=-]+/g, '?[redacted]')
+    .replace(/#(redeem|token|code|magic)[=/:][^\s)]+/gi, '#[redacted]');
+}
 
 export function createErrorLog(max = 20, burst = { n: 3, withinMs: 60_000 }, quietMs = 5 * 60_000) {
   const entries: ErrorEntry[] = [];
   let lastNotice = -Infinity;
   return {
     entries: () => entries.slice(),
+    clear: () => { entries.length = 0; },
     /** Records an error; returns true when it completes a burst that should be shown to the user (rate-limited). */
     add(e: Omit<ErrorEntry, 'count'>): boolean {
-      const message = e.message.slice(0, 300), where = e.where.slice(0, 200);
-      if (!message || NOISE.test(message)) return false;
+      const rawMsg = e.message.trim();
+      if (!rawMsg || NOISE.test(rawMsg)) return false;
+      const message = sanitizeDiagText(rawMsg).slice(0, 300);
+      const where = sanitizeDiagText(e.where).slice(0, 200);
       const last = entries[entries.length - 1];
       if (last && last.message === message && last.where === where) { last.count++; last.at = e.at; }
       else {
@@ -32,11 +43,12 @@ export function createErrorLog(max = 20, burst = { n: 3, withinMs: 60_000 }, qui
 
 const log = createErrorLog();
 export const errorCount = (): number => log.entries().reduce((n, e) => n + e.count, 0);
+export const clearErrorLog = (): void => log.clear();
 
-/** First stack frame (file:line:col), with the origin stripped, so reports carry no page URL or user data. */
+/** First stack frame (file:line:col), with the origin and query stripped, so reports carry no page URL or user data. */
 function whereOf(err: unknown, fallback = ''): string {
   const stack = err instanceof Error && err.stack ? err.stack.split('\n').find(l => /:\d+:\d+/.test(l)) ?? '' : fallback;
-  return stack.trim().replace(/https?:\/\/[^/\s)]+/g, '');
+  return sanitizeDiagText(stack.trim());
 }
 
 export function installDiagnostics(opts: { scene: () => string; onBurst: () => void }): void {
@@ -56,10 +68,14 @@ export function installDiagnostics(opts: { scene: () => string; onBurst: () => v
 
 /** A plain-text report for the clipboard. Nothing is uploaded. */
 export function diagnosticsReport(extra: Record<string, string>): string {
+  const nav = navigator as Navigator & { deviceMemory?: number };
   const lines = [
     'Terrastra diagnostics',
     `time: ${new Date().toISOString()}`,
     `agent: ${navigator.userAgent}`,
+    `lang: ${navigator.language || 'unknown'}`,
+    `online: ${navigator.onLine}`,
+    ...(typeof nav.deviceMemory === 'number' ? [`memoryGB: ${nav.deviceMemory}`] : []),
     `screen: ${screen.width}x${screen.height} @${devicePixelRatio}`,
     ...Object.entries(extra).map(([k, v]) => `${k}: ${v}`),
     `errors: ${errorCount()}`,

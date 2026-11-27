@@ -8,6 +8,7 @@ import { SSBS_LESSONS, SSBS_VIEWS, ssbsCourse } from './ssbs/index.ts';
 import { ssbsOn } from '../lib/ssbs.ts';
 import { freeLessonById, findFreeCanonicalQuiz } from './free-bundle.ts';
 import { isFreeLesson } from '../../shared/lib/entitlements.ts';
+import type { IconName } from '../ui/icons.ts';
 import type { AstroStrand, Grade, Lesson, Level, Pair, Quiz, Strand, Track } from './kit.ts';
 
 export type { Lesson, Quiz, Step, Track } from './kit.ts';
@@ -21,7 +22,7 @@ export interface LessonMeta {
   unit: Pair;
   title: Pair;
   blurb: Pair;
-  icon: string;
+  icon: IconName;
   minutes: number;
   exam?: boolean;
 }

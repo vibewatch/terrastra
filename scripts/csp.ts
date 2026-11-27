@@ -3,9 +3,10 @@ import { createHash } from 'node:crypto';
 /** Hash each generated page's inline scripts after all build-time rewriting. */
 export function withContentPolicy(html: string): string {
   const clean = html.replace(/<meta http-equiv="Content-Security-Policy" content="[^"]*">/gi, '');
-  const hashes = [...clean.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi)]
+  const rawHashes = [...clean.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi)]
     .filter(([, attrs]) => !/\bsrc\s*=/i.test(attrs))
     .map(([, , script]) => `'sha256-${createHash('sha256').update(script).digest('base64')}'`);
+  const hashes = [...new Set(rawHashes)];
   const policy = [
     "default-src 'self'",
     `script-src 'self' ${hashes.join(' ')}`.trim(),
@@ -19,6 +20,6 @@ export function withContentPolicy(html: string): string {
     "base-uri 'self'",
     "form-action 'self'",
   ].join('; ');
-  if (!/<head>/i.test(clean)) throw new Error('Cannot add content policy to a page without a head');
-  return clean.replace(/<head>/i, `<head><meta http-equiv="Content-Security-Policy" content="${policy}">`);
+  if (!/<head\b[^>]*>/i.test(clean)) throw new Error('Cannot add content policy to a page without a head');
+  return clean.replace(/<head\b[^>]*>/i, m => `${m}<meta http-equiv="Content-Security-Policy" content="${policy}">`);
 }

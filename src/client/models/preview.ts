@@ -1,8 +1,15 @@
 import * as THREE from 'three';
 import { currentQuality, lowFxFrom } from '../globe/quality.ts';
-import type { CatalogueItem, ModelRecipe } from '../../shared/data/types.ts';
+import type { ModelRecipe } from '../../shared/data/types.ts';
 import { buildModel, modelReady, whenModelReady } from './library.ts';
 import { outdoorEnvironment } from './environment.ts';
+
+export interface PreviewableItem {
+  key: string;
+  model: ModelRecipe;
+  emoji: string;
+  name?: { en: string };
+}
 
 interface ActivePreview {
   canvas: HTMLCanvasElement;
@@ -62,6 +69,14 @@ function ensureRenderer(w: number, hPx: number): THREE.WebGLRenderer | null {
       sharedRenderer = new THREE.WebGLRenderer({ antialias: q.tier !== 'low', alpha: true, powerPreference: 'high-performance' });
       sharedRenderer.debug.checkShaderErrors = import.meta.env.DEV;
       sharedRenderer.setPixelRatio(Math.min(q.dprMax, window.devicePixelRatio || 1));
+      sharedRenderer.domElement.addEventListener('webglcontextlost', e => {
+        e.preventDefault();
+        sharedRenderer = null;
+        sharedScene = null;
+        sharedCamera = null;
+        sharedRoot = null;
+        sharedWidth = sharedHeight = 0;
+      });
       sharedScene = new THREE.Scene();
       sharedCamera = new THREE.PerspectiveCamera(28, w / hPx, 0.05, 20);
       setupStudio(sharedRenderer, sharedScene);
@@ -206,13 +221,53 @@ function tick(): void {
   }
 }
 
+function bindPreviewControls(canvas: HTMLCanvasElement, preview: ActivePreview, alwaysRenderOnMove = false): void {
+  let lastX = 0;
+  let lastY = 0;
+  canvas.addEventListener('pointerdown', e => {
+    preview.dragging = true;
+    lastX = e.clientX;
+    lastY = e.clientY;
+    canvas.tabIndex = -1;
+    canvas.focus({ preventScroll: true });
+    canvas.setPointerCapture(e.pointerId);
+  });
+  canvas.addEventListener('pointermove', e => {
+    if (!preview.dragging) return;
+    const dx = e.clientX - lastX;
+    const dy = e.clientY - lastY;
+    lastX = e.clientX;
+    lastY = e.clientY;
+    preview.yaw += dx * 0.014;
+    preview.pitch = Math.max(-0.25, Math.min(0.45, preview.pitch + dy * 0.008));
+    if (alwaysRenderOnMove || isLowFx() || isStill()) renderOne(preview);
+  });
+  const stopDrag = () => { preview.dragging = false; };
+  canvas.addEventListener('pointerup', stopDrag);
+  canvas.addEventListener('pointercancel', stopDrag);
+  canvas.addEventListener('dblclick', () => {
+    preview.yaw = 0.45;
+    preview.pitch = 0.08;
+    renderOne(preview);
+  });
+  canvas.addEventListener('keydown', e => {
+    if (e.key === 'ArrowLeft') { e.preventDefault(); preview.yaw -= 0.18; renderOne(preview); }
+    else if (e.key === 'ArrowRight') { e.preventDefault(); preview.yaw += 0.18; renderOne(preview); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); preview.pitch = Math.min(0.45, preview.pitch + 0.08); renderOne(preview); }
+    else if (e.key === 'ArrowDown') { e.preventDefault(); preview.pitch = Math.max(-0.25, preview.pitch - 0.08); renderOne(preview); }
+    else if (e.key === '0' || e.key === 'Home') { e.preventDefault(); preview.yaw = 0.45; preview.pitch = 0.08; renderOne(preview); }
+  });
+}
+
 /** Creates an interactive 3D turntable preview widget (like myearthtoy.com's #info-preview / #placeit-preview). */
-export function createModelPreview(item: CatalogueItem, opts: { width?: number; height?: number; id?: string } = {}): HTMLElement {
+export function createModelPreview(item: PreviewableItem, opts: { width?: number; height?: number; id?: string } = {}): HTMLElement {
   const w = opts.width ?? 220;
   const hPx = opts.height ?? 132;
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   const canvas = document.createElement('canvas');
   canvas.className = 'model-preview-canvas';
+  canvas.setAttribute('role', 'img');
+  canvas.setAttribute('aria-label', item.name?.en ? `${item.name.en} 3D model` : '3D model');
   canvas.width = Math.round(w * dpr);
   canvas.height = Math.round(hPx * dpr);
   if (opts.id) canvas.id = opts.id;
@@ -229,28 +284,7 @@ export function createModelPreview(item: CatalogueItem, opts: { width?: number; 
     dragging: false,
     clock: 0,
   };
-
-  let lastX = 0;
-  let lastY = 0;
-  canvas.addEventListener('pointerdown', e => {
-    preview.dragging = true;
-    lastX = e.clientX;
-    lastY = e.clientY;
-    canvas.setPointerCapture(e.pointerId);
-  });
-  canvas.addEventListener('pointermove', e => {
-    if (!preview.dragging) return;
-    const dx = e.clientX - lastX;
-    const dy = e.clientY - lastY;
-    lastX = e.clientX;
-    lastY = e.clientY;
-    preview.yaw += dx * 0.014;
-    preview.pitch = Math.max(-0.25, Math.min(0.45, preview.pitch + dy * 0.008));
-    if (isLowFx() || isStill()) renderOne(preview);
-  });
-  const stopDrag = () => { preview.dragging = false; };
-  canvas.addEventListener('pointerup', stopDrag);
-  canvas.addEventListener('pointercancel', stopDrag);
+  bindPreviewControls(canvas, preview, false);
 
   renderOne(preview);
   if (!modelReady(item.model)) void whenModelReady(item.model, true).then(() => { preview.group = buildPreviewScene(item.model); renderOne(preview); }, () => {});
@@ -299,28 +333,7 @@ export function mountHeroPreview(hero: HTMLElement, recipe: ModelRecipe): void {
     dragging: false,
     clock: 0,
   };
-
-  let lastX = 0;
-  let lastY = 0;
-  canvas.addEventListener('pointerdown', e => {
-    preview.dragging = true;
-    lastX = e.clientX;
-    lastY = e.clientY;
-    canvas.setPointerCapture(e.pointerId);
-  });
-  canvas.addEventListener('pointermove', e => {
-    if (!preview.dragging) return;
-    const dx = e.clientX - lastX;
-    const dy = e.clientY - lastY;
-    lastX = e.clientX;
-    lastY = e.clientY;
-    preview.yaw += dx * 0.014;
-    preview.pitch = Math.max(-0.25, Math.min(0.45, preview.pitch + dy * 0.008));
-    renderOne(preview);
-  });
-  const stopDrag = () => { preview.dragging = false; };
-  canvas.addEventListener('pointerup', stopDrag);
-  canvas.addEventListener('pointercancel', stopDrag);
+  bindPreviewControls(canvas, preview, true);
 
   const activate = () => {
     preview.group = buildPreviewScene(recipe);

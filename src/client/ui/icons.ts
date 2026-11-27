@@ -1,6 +1,6 @@
 // Minimal 24px line icons (stroke = currentColor) for the app chrome.
 import type { ItemType } from '../../shared/data/types.ts';
-const P: Record<string, string> = {
+const P = {
   search: '<circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/>',
   shuffle: '<path d="M4 7h3.5c4 0 5 10 9 10H20"/><path d="M4 17h3.5c1.6 0 2.7-1.6 3.6-3.5"/><path d="M13 9.5c.9-1.4 1.9-2.5 3.5-2.5H20"/><path d="m17.5 4.5 2.5 2.5-2.5 2.5M17.5 14.5l2.5 2.5-2.5 2.5"/>',
   camera: '<path d="M4 8.5A1.5 1.5 0 0 1 5.5 7h2l1.5-2h6l1.5 2h2A1.5 1.5 0 0 1 20 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5z"/><circle cx="12" cy="12.5" r="3.5"/>',
@@ -79,12 +79,12 @@ const P: Record<string, string> = {
   key: '<circle cx="8" cy="14" r="3.5"/><path d="m10.7 11.7 8.8-5.2M16 8.6l2 2.9M18.8 7l1.7 2.5"/>',
   copy: '<rect x="8.5" y="8.5" width="11" height="11" rx="1.8"/><path d="M5.5 15.5H5A1.5 1.5 0 0 1 3.5 14V5A1.5 1.5 0 0 1 5 3.5h9A1.5 1.5 0 0 1 15.5 5v.5"/>',
   dice: '<rect x="4" y="4" width="16" height="16" rx="2.5"/><circle cx="8.5" cy="8.5" r="1.2" fill="currentColor"/><circle cx="15.5" cy="8.5" r="1.2" fill="currentColor"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/><circle cx="8.5" cy="15.5" r="1.2" fill="currentColor"/><circle cx="15.5" cy="15.5" r="1.2" fill="currentColor"/>',
-};
+} as const;
 
 export type IconName = keyof typeof P;
 
 export function icon(name: IconName, size = 18): string {
-  return `<svg class="ico" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[name]}</svg>`;
+  return `<svg class="ico" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[name] ?? ''}</svg>`;
 }
 
 export const TYPE_ICON: Record<ItemType, IconName> = {

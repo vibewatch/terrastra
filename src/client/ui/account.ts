@@ -1,4 +1,4 @@
-import { h, openModal, closeModal, confetti, toast } from './dom.ts';
+import { h, openModal, closeModal, confetti, toast, copyText } from './dom.ts';
 import { t } from '../lib/i18n.ts';
 import { icon } from './icons.ts';
 import { api } from '../lib/api.ts';
@@ -21,6 +21,8 @@ import { fitSyncExtras } from '../../shared/lib/sync-extras.ts';
 import { maskRedeemCode } from '../../shared/lib/entitlements.ts';
 import { getPendingRedeemCode, openPaywall, planLabel, redeemAndRefresh, redeemErrorMessage, wireRedeemInput } from './paywall.ts';
 
+let lastSyncedAt = 0;
+
 export async function syncNow(quiet = false): Promise<boolean> {
   if (!store.me) return false;
   const epoch = getAccountEpoch();
@@ -33,6 +35,7 @@ export async function syncNow(quiet = false): Promise<boolean> {
     if (getAccountEpoch() !== epoch) return false;
     replaceProgress(fitProgress(mergeProgress(store.progress, res.progress)));
     if (res.extras) applyRemoteExtras(res.extras);
+    lastSyncedAt = Date.now();
     if (!quiet) toast(t('synced'));
     return true;
   } catch (err) {
@@ -166,12 +169,21 @@ export function openAccount(): void {
             h('small', { class: 'muted' }, t('acctReceiptsTitle')),
             ...orders.slice(0, 3).map(o => h('div', { class: 'acct-order-row small', 'data-testid': 'acct-order-row' },
               h('span', {}, `${planLabel(o.plan)} · ${new Date(o.paidAt ?? o.createdAt).toLocaleDateString()}`),
-              h('code', { class: 'muted' }, o.id),
+              h('button', {
+                type: 'button',
+                class: 'link small',
+                'data-testid': 'acct-copy-order',
+                title: t('share'),
+                onclick: () => void copyText(o.id, t('copied')),
+              }, h('code', { class: 'muted' }, o.id)),
               h('span', { class: o.status === 'paid' ? 'ok' : 'muted' }, o.status === 'paid' ? t('acctOrderPaid') : t('acctOrderRefunded')))))
         : null);
     body.replaceChildren(
       h('div', { class: 'acct-who' }, h('span', { class: 'acct-av', html: icon('user', 18) }),
-        h('div', {}, h('small', { class: 'muted' }, t('account')), h('strong', {}, me.email))),
+        h('div', {},
+          h('small', { class: 'muted' }, t('account')),
+          h('strong', {}, me.email),
+          lastSyncedAt > 0 ? h('small', { class: 'muted', 'data-testid': 'acct-last-sync', style: 'display:block' }, t('acctLastSynced', { t: new Date(lastSyncedAt).toLocaleTimeString() })) : null)),
       planBox,
       h('form', { class: 'acct-field', onsubmit: async (e: Event) => {
         e.preventDefault();
@@ -184,7 +196,7 @@ export function openAccount(): void {
       } }, h('label', {}, h('span', {}, t('handle')), h('div', { class: 'acct-input' }, handle, h('button', { class: 'pill', type: 'submit' }, t('saveBtn')))),
         h('small', { class: 'muted' }, t('handleRule'))),
       h('div', { class: 'acct-actions' },
-        h('button', { class: 'cta', 'data-testid': 'sync-now', onclick: () => void syncNow() }, h('span', { html: icon('reset', 15) }), t('syncNow')),
+        h('button', { class: 'cta', 'data-testid': 'sync-now', onclick: async () => { if (await syncNow()) render(); } }, h('span', { html: icon('reset', 15) }), t('syncNow')),
         h('button', { class: 'pill', 'data-testid': 'acct-export-backup', onclick: () => void import('./backup.ts').then(m => m.exportProgress()) }, h('span', { html: icon('download', 15) }), t('backup')),
         h('button', { class: 'pill', 'data-testid': 'sign-out', 'aria-expanded': 'false', onclick: (e: Event) => {
           // On a shared device the next child's sign-in would merge this child's stamps into their account, so ask.

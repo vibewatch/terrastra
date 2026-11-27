@@ -17,9 +17,18 @@ export function openTutorial(openTours?: () => void): void {
   const ring = h('div', { class: 'tut-ring', 'aria-hidden': 'true' });
   const card = h('div', { class: 'tut-card', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'tut-title', 'data-testid': 'tutorial' });
   const root = h('div', { class: 'tutorial' }, ring, card);
+  const placeRing = () => {
+    const st = STEPS[i];
+    const el = st.target ? document.querySelector(st.target) : null;
+    const r = el?.getBoundingClientRect();
+    if (r && st.target !== '#globe') {
+      Object.assign(ring.style, { display: 'block', left: `${r.left - 6}px`, top: `${r.top - 6}px`, width: `${r.width + 12}px`, height: `${r.height + 12}px` });
+    } else ring.style.display = 'none';
+  };
   const dismiss = () => {
     root.remove();
     document.removeEventListener('keydown', onKey, true);
+    window.removeEventListener('resize', placeRing);
     close = null;
   };
   const finish = (celebrate: boolean) => {
@@ -30,20 +39,16 @@ export function openTutorial(openTours?: () => void): void {
   const onKey = (e: KeyboardEvent) => {
     if (e.key === 'Tab') trapTab(e, card);
     else if (e.key === 'Escape') { e.stopPropagation(); finish(false); }
-    // Enter on a focused button (Skip, Tours) belongs to that button
+    // Enter on a focused button (Skip, Tours, Back) belongs to that button
     else if (e.key === 'ArrowRight' || (e.key === 'Enter' && !(e.target as Element | null)?.closest?.('button'))) { e.preventDefault(); go(i + 1); }
-    else if (e.key === 'ArrowLeft') go(i - 1);
+    else if (e.key === 'ArrowLeft') { e.preventDefault(); go(i - 1); }
   };
   const go = (k: number) => {
     if (k < 0) return;
     if (k >= STEPS.length) return finish(true);
     i = k;
     const st = STEPS[i];
-    const el = st.target ? document.querySelector(st.target) : null;
-    const r = el?.getBoundingClientRect();
-    if (r && st.target !== '#globe') {
-      Object.assign(ring.style, { display: 'block', left: `${r.left - 6}px`, top: `${r.top - 6}px`, width: `${r.width + 12}px`, height: `${r.height + 12}px` });
-    } else ring.style.display = 'none';
+    placeRing();
     const last = i === STEPS.length - 1;
     card.replaceChildren(
       h('p', { class: 'muted small' }, t('tutStep', { i: i + 1, n: STEPS.length })),
@@ -52,12 +57,14 @@ export function openTutorial(openTours?: () => void): void {
       h('div', { class: 'dots', 'aria-hidden': 'true' }, ...STEPS.map((_, j) => h('span', { class: j === i ? 'on' : '' }))),
       h('div', { class: 'row' },
         last ? null : h('button', { class: 'link', 'data-testid': 'tut-skip', onclick: () => finish(false) }, t('skip')),
+        i > 0 ? h('button', { class: 'pill', 'data-testid': 'tut-back', onclick: () => go(i - 1) }, t('tourBack')) : null,
         last && openTours ? h('button', { class: 'pill', 'data-testid': 'tut-tours', onclick: () => { finish(false); openTours(); } }, t('tourStart')) : null,
         h('button', { class: 'cta', 'data-testid': 'tut-next', onclick: () => go(i + 1) }, last ? t('done') : t('next'))));
     (card.querySelector('.cta') as HTMLButtonElement).focus();
   };
   document.body.append(root);
   document.addEventListener('keydown', onKey, true);
+  window.addEventListener('resize', placeRing);
   close = dismiss;
   go(0);
 }

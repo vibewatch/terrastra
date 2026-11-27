@@ -5,7 +5,7 @@
  */
 import { classroom } from '../lib/classroom.ts';
 import { h, toast } from '../ui/dom.ts';
-import { icon } from '../ui/icons.ts';
+import { icon, type IconName } from '../ui/icons.ts';
 import { Select } from '../ui/select.ts';
 import { t, lang, onLang, fmtNum } from '../lib/i18n.ts';
 import { sfx } from '../lib/sfx.ts';
@@ -29,7 +29,6 @@ import { SOLAR_SITES } from '../../shared/data/solar-sites.ts';
 import { starClass, starTempK } from '../../shared/data/nearby-stars.ts';
 import { DEEP_OBJECTS, MESSIER, SCALE_INFO, hubbleFlowKms, lookbackEarthEra, type DeepObject, type DeepKind, type DeepScale, type ScaleId } from '../../shared/data/cosmos.ts';
 import { messierGroup, type MessierGroup } from '../../shared/data/messier.ts';
-import type { CatalogueItem } from '../../shared/data/types.ts';
 
 type Sel = SolarSelection | { kind: 'deep'; o: DeepObject } | { kind: 'scale'; id: ScaleId };
 
@@ -745,7 +744,7 @@ export class SolarUI {
 
   /** Shared card layout: hero + chip + close, then name, description, key stats, "more" details, chip lists and a footer. */
   private paintCard(o: {
-    hero: HTMLElement; heroClass?: string; chip: string; eyebrowIcon: string; eyebrow: string; it: Readable;
+    hero: HTMLElement; heroClass?: string; chip: string; eyebrowIcon: IconName; eyebrow: string; it: Readable;
     key: [string, string][]; extra: [string, string][]; lists: (HTMLElement | null)[]; footer: (HTMLElement | null)[];
   }): void {
     const l = lang(), it = o.it, hasMore = o.extra.length > 0 || Boolean(it.funFact?.en);
@@ -806,7 +805,7 @@ export class SolarUI {
       if (x.model) {
         const recipe = x.model;
         void import('../models/preview.ts').then(({ createModelPreview }) => {
-          if (this.sel === s) hero.replaceChildren(createModelPreview({ key: x.key, model: recipe, emoji: x.emoji } as unknown as CatalogueItem, { id: x.key }));
+          if (this.sel === s) hero.replaceChildren(createModelPreview({ key: x.key, model: recipe, emoji: x.emoji, name: it.name }, { id: x.key }));
         });
       } else hero.append(h('span', { class: 'site-emoji' }, x.emoji));
       if (!x.helio) footer.push(h('button', { class: 'pill pill-sm', 'data-testid': 'solar-back-body', onclick: () => this.view.select(x.body) }, t('backTo', { p: tr(body.name, l) })));

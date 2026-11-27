@@ -46,8 +46,13 @@ export function importProgress(): void {
     const afterMistakeCount = Object.keys(mergeMistakeBook(curMistakes, parsed.mistakeBook)).length;
     const curBm = bookmarks();
     const afterBmCount = mergeBookmarks(curBm, parsed.bookmarks).length;
-    const row = (label: string, beforeVal: number, afterVal: number) =>
-      h('tr', {}, h('th', {}, label), h('td', {}, String(beforeVal)), h('td', {}, String(afterVal)));
+    const row = (label: string, beforeVal: number, afterVal: number) => {
+      const diff = afterVal - beforeVal;
+      return h('tr', {},
+        h('th', {}, label),
+        h('td', {}, String(beforeVal)),
+        h('td', {}, String(afterVal), diff > 0 ? h('small', { class: 'ok', style: 'margin-left:6px' }, `+${diff}`) : null));
+    };
     const line = (k: 'seen' | 'found' | 'stickers' | 'likes') => row(t('bk_' + k), now[k], after[k]);
     openModal('backup-import', t('backupImport'), h('div', { class: 'backup-preview', 'data-testid': 'backup-preview' },
       h('p', {}, t('backupMerge')),

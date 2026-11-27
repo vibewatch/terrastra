@@ -154,6 +154,7 @@ h2::before{content:counter(sec,decimal-leading-zero);color:var(--sig)}h2::after{
 /* ---- search + cards ---- */
 .search{margin:28px 0 20px;display:flex;align-items:center;gap:10px;max-width:440px;padding:0 14px;color:var(--dim);--bgc:var(--slab)}
 .search input{flex:1;background:none;border:0;outline:0;color:var(--hi);font:500 .9rem var(--mono);letter-spacing:.04em;padding:12px 0}.search input::placeholder{color:var(--dim);opacity:.7}.search:focus-within{--e:var(--edge-hi);border-color:var(--edge)}
+.search-n{font:500 .72rem var(--mono);color:var(--dim);white-space:nowrap}
 .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px;padding:0;margin:0;list-style:none}
 .card{position:relative;display:flex;gap:14px;align-items:center;padding:14px 16px;text-decoration:none;height:100%;transition:background-color .18s,border-color .18s,transform .18s var(--ease)}
 .card:hover{--bgc:var(--slab-hi);--e:var(--edge-hi);border-color:var(--edge);transform:translateY(-1px)}
@@ -219,10 +220,13 @@ footer nav{display:flex;gap:4px}footer nav a{display:inline-flex;align-items:cen
 @media (max-width:560px){.wrap{padding:0 16px}.top .btn{display:none}.brand{font-size:.9rem;letter-spacing:.1em}.reticle{transform:scale(.8)}.hc.tr,.hc.br{display:none}.pager{grid-template-columns:1fr}footer nav{flex-wrap:wrap}}
 @media print{html{color-scheme:light}body{background:#fff!important;color:#111!important}body::before,body::after,.top,.skip,.hero,.search,.pager,footer,.panel .btn{display:none!important}.item{grid-template-columns:1fr;gap:20px}main{padding:0!important}h1,h2,.stats dd,.card b{color:#000!important;text-shadow:none!important}.lead,.prose p,.stats dt,.fun,.near a{color:#222!important}.slab,.card,.panel,.stats,.fun,.rules li,.credit{clip-path:none!important;background:#fff!important;border:1px solid #cbd5e1!important}}`;
 
-const LANG_JS = `(function(){var d=document.documentElement,k='pp.lang',l,s=function(v){d.dataset.l=v;d.lang=v==='zh'?'zh-CN':'en'};try{l=JSON.parse(localStorage.getItem(k))}catch(e){}if(l!=='en'&&l!=='zh')l=(navigator.language||'').slice(0,2)==='zh'?'zh':'en';s(l);
+const LANG_JS = `(function(){var d=document.documentElement,k='pp.lang',l,s=function(v){d.dataset.l=v;d.lang=v==='zh'?'zh-CN':'en';var bs=document.querySelectorAll('[data-set]');for(var i=0;i<bs.length;i++)bs[i].setAttribute('aria-pressed',bs[i].dataset.set===v?'true':'false')};try{l=JSON.parse(localStorage.getItem(k))}catch(e){}if(l!=='en'&&l!=='zh')l=(navigator.language||'').slice(0,2)==='zh'?'zh':'en';s(l);
+document.addEventListener('DOMContentLoaded',function(){s(d.dataset.l||'en')});
 document.addEventListener('click',function(e){var b=e.target.closest&&e.target.closest('[data-set]');if(!b)return;s(b.dataset.set);try{localStorage.setItem(k,JSON.stringify(b.dataset.set))}catch(e){}});})();`;
-const FILTER_JS = `(function(){var q=document.getElementById('q');if(!q)return;var cs=[].slice.call(document.querySelectorAll('[data-q]')),em=document.querySelector('.empty');
-q.addEventListener('input',function(){var v=q.value.trim().toLowerCase(),n=0;cs.forEach(function(c){var on=!v||c.dataset.q.indexOf(v)>=0;c.hidden=!on;n+=on?1:0});em.style.display=n?'none':'block'})})();`;
+const FILTER_JS = `(function(){var q=document.getElementById('q');if(!q)return;var cs=[].slice.call(document.querySelectorAll('[data-q]')),em=document.querySelector('.empty'),qn=document.getElementById('qn'),tot=cs.length;
+var upd=function(){var v=q.value.trim().toLowerCase(),n=0;cs.forEach(function(c){var on=!v||c.dataset.q.indexOf(v)>=0;c.hidden=!on;n+=on?1:0});if(em)em.style.display=n?'none':'block';if(qn)qn.textContent=v?(n+' / '+tot):String(tot)};
+q.addEventListener('input',upd);q.addEventListener('keydown',function(e){if(e.key==='Escape'&&q.value){e.preventDefault();q.value='';upd()}});
+document.addEventListener('keydown',function(e){if(e.key==='/'&&document.activeElement!==q&&!e.metaKey&&!e.ctrlKey&&!e.altKey){e.preventDefault();q.focus()}});upd()})();`;
 
 const MARK = '<span class="mark" aria-hidden="true"></span>';
 const BRAND = T('Terrastra', '寰星');
@@ -312,15 +316,40 @@ page('/encyclopedia/', 'Encyclopedia — Terrastra', `Explore ${allTotal} places
 <p class="sub">${bi(T(`${total} 3D wonders plus ${GAZETTEER.length} physical-geography features waiting on the globe.`, `${total} 个 3D 奇观模型与 ${GAZETTEER.length} 个自然地理单元，都在地球上等你发现。`))}</p>
 <h2>${bi(T('Sections', '分类'))}</h2><ul class="cards hub">${SECTIONS.map((s, i) => `<li><a class="card" href="/${s.dir}/"><span class="tile" aria-hidden="true">${icon(s.icon, 22)}</span>
 <span><b>${bi(s.title)}</b><small>${bi(s.hint)}</small><small class="count"><strong>${s.items.length}</strong>${bi(T('entries', '个条目'))}</small></span><i class="idx">${pad(i + 1)}</i></a></li>`).join('')}<li><a class="card" href="/${GEO_DIR}/"><span class="tile" aria-hidden="true">${icon('compass', 22)}</span>
-<span><b>${bi(GEO_TITLE)}</b><small>${bi(GEO_HINT)}</small><small class="count"><strong>${GAZETTEER.length}</strong>${bi(T('entries', '个条目'))}</small></span><i class="idx">${pad(SECTIONS.length + 1)}</i></a></li></ul>`, { current: 'hub' });
+<span><b>${bi(GEO_TITLE)}</b><small>${bi(GEO_HINT)}</small><small class="count"><strong>${GAZETTEER.length}</strong>${bi(T('entries', '个条目'))}</small></span><i class="idx">${pad(SECTIONS.length + 1)}</i></a></li></ul>`,
+  {
+    current: 'hub',
+    jsonld: {
+      '@context': 'https://schema.org',
+      '@type': 'CollectionPage',
+      name: 'Terrastra Encyclopedia',
+      alternateName: '寰星百科',
+      url: `${SITE}/encyclopedia/`,
+      inLanguage: ['en', 'zh-CN'],
+      numberOfItems: allTotal,
+      isPartOf: { '@type': 'WebSite', name: 'Terrastra', alternateName: '寰星', url: `${SITE}/` },
+    },
+  });
 
 for (const [si, s] of SECTIONS.entries()) {
   page(`/${s.dir}/`, `${s.title.en} — Terrastra`, `Explore ${s.items.length} ${s.title.en.toLowerCase()} on a friendly 3D globe for kids.`,
     `<nav class="crumbs"><a href="/encyclopedia/">${bi(T('Encyclopedia', '百科'))}</a><span>/</span>${pad(si + 1)}</nav>
 <p class="eyebrow">${s.items.length} ${bi(T('entries', '个条目'))}</p><h1>${bi(s.title)}</h1><p class="sub">${bi(s.hint)}</p>
-<label class="search">${icon('search', 16)}<input id="q" type="search" placeholder="Search · 搜索" aria-label="Search"></label>
+<label class="search">${icon('search', 16)}<input id="q" type="search" placeholder="Search · 搜索 (/)" aria-label="Search"><span id="qn" class="search-n" aria-live="polite">${s.items.length}</span></label>
 <ul class="cards">${s.items.map((it, i) => card(it, s.dir, s.icon, i)).join('')}</ul><p class="empty">${bi(T('Nothing found', '没有找到'))}</p>`,
-    { current: s.dir, script: FILTER_JS, crumbs: [['Encyclopedia', '/encyclopedia/'], [s.title.en, `/${s.dir}/`]] });
+    {
+      current: s.dir,
+      script: FILTER_JS,
+      crumbs: [['Encyclopedia', '/encyclopedia/'], [s.title.en, `/${s.dir}/`]],
+      jsonld: {
+        '@context': 'https://schema.org',
+        '@type': 'CollectionPage',
+        name: `${s.title.en} — Terrastra`,
+        alternateName: s.title.zh,
+        inLanguage: ['en', 'zh-CN'],
+        numberOfItems: s.items.length,
+      },
+    });
   urls.push(`/${s.dir}/`);
   s.items.forEach((it, i) => {
     const path = `/${s.dir}/${it.slug}/`;
@@ -332,6 +361,8 @@ for (const [si, s] of SECTIONS.entries()) {
     const wh = where(it);
     const code = `${pad(si + 1)}·${pad(i + 1, 3)}`;
     const isPlaceType = !it.route && ['landmark', 'natural', 'volcano', 'discovery'].includes(it.type);
+    const itemLessons = relatedLessonsForPlace(it.key, it.type === 'volcano' ? 'mountain' : it.type, [wh.en, it.name.en, it.desc.en].join(' '));
+    const itemLessonTag = (id: string): Bi => !STRIP_PUBLIC_PRO ? T('3D Class', '互动课') : isFreeLesson(id) ? T('Free', '免费') : T('Pro', 'Pro');
     page(path, `${it.name.en} — Terrastra`, it.desc.en,
       `<nav class="crumbs"><a href="/encyclopedia/">${bi(T('Encyclopedia', '百科'))}</a><span>/</span><a href="/${s.dir}/">${bi(s.title)}</a><span>/</span>${code}</nav>
 <div class="item"><article>
@@ -347,6 +378,7 @@ ${w[1] ? `<a class="card" href="${wikiUrl('zh', w[1])}" rel="noopener" lang="zh-
 <nav class="pager"><a class="card" href="/${s.dir}/${prev.slug}/"><small>← ${bi(T('Previous', '上一个'))}</small>${bi(prev.name)}</a><a class="card" href="/${s.dir}/${next.slug}/"><small>${bi(T('Next', '下一个'))} →</small>${bi(next.name)}</a></nav>
 </article><aside class="side">
 <div class="panel"><a class="btn sig" href="/#${it.key}">${icon('globe', 16)}${bi(T('See it on the 3D globe', '在 3D 地球上查看'))}</a></div>
+${itemLessons.length ? `<div class="panel" data-testid="item-page-lessons"><h3>${bi(T('Interactive Geography Class', '关联互动地理课'))}</h3><ul class="near">${itemLessons.map(ls => `<li><a href="/#lesson/${esc(ls.id)}">${icon('book', 16)}${bi(ls.title)}<i>${bi(itemLessonTag(ls.id))}</i></a></li>`).join('')}</ul></div>` : ''}
 ${it.route ? '' : `<div class="panel"><h3>${bi(T('Location', '位置'))}</h3><p class="mono" style="margin:0">${coord(it.lat, it.lon)}</p></div>`}
 ${near.length ? `<div class="panel"><h3>${bi(T('Nearby', '附近'))}</h3><ul class="near">${near.map(({ o, d }) => { const os = SECTION_OF.get(o.key)!; return `<li><a href="/${os.dir}/${o.slug}/">${icon(os.icon, 16)}${bi(o.name)}<i>${num(Math.round(d))} km</i></a></li>`; }).join('')}</ul></div>` : ''}
 </aside></div>`,
@@ -360,7 +392,8 @@ ${near.length ? `<div class="panel"><h3>${bi(T('Nearby', '附近'))}</h3><ul cla
           name: it.name.en,
           alternateName: it.name.zh,
           description: it.desc.en,
-          ...(w ? { sameAs: [wikiUrl('en', w[0])] } : {}),
+          inLanguage: ['en', 'zh-CN'],
+          ...(w ? { sameAs: [wikiUrl('en', w[0]), ...(w[1] ? [wikiUrl('zh', w[1])] : [])] } : {}),
           ...(isPlaceType ? { geo: { '@type': 'GeoCoordinates', latitude: it.lat, longitude: it.lon } } : {}),
         },
       });
@@ -375,9 +408,21 @@ const geoSearchKey = (g: (typeof GAZETTEER)[number]) =>
 page(`/${GEO_DIR}/`, `${GEO_TITLE.en} — Terrastra`, `Explore ${GAZETTEER.length} seas, trenches, mountain ranges, plateaus, plains, basins, straits and rivers on Terrastra's interactive 3D globe.`,
   `<nav class="crumbs"><a href="/encyclopedia/">${bi(T('Encyclopedia', '百科'))}</a><span>/</span>${pad(geoSecIdx)}</nav>
 <p class="eyebrow">${GAZETTEER.length} ${bi(T('entries', '个条目'))}</p><h1>${bi(GEO_TITLE)}</h1><p class="sub">${bi(GEO_HINT)}</p>
-<label class="search">${icon('search', 16)}<input id="q" type="search" placeholder="Search · 搜索" aria-label="Search"></label>
+<label class="search">${icon('search', 16)}<input id="q" type="search" placeholder="Search · 搜索 (/)" aria-label="Search"><span id="qn" class="search-n" aria-live="polite">${GAZETTEER.length}</span></label>
 <ul class="cards">${GAZETTEER.map((g, i) => `<li data-q="${geoSearchKey(g)}"><a class="card" href="/${GEO_DIR}/${geoSlug(g.key)}/"><span class="tile" aria-hidden="true">${esc(g.emoji)}</span><span><b>${bi(g.name)}</b><small>${bi(GEO_KIND_LABEL[g.kind])} · ${bi(g.region)}</small></span><i class="idx">${pad(i + 1, 3)}</i></a></li>`).join('')}</ul><p class="empty">${bi(T('Nothing found', '没有找到'))}</p>`,
-  { current: GEO_DIR, script: FILTER_JS, crumbs: [['Encyclopedia', '/encyclopedia/'], [GEO_TITLE.en, `/${GEO_DIR}/`]] });
+  {
+    current: GEO_DIR,
+    script: FILTER_JS,
+    crumbs: [['Encyclopedia', '/encyclopedia/'], [GEO_TITLE.en, `/${GEO_DIR}/`]],
+    jsonld: {
+      '@context': 'https://schema.org',
+      '@type': 'CollectionPage',
+      name: `${GEO_TITLE.en} — Terrastra`,
+      alternateName: GEO_TITLE.zh,
+      inLanguage: ['en', 'zh-CN'],
+      numberOfItems: GAZETTEER.length,
+    },
+  });
 urls.push(`/${GEO_DIR}/`);
 GAZETTEER.forEach((g, i) => {
   const slug = geoSlug(g.key);
@@ -425,7 +470,8 @@ ${near.length ? `<div class="panel"><h3>${bi(T('Nearby 3D wonders', '周边 3D �
         name: g.name.en,
         alternateName: g.name.zh,
         description: g.desc.en,
-        sameAs: [wikiUrl('en', w[0])],
+        inLanguage: ['en', 'zh-CN'],
+        sameAs: [wikiUrl('en', w[0]), ...(w[1] ? [wikiUrl('zh', w[1])] : [])],
         geo: { '@type': 'GeoCoordinates', latitude: g.lat, longitude: g.lon },
       },
     });
