@@ -14,6 +14,7 @@ import { HAS_API } from '../lib/env.ts';
 import { load, save } from '../lib/storage.ts';
 import { canUsePro, effectivePlan, getLastBillingSyncAt, isPaywallEnabled, scheduleSync, setBilling, store } from '../store.ts';
 import { classroomLink } from '../lib/classroom.ts';
+import { narrate, narrationSupported, splitSentences, type Narration } from '../lib/narrate.ts';
 import { ssbsLink } from '../lib/ssbs.ts';
 import { countryAt } from '../globe/borders.ts';
 import { haversineKm } from '../../shared/lib/geo.ts';
@@ -40,6 +41,7 @@ import { optionOrder, shuffled } from './shuffle.ts';
 import type { AstroScene, Home, LL, Pair } from './kit.ts';
 import {
   clearMasteredMistakes,
+  computeJournalMastery,
   formatMistakeSheetMarkdown,
   listMistakes,
   mistakeKey,
@@ -109,6 +111,36 @@ export function nextForJournal(id: string): string {
   const v = view(sub);
   const nx = nextLessonMeta(id, v) ?? (v === 'all' ? undefined : nextLessonMeta(id, 'all'));
   return nx?.id ?? id;
+}
+
+/** Formats a clean bilingual Markdown study sheet for a lesson (steps, key takeaways, and optional quiz score). */
+export function formatLessonStudyGuideMarkdown(
+  lesson: Lesson,
+  l: 'en' | 'zh',
+  score?: { got: number; total: number },
+): string {
+  const trPair = (p: Pair) => (l === 'zh' ? p[1] : p[0]);
+  const lines: string[] = [
+    `# ${trPair(lesson.title)}`,
+    `> ${trPair(lesson.unit)} · ~${lesson.minutes} min${score && score.total > 0 ? ` · ${l === 'zh' ? '测验得分' : 'Quiz score'}: ${score.got}/${score.total}` : ''}`,
+    '',
+    trPair(lesson.blurb),
+    '',
+  ];
+  if (lesson.steps.length > 0) {
+    lines.push(`## ${l === 'zh' ? '课程脉络' : 'Lesson Steps'}`);
+    lesson.steps.forEach((st, idx) => {
+      lines.push(`${idx + 1}. **${trPair(st.title)}** — ${trPair(st.body)}`);
+    });
+    lines.push('');
+  }
+  if (lesson.keys.length > 0) {
+    lines.push(`## ${l === 'zh' ? '核心要点' : 'Key Takeaways'}`);
+    for (const k of lesson.keys) lines.push(`- ${trPair(k)}`);
+    lines.push('');
+  }
+  lines.push(`_${l === 'zh' ? '导出自 Terrastra 寰星互动课堂' : 'Exported from Terrastra Interactive Lessons'}_`);
+  return lines.join('\n');
 }
 
 export function startLesson(id: string, host: LessonHost, opts?: { resume?: boolean; attempt?: number }): void {
@@ -226,6 +258,56 @@ function run(lesson: Lesson, host: LessonHost, resume = false, reviewKeys?: stri
   /** What was done on each answered question, so going Back shows it as it was. */
   const kept: ({ picked: number | null; tap: Tap | null; work: ReturnType<typeof fresh> } | undefined)[] = [];
   let stopped = false;
+  let lessonSpeech: Narration | null = null;
+  const stopSpeech = () => {
+    if (!lessonSpeech) return;
+    const cur = lessonSpeech;
+    lessonSpeech = null;
+    cur.stop();
+  };
+  const speakLines = (): string[] => {
+    if (picking) return [L(lesson.title), t('lessonHomeAsk')];
+    if (i < steps.length) {
+      const st = steps[i];
+      return [L(st.title), ...splitSentences(L(st.body)), ...(st.task ? splitSentences(L(st.task)) : [])];
+    }
+    if (i < steps.length + quiz.length) {
+      const k = i - steps.length, q = quiz[k];
+      return [L(q.q), ...(answers[k] !== null ? splitSentences(L(q.why)) : [])];
+    }
+    return [L(lesson.title), ...lesson.keys.map(L)];
+  };
+  const toggleSpeech = (btn: HTMLButtonElement) => {
+    if (lessonSpeech) {
+      stopSpeech();
+      btn.setAttribute('aria-pressed', 'false');
+      btn.setAttribute('aria-label', t('listen'));
+      btn.title = t('listen');
+      btn.innerHTML = icon('sound', 15);
+      return;
+    }
+    const segs = speakLines();
+    lessonSpeech = narrate(segs, lang(), {
+      sentence: () => {},
+      end: () => {
+        lessonSpeech = null;
+        if (btn.isConnected) {
+          btn.setAttribute('aria-pressed', 'false');
+          btn.setAttribute('aria-label', t('listen'));
+          btn.title = t('listen');
+          btn.innerHTML = icon('sound', 15);
+        }
+      },
+    });
+    if (lessonSpeech) {
+      btn.setAttribute('aria-pressed', 'true');
+      btn.setAttribute('aria-label', t('listenStop'));
+      btn.title = t('listenStop');
+      btn.innerHTML = icon('pause', 15);
+    } else {
+      toast(t('noSpeech'));
+    }
+  };
   const isMistakeSession = Array.isArray(reviewKeys) && reviewKeys.length > 0;
   const setAnswer = (k: number, ok: boolean) => {
     answers[k] = ok;
@@ -290,11 +372,24 @@ function run(lesson: Lesson, host: LessonHost, resume = false, reviewKeys?: stri
   };
 
   /** the lesson's name, where the learner is, and a hairline of progress through steps and quiz */
-  const head = (sub: string, done = (i + 1) / (steps.length + quiz.length)) => h('header', { class: 'tour-head' },
-    h('span', { class: 'tour-kicker', html: icon(lesson.icon, 14) }, h('span', { class: 'kick-t', title: L(lesson.title) }, L(lesson.title))),
-    h('span', { class: 'lesson-step', 'data-testid': 'lesson-step' }, sub),
-    h('button', { class: 'icon-btn tour-x', 'aria-label': t('lessonExit'), 'data-testid': 'lesson-exit', html: icon('close', 16), onclick: () => stop() }),
-    h('i', { class: 'lesson-prog', 'aria-hidden': 'true', style: `--p:${Math.min(1, done).toFixed(3)}` }));
+  const head = (sub: string, done = (i + 1) / (steps.length + quiz.length)) => {
+    const speakBtn = narrationSupported() ? h('button', {
+      type: 'button',
+      class: 'icon-btn lesson-speak-btn',
+      'aria-pressed': String(!!lessonSpeech),
+      'aria-label': t(lessonSpeech ? 'listenStop' : 'listen'),
+      title: t(lessonSpeech ? 'listenStop' : 'listen'),
+      'data-testid': 'lesson-speak',
+      html: icon(lessonSpeech ? 'pause' : 'sound', 15),
+      onclick: (ev: Event) => toggleSpeech(ev.currentTarget as HTMLButtonElement),
+    }) as HTMLButtonElement : null;
+    return h('header', { class: 'tour-head' },
+      h('span', { class: 'tour-kicker', html: icon(lesson.icon, 14) }, h('span', { class: 'kick-t', title: L(lesson.title) }, L(lesson.title))),
+      h('span', { class: 'lesson-step', 'data-testid': 'lesson-step' }, sub),
+      speakBtn,
+      h('button', { class: 'icon-btn tour-x', 'aria-label': t('lessonExit'), 'data-testid': 'lesson-exit', html: icon('close', 16), onclick: () => stop() }),
+      h('i', { class: 'lesson-prog', 'aria-hidden': 'true', style: `--p:${Math.min(1, done).toFixed(3)}` }));
+  };
 
   const nav = (back: (() => void) | null, next: () => void, label: string, nextOff = false) => h('div', { class: 'row' },
     h('button', { class: 'pill', 'data-testid': 'lesson-back', disabled: !back, onclick: () => back?.() }, t('tourBack')),
@@ -482,6 +577,15 @@ function run(lesson: Lesson, host: LessonHost, resume = false, reviewKeys?: stri
       h('div', { class: 'row' },
         h('button', { class: 'pill', 'data-testid': 'lesson-more', onclick: () => { stop(); openLessons(host, sub); } }, t('lessonMore')),
         h('button', { class: 'pill', 'data-testid': 'lesson-again', onclick: again }, t('lessonAgain')),
+        !isMistakeSession ? h('button', {
+          class: 'pill',
+          'data-testid': 'lesson-copy-notes',
+          onclick: () => void copyText(
+            formatLessonStudyGuideMarkdown({ ...lesson, steps, quiz }, lang(), { got: s, total: quiz.length }),
+            t('lessonNotesCopied'),
+            t('lessonCopyNotes'),
+          ),
+        }, h('span', { html: icon('copy', 13) }), ' ', t('lessonCopyNotes')) : '',
         missedIdx.length > 0 ? h('button', { class: 'pill', 'data-testid': 'lesson-retry-missed', onclick: retryMissed }, t('mistake.retryRun', { n: missedIdx.length })) : '',
         lesson.build ? h('button', { class: 'pill', 'data-testid': 'lesson-home-again', onclick: () => askHome() }, t('lessonHomeOther')) : '',
         nx ? h('button', { class: 'cta', 'data-testid': 'lesson-nextlesson', title: L(nx.title), onclick: () => { stop(); startLesson(nx.id, host); } }, t('lessonNextOne'))
@@ -625,6 +729,7 @@ function run(lesson: Lesson, host: LessonHost, resume = false, reviewKeys?: stri
 
   const go = (k: number) => {
     if (k < 0 || k > steps.length + quiz.length) return;
+    stopSpeech();
     const qi = (n: number) => (n >= steps.length && n < steps.length + quiz.length ? n - steps.length : -1);
     if (qi(i) >= 0) kept[qi(i)] = { picked, tap, work };
     i = k;
@@ -707,6 +812,10 @@ function run(lesson: Lesson, host: LessonHost, resume = false, reviewKeys?: stri
         }
       }
     }
+    if (e.key === ' ' && !tgt?.closest('button, a')) {
+      const playBtn = card.querySelector<HTMLButtonElement>('[data-testid="lesson-play"]:not([disabled])');
+      if (playBtn) { e.preventDefault(); playBtn.click(); return; }
+    }
     if (e.key === 'Enter' && !tgt?.closest('button, a')) {
       const action = card.querySelector<HTMLButtonElement>('[data-testid="lesson-check"]:not([disabled]), [data-testid="lesson-next"]:not([disabled])');
       if (action) { e.preventDefault(); action.click(); }
@@ -715,6 +824,7 @@ function run(lesson: Lesson, host: LessonHost, resume = false, reviewKeys?: stri
 
   const stop = () => {
     stopped = true;
+    stopSpeech();
     document.removeEventListener('keydown', onKey);
     offLang();
     g.captureTaps = false; g.ev.onGlobeTap = undefined;
@@ -728,7 +838,7 @@ function run(lesson: Lesson, host: LessonHost, resume = false, reviewKeys?: stri
     if (active === self) active = null;
   };
   document.addEventListener('keydown', onKey);
-  const offLang = onLang(() => { stage.relabel(); astro?.relabel(); render(); });
+  const offLang = onLang(() => { stopSpeech(); stage.relabel(); astro?.relabel(); render(); });
   const self = { stop };
   active = self;
   document.body.append(root);
@@ -778,9 +888,11 @@ export function openLessons(host: LessonHost, sub: Subject = 'geo', initialQuery
   const filterWrap = h('div', { class: 'lesson-filter-bar', 'data-testid': 'lesson-filter-bar' });
   const note = h('p', { class: 'muted small' });
   let notebookOpen = false;
+  let mistakeFilter: 'all' | 'todo' | 'mastered' = 'all';
+  let mistakeQuery = '';
   let curView = view(sub);
   let searchQuery = initialQuery.trim();
-  let filterMode: 'all' | 'free' | 'todo' | 'exam' = 'all';
+  let filterMode: 'all' | 'free' | 'todo' | 'done' | 'exam' = 'all';
 
   const subjectTitle = () => t(sub === 'astro' ? 'astroLessons' : sub === 'ssbs' ? 'ssbsLessons' : 'lessons');
 
@@ -788,6 +900,19 @@ export function openLessons(host: LessonHost, sub: Subject = 'geo', initialQuery
     const all = listMistakes(mistakes(), { status: 'all', filterFn: id => subjectOf(id) === sub });
     const todo = all.filter(e => !e.mastered);
     const mastered = all.filter(e => e.mastered);
+    if (mistakeFilter === 'todo' && todo.length === 0) mistakeFilter = 'all';
+    if (mistakeFilter === 'mastered' && mastered.length === 0) mistakeFilter = 'all';
+    const mq = mistakeQuery.trim().toLowerCase();
+    const visibleWithIdx = all
+      .map((e, origIdx) => ({ e, origIdx }))
+      .filter(({ e }) => {
+        if (mistakeFilter === 'todo' && e.mastered) return false;
+        if (mistakeFilter === 'mastered' && !e.mastered) return false;
+        if (!mq) return true;
+        const src = lessonMetaById(e.lessonId);
+        const hay = `${e.lessonId} ${src ? src.title[0] + ' ' + src.title[1] : ''} ${e.q[0]} ${e.q[1]} ${e.tag ? e.tag[0] + ' ' + e.tag[1] : ''} ${e.why[0]} ${e.why[1]}`.toLowerCase();
+        return hay.includes(mq);
+      });
     const exportSheet = () => {
       const proOk = canUsePro();
       const exported = proOk ? all : all.slice(0, FREE_MISTAKE_LIMIT);
@@ -854,9 +979,45 @@ export function openLessons(host: LessonHost, sub: Subject = 'geo', initialQuery
                 renderMistakes();
               },
             }, notebookOpen ? t('mistake.hideBtn') : t('mistake.viewBtn', { n: all.length }))) : null),
+        notebookOpen && all.length > 0 ? h('div', { class: 'mistake-toolbar', 'data-testid': 'mistake-toolbar' },
+          h('div', { class: 'mistake-filter-chips' },
+            ...([
+              { id: 'all' as const, label: t('mistake.filterAll', { n: all.length }) },
+              { id: 'todo' as const, label: t('mistake.filterTodo', { n: todo.length }), hide: todo.length === 0 },
+              { id: 'mastered' as const, label: t('mistake.filterMastered', { n: mastered.length }), hide: mastered.length === 0 },
+            ]).filter(x => !x.hide).map(opt => h('button', {
+              type: 'button',
+              class: 'pill pill-sm lesson-chip' + (mistakeFilter === opt.id ? ' on' : ''),
+              'aria-pressed': String(mistakeFilter === opt.id),
+              'data-testid': 'mistake-filter-' + opt.id,
+              onclick: () => {
+                mistakeFilter = opt.id;
+                renderMistakes();
+              },
+            }, opt.label))),
+          all.length >= 3 ? h('input', {
+            type: 'search',
+            class: 'mistake-search-input',
+            value: mistakeQuery,
+            placeholder: t('mistake.searchPlaceholder'),
+            'aria-label': t('mistake.searchPlaceholder'),
+            'data-testid': 'mistake-search',
+            oninput: (ev: Event) => {
+              mistakeQuery = (ev.currentTarget as HTMLInputElement).value;
+              renderMistakes();
+              const nextInput = mistakeBox.querySelector<HTMLInputElement>('[data-testid="mistake-search"]');
+              if (nextInput) {
+                nextInput.focus({ preventScroll: true });
+                const len = nextInput.value.length;
+                nextInput.setSelectionRange(len, len);
+              }
+            },
+          }) : null) : null,
         notebookOpen && all.length > 0 ? h('div', { class: 'mistake-list', 'data-testid': 'mistake-list' },
-          ...all.map((e, idx) => {
-            const lockedCard = !canUsePro() && idx >= FREE_MISTAKE_LIMIT;
+          ...(visibleWithIdx.length === 0
+            ? [h('p', { class: 'muted small', 'data-testid': 'mistake-filter-empty', style: 'margin:4px 0' }, t('mistake.filterEmpty'))]
+            : visibleWithIdx.map(({ e, origIdx }) => {
+                const lockedCard = !canUsePro() && origIdx >= FREE_MISTAKE_LIMIT;
             const srcLesson = lessonMetaById(e.lessonId);
             const lessonName = srcLesson ? L(srcLesson.title) : e.lessonId;
             if (lockedCard) {
@@ -915,7 +1076,7 @@ export function openLessons(host: LessonHost, sub: Subject = 'geo', initialQuery
                     renderMistakes();
                   },
                 }, t('mistake.remove'))));
-          })) : null));
+          }))) : null));
   };
 
   const renderJournal = (v: string) => {
@@ -948,6 +1109,7 @@ export function openLessons(host: LessonHost, sub: Subject = 'geo', initialQuery
       : undefined;
 
     const completedCount = [...seen].filter(id => subjectOf(id) === sub).length;
+    const mastery = computeJournalMastery(jMap, id => subjectOf(id) === sub && !!lessonMetaById(id));
     const scoredEntries = subEntries.filter(e => e.bestScore !== null && e.quizTotal > 0);
     const totalGot = scoredEntries.reduce((acc, e) => acc + (e.bestScore ?? 0), 0);
     const totalPts = scoredEntries.reduce((acc, e) => acc + e.quizTotal, 0);
@@ -960,7 +1122,12 @@ export function openLessons(host: LessonHost, sub: Subject = 'geo', initialQuery
             h('span', { class: 'muted small' },
               totalPts > 0
                 ? t('journal.statsScore', { done: completedCount, got: totalGot, total: totalPts })
-                : t('journal.statsDone', { done: completedCount }))),
+                : t('journal.statsDone', { done: completedCount })),
+            mastery.averageAccuracyPct !== null ? h('span', {
+              class: 'mistake-status-badge ok',
+              'data-testid': 'lesson-mastery-pct',
+              style: 'margin-left:6px',
+            }, t('lessonMasteryBadge', { pct: mastery.averageAccuracyPct })) : null),
           targetLesson ? h('p', { class: 'lj-sub' },
             isMid && cont
               ? `${L(targetLesson.title)} · ${t('lessonInProg', { i: cont.stepIndex + 1, n: cont.totalSteps })}`
@@ -995,12 +1162,15 @@ export function openLessons(host: LessonHost, sub: Subject = 'geo', initialQuery
   const renderChips = () => {
     const lockedUi = isPaywallEnabled() && !canUsePro();
     const hasExams = cat.course('all').some(g => g.lessons.some(x => x.exam));
+    const hasDone = [...seen].some(id => subjectOf(id) === sub);
     if (filterMode === 'free' && !lockedUi) filterMode = 'all';
     if (filterMode === 'exam' && !hasExams) filterMode = 'all';
-    const opts: { id: 'all' | 'free' | 'todo' | 'exam'; label: string }[] = [
+    if (filterMode === 'done' && !hasDone) filterMode = 'all';
+    const opts: { id: 'all' | 'free' | 'todo' | 'done' | 'exam'; label: string }[] = [
       { id: 'all', label: t('lessonFilterAll') },
       ...(lockedUi ? [{ id: 'free' as const, label: t('lessonFilterFree') }] : []),
       { id: 'todo', label: t('lessonFilterTodo') },
+      ...(hasDone ? [{ id: 'done' as const, label: t('lessonFilterDone') }] : []),
       ...(hasExams ? [{ id: 'exam' as const, label: t('lessonFilterExam') }] : []),
     ];
     chipsBox.replaceChildren(...opts.map(o => h('button', {
@@ -1022,6 +1192,7 @@ export function openLessons(host: LessonHost, sub: Subject = 'geo', initialQuery
     const matchesLesson = (x: import('./catalog.ts').LessonMeta) => {
       if (filterMode === 'free' && !isFreeLesson(x.id)) return false;
       if (filterMode === 'todo' && seen.has(x.id)) return false;
+      if (filterMode === 'done' && !seen.has(x.id)) return false;
       if (filterMode === 'exam' && !x.exam) return false;
       if (!q) return true;
       const hay = `${x.id} ${x.title[0]} ${x.title[1]} ${x.unit[0]} ${x.unit[1]} ${x.blurb[0]} ${x.blurb[1]}`.toLowerCase();

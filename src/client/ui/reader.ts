@@ -2,10 +2,11 @@
  * In-app reader: opens beside the info card (same screen, horizontal expansion) and shows the item's Wikipedia
  * article in the chosen language, plus nearby places and attribution. Loaded lazily on first "Read more".
  */
-import { h } from './dom.ts';
+import { h, toast } from './dom.ts';
 import { icon } from './icons.ts';
 import { t, lang, fmtNum } from '../lib/i18n.ts';
 import { url } from '../lib/env.ts';
+import { narrate, narrationSupported, splitSentences, type Narration } from '../lib/narrate.ts';
 import { articleUrl, fetchArticle, type WikiArticle, type WikiSection } from '../lib/wikipedia.ts';
 import { WIKI } from '../../shared/data/wiki.ts';
 import { CATALOGUE } from '../../shared/data/catalogue.ts';
@@ -27,8 +28,22 @@ export class Reader {
   readonly el: HTMLElement;
   private scroller = h('div', { class: 'reader-scroll' });
   private seg = h('div', { class: 'reader-lang', role: 'group', 'aria-label': t('language') });
+  private listenBtn = h('button', {
+    class: 'icon-btn reader-listen',
+    type: 'button',
+    disabled: true,
+    'aria-pressed': 'false',
+    'aria-label': t('listen'),
+    title: t('listen'),
+    'data-testid': 'reader-listen',
+    html: icon('sound', 16),
+    onclick: () => this.toggleAudio(),
+  }) as HTMLButtonElement;
   private ext = h('a', { class: 'icon-btn', target: '_blank', rel: 'noopener', 'aria-label': t('readerOpenWiki'), 'data-testid': 'reader-wiki-link', html: icon('external', 16) });
   private item: Readable | null = null;
+  private currentArt: WikiArticle | null = null;
+  private leadBox: HTMLElement | null = null;
+  private audio: Narration | null = null;
   private readLang: Lang = lang();
   private shown = '';
   private seq = 0;
@@ -36,10 +51,65 @@ export class Reader {
   constructor(private hooks: ReaderHooks) {
     this.el = h('section', { class: 'reader', 'data-testid': 'reader', 'aria-label': 'Wikipedia' },
       h('header', { class: 'reader-bar' },
-        h('button', { class: 'icon-btn reader-back', 'aria-label': t('readerClose'), 'data-testid': 'reader-close', html: icon('collapse', 16), onclick: () => this.hooks.close() }),
+        h('button', { class: 'icon-btn reader-back', 'aria-label': t('readerClose'), 'data-testid': 'reader-close', html: icon('collapse', 16), onclick: () => { this.hide(); this.hooks.close(); } }),
         h('span', { class: 'reader-src' }, h('b', { class: 'wiki-w', 'aria-hidden': 'true' }, 'W'), h('span', {}, 'Wikipedia')),
-        this.seg, this.ext),
+        this.seg,
+        narrationSupported() ? this.listenBtn : null,
+        this.ext),
       this.scroller);
+  }
+
+  /** Stops any active reader speech when the drawer folds closed. */
+  hide(): void {
+    this.stopAudio();
+  }
+
+  private stopAudio(): void {
+    if (this.audio) {
+      const a = this.audio;
+      this.audio = null;
+      a.stop();
+    }
+    this.syncListenBtn(false);
+  }
+
+  private syncListenBtn(playing: boolean): void {
+    this.listenBtn.disabled = !this.currentArt || this.currentArt.lead.length === 0;
+    this.listenBtn.setAttribute('aria-pressed', String(playing));
+    const lbl = t(playing ? 'listenStop' : 'listen');
+    this.listenBtn.setAttribute('aria-label', lbl);
+    this.listenBtn.setAttribute('title', lbl);
+    this.listenBtn.innerHTML = icon(playing ? 'pause' : 'sound', 16);
+  }
+
+  private toggleAudio(): void {
+    if (this.audio) {
+      this.stopAudio();
+      return;
+    }
+    const a = this.currentArt;
+    if (!a || !this.leadBox) return;
+    const l = a.lang;
+    const spans: HTMLElement[] = [];
+    this.leadBox.replaceChildren(...a.lead.map(para => {
+      const parts = splitSentences(para).map(s => h('span', { class: 'say' }, s + (l === 'zh' ? '' : ' ')));
+      spans.push(...parts);
+      return h('p', {}, ...parts);
+    }));
+    const headerLine = a.title + (a.description ? ` — ${a.description}` : '') + (l === 'zh' ? '。' : '.');
+    this.audio = narrate([headerLine, ...spans.map(x => x.textContent!.trim())], l, {
+      sentence: idx => spans.forEach((sp, j) => {
+        sp.classList.toggle('now', j === idx - 1);
+        if (j === idx - 1) sp.scrollIntoView({ block: 'nearest' });
+      }),
+      end: () => {
+        this.audio = null;
+        spans.forEach(sp => sp.classList.remove('now'));
+        this.syncListenBtn(false);
+      },
+    });
+    if (this.audio) this.syncListenBtn(true);
+    else toast(t('noSpeech'));
   }
 
   /** Shows `it` in `l` (defaults to the reading language); no-op if already shown. */
@@ -49,12 +119,13 @@ export class Reader {
     const id = it.key + ':' + l;
     this.renderLangs();
     if (id === this.shown) return;
+    this.stopAudio();
     this.shown = id;
     void this.load(it, l);
   }
 
   /** App language changed: follow it. */
-  relang(): void { if (this.item) { this.shown = ''; this.show(this.item, lang()); } }
+  relang(): void { if (this.item) { this.stopAudio(); this.shown = ''; this.show(this.item, lang()); } }
 
   private renderLangs(): void {
     const it = this.item!;
@@ -72,6 +143,9 @@ export class Reader {
     const titles = WIKI[it.key] ?? it.wikiTitles;
     const l: Lang = want === 'zh' && titles?.[1] ? 'zh' : 'en';
     const title = l === 'zh' ? titles![1]! : titles?.[0] ?? it.wiki ?? it.name.en;
+    this.currentArt = null;
+    this.leadBox = null;
+    this.syncListenBtn(false);
     this.ext.setAttribute('href', articleUrl(l, title));
     this.ext.setAttribute('title', t('readerOpenWiki'));
     this.ext.setAttribute('aria-label', t('readerOpenWiki'));
@@ -81,8 +155,10 @@ export class Reader {
     let failed = false;
     try { art = await fetchArticle(l, title); } catch { failed = true; }
     if (seq !== this.seq) return;
+    this.currentArt = art;
     if (art) this.ext.setAttribute('href', art.url);
     this.scroller.replaceChildren(art ? this.article(it, art, want !== l) : this.fallback(it, failed));
+    this.syncListenBtn(false);
   }
 
   private skeleton(it: Readable): HTMLElement {
@@ -110,6 +186,15 @@ export class Reader {
       this.scroller.querySelector<HTMLElement>(`[data-sec="${i}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     };
     const pagePath = it.pagePath ?? (it.type && it.slug ? `${TYPE_META[it.type].section}/${it.slug}/` : undefined);
+    const leadBox = h('div', { class: 'reader-lead' }, ...a.lead.map(p => h('p', {}, p)));
+    this.leadBox = leadBox;
+    const copyCite = async () => {
+      const cite = a.lang === 'zh'
+        ? `“${a.title}”，维基百科（CC BY-SA 4.0），${a.url}`
+        : `“${a.title}” — Wikipedia (CC BY-SA 4.0), ${a.url}`;
+      try { await navigator.clipboard.writeText(cite); toast(t('readerCiteCopied')); }
+      catch { prompt(t('readerCopyCite'), cite); }
+    };
     return h('article', { class: 'reader-article', lang: HTML_LANG[a.lang], 'data-testid': 'reader-article' },
       a.image ? h('figure', { class: 'reader-figure' + (a.image.height > a.image.width * 0.75 ? ' tall' : ''), style: `--img:url("${a.image.src.replace(/"/g, "%22")}")` },
         h('img', { src: a.image.src, alt: a.title, loading: 'lazy', decoding: 'async', referrerpolicy: 'no-referrer', width: a.image.width, height: a.image.height,
@@ -118,7 +203,7 @@ export class Reader {
       h('h1', { 'data-testid': 'reader-title' }, a.title),
       h('p', { class: 'reader-meta' }, t('readerMinutes', { n: mins }), a.sections.length ? ' · ' + t('readerSections', { n: top.length }) : ''),
       notInLang ? h('p', { class: 'reader-note' }, t('readerOnlyEn')) : null,
-      h('div', { class: 'reader-lead' }, ...a.lead.map(p => h('p', {}, p))),
+      leadBox,
       top.length > 1 ? h('nav', { class: 'reader-toc', 'aria-label': t('readerContents') },
         h('span', { class: 'reader-label' }, t('readerContents')),
         h('div', {}, ...top.map(s => h('button', { onclick: () => goto(a.sections.indexOf(s)) }, s.title)))) : null,
@@ -128,7 +213,16 @@ export class Reader {
         h('p', {}, t('readerLicense', { title: a.title }), ' ',
           h('a', { href: a.url, target: '_blank', rel: 'noopener' }, 'Wikipedia'), ' · ',
           h('a', { href: 'https://creativecommons.org/licenses/by-sa/4.0/', target: '_blank', rel: 'noopener license' }, 'CC BY-SA 4.0')),
-        pagePath ? h('a', { class: 'reader-page', href: url(pagePath) }, h('span', { html: icon('book', 14) }), t('readerPage')) : null));
+        h('div', { class: 'reader-credit-actions' },
+          h('button', { type: 'button', class: 'pill pill-sm', 'data-testid': 'reader-copy-cite', onclick: () => void copyCite() },
+            h('span', { html: icon('copy', 13) }), ' ', t('readerCopyCite')),
+          top.length > 1 ? h('button', {
+            type: 'button',
+            class: 'pill pill-sm',
+            'data-testid': 'reader-top',
+            onclick: () => this.scroller.scrollTo({ top: 0, behavior: 'smooth' }),
+          }, '↑ ', t('readerBackTop')) : null,
+          pagePath ? h('a', { class: 'reader-page', href: url(pagePath) }, h('span', { html: icon('book', 14) }), t('readerPage')) : null)));
   }
 
   private section(s: WikiSection, i: number): HTMLElement {

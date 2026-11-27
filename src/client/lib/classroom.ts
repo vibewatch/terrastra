@@ -6,11 +6,13 @@
 import { load, save } from './storage.ts';
 
 const listeners = new Set<() => void>();
-const fromLink = typeof location === 'undefined' ? null : new URLSearchParams(location.search).get('class');
+const searchParams = typeof location === 'undefined' ? null : new URLSearchParams(location.search);
+const fromLink = searchParams?.get('class') ?? null;
+const stillFromLink = searchParams?.get('still') ?? null;
 let on = fromLink === '1' ? true : fromLink === '0' ? false : load<boolean>('classroom', false);
 
 /** Ambient motion switch read by the render loops (camera moves still work). */
-export const motion = { still: false };
+export const motion = { still: on && stillFromLink === '1' };
 
 export const classroom = (): boolean => on;
 
@@ -28,9 +30,17 @@ export function setStill(v: boolean): void {
 
 export function onClassroom(fn: () => void): () => void { listeners.add(fn); return () => listeners.delete(fn); }
 
-/** The link a teacher shares: classroom on, straight into one tour or lesson. */
-export function classroomLink(id: string, kind: 'tour' | 'lesson' = 'tour'): string {
-  return `${location.origin}${location.pathname}?class=1#${kind}/${id}`;
+/** The link a teacher shares: classroom on, straight into one tour or lesson, optionally paused on a still frame. */
+export function classroomLink(
+  id: string,
+  kind: 'tour' | 'lesson' = 'tour',
+  opts?: { still?: boolean; lang?: 'en' | 'zh' },
+): string {
+  const base = typeof location === 'undefined' ? 'https://terrastra.app/' : `${location.origin}${location.pathname}`;
+  const q = new URLSearchParams({ class: '1' });
+  if (opts?.still ?? motion.still) q.set('still', '1');
+  if (opts?.lang) q.set('lang', opts.lang);
+  return `${base}?${q.toString()}#${kind}/${encodeURIComponent(id)}`;
 }
 
 export function apply(): void {

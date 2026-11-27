@@ -725,7 +725,7 @@ export class Shell {
     const btn = this.infoMain.querySelector('.read-more');
     btn?.setAttribute('aria-expanded', String(open));
     if (btn?.firstChild) btn.firstChild.textContent = open ? t('readerClose') : t('readMore');
-    if (!open) return;
+    if (!open) { this.reader?.hide(); return; }
     if (!this.reader) {
       let Reader: typeof import('./reader.ts').Reader;
       try { ({ Reader } = await import('./reader.ts')); } catch { toast(t('loadFail', { s: t('readMore') })); void this.toggleReader(false); return; }

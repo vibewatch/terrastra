@@ -22,10 +22,23 @@ const SKIP = new Set([
   '参见', '参考文献', '外部链接', '注释', '延伸阅读', '参考资料', '参考', '注释和参考文献', '脚注', '相关条目', '外部連結', '參見', '參考文獻', '註釋', '图集', '画廊',
 ]);
 
+const MAX_WIKI_CACHE = 64;
+const WIKI_TIMEOUT_MS = 12_000;
 const cache = new Map<string, Promise<WikiArticle | null>>();
 
 export function articleUrl(l: Lang, title: string): string {
   return `https://${HOST[l]}/wiki/${encodeURIComponent(title.replace(/ /g, '_'))}${l === 'zh' ? '?variant=zh-cn' : ''}`;
+}
+
+/** Cleans empty pronunciation parentheses and LaTeX `\displaystyle` artifacts left by `explaintext=1`. */
+export function cleanWikiText(raw: string): string {
+  return raw
+    .replace(/\{\\displaystyle\s*([^}]*)\}/g, '$1')
+    .replace(/\(\s*[;,·•\s]*\)/g, '')
+    .replace(/\(\s*;\s+/g, '(')
+    .replace(/\s+([,.;:!?])/g, '$1')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim();
 }
 
 /** Splits a `exsectionformat=wiki` plain-text extract into lead paragraphs and sections, dropping reference-style sections. */
@@ -35,19 +48,22 @@ export function parseExtract(text: string): { lead: string[]; sections: WikiSect
   let cur: WikiSection | null = null;
   let skipBelow = 0;
   for (const raw of text.split('\n')) {
-    const line = raw.trim();
-    if (!line) continue;
-    const m = /^(={2,6})\s*(.+?)\s*\1$/.exec(line);
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
+    const m = /^(={2,6})\s*(.+?)\s*\1$/.exec(trimmed);
     if (m) {
       const level = m[1].length;
       if (skipBelow && level > skipBelow) continue;
       skipBelow = 0;
-      if (SKIP.has(m[2].toLowerCase())) { skipBelow = level; cur = null; continue; }
-      cur = { title: m[2], level, paras: [] };
+      const secTitle = cleanWikiText(m[2]);
+      if (!secTitle || SKIP.has(secTitle.toLowerCase())) { skipBelow = level; cur = null; continue; }
+      cur = { title: secTitle, level, paras: [] };
       sections.push(cur);
       continue;
     }
     if (skipBelow) continue;
+    const line = cleanWikiText(trimmed);
+    if (!line) continue;
     (cur ? cur.paras : lead).push(line);
   }
   // Drop headings with no body text of their own and no non-empty children (lists/tables vanish in plain text).
@@ -66,7 +82,14 @@ async function load(l: Lang, title: string): Promise<WikiArticle | null> {
     piprop: 'thumbnail', pithumbsize: '960', titles: title,
   });
   if (l === 'zh') q.set('variant', 'zh-cn');
-  const r = await fetch(`https://${HOST[l]}/w/api.php?${q}`);
+  const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timer = ctrl ? setTimeout(() => ctrl.abort(), WIKI_TIMEOUT_MS) : null;
+  let r: Response;
+  try {
+    r = await fetch(`https://${HOST[l]}/w/api.php?${q}`, ctrl ? { signal: ctrl.signal } : undefined);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
   if (!r.ok) throw new Error('wikipedia ' + r.status);
   const j = await r.json() as { query?: { pages?: { title: string; varianttitles?: Record<string, string>; missing?: boolean; extract?: string; description?: string; thumbnail?: { source: string; width: number; height: number } }[] } };
   const p = j.query?.pages?.[0];
@@ -82,11 +105,19 @@ async function load(l: Lang, title: string): Promise<WikiArticle | null> {
 /** Fetches (once per session) the article; resolves null if the page does not exist, rejects when offline. */
 export function fetchArticle(l: Lang, title: string): Promise<WikiArticle | null> {
   const k = l + ':' + title;
-  let p = cache.get(k);
-  if (!p) {
-    p = load(l, title);
-    cache.set(k, p);
-    p.catch(() => cache.delete(k));
+  const existing = cache.get(k);
+  if (existing) {
+    // Refresh LRU recency
+    cache.delete(k);
+    cache.set(k, existing);
+    return existing;
   }
+  if (cache.size >= MAX_WIKI_CACHE) {
+    const oldest = cache.keys().next().value;
+    if (oldest !== undefined) cache.delete(oldest);
+  }
+  const p = load(l, title);
+  cache.set(k, p);
+  p.catch(() => cache.delete(k));
   return p;
 }

@@ -1201,6 +1201,21 @@ html.classroom .lv-text b { font-size: .95rem; }
 .quiz-missed-list {
   margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; font-size: .82rem;
 }
+.mistake-toolbar {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px;
+  padding-top: 6px; border-top: 1px dashed rgba(251, 191, 36, 0.25);
+}
+.mistake-filter-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.mistake-search-input {
+  min-width: 180px; flex: 1; max-width: 280px; padding: 5px 10px; font-size: .8rem;
+  border: 1px solid var(--hud-line); background: rgba(4, 11, 20, 0.75); color: var(--text);
+}
+.reader-credit-actions {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px;
+}
+.lesson-speak-btn[aria-pressed="true"], .reader-listen[aria-pressed="true"] {
+  border-color: var(--sig); color: var(--sig-hi);
+}
 
 
 
