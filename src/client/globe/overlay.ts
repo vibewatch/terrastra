@@ -1,10 +1,12 @@
 import { CATALOGUE } from '../../shared/data/catalogue.ts';
+import { CITIES } from '../../shared/data/cities.ts';
 import { type GeoKind } from '../../shared/data/gazetteer.ts';
 import { CONTINENT_NAMES } from '../../shared/data/iso.ts';
 import type { Lang } from '../../shared/data/types.ts';
 import type { CountryInfo } from './painter.ts';
 
 let byCountryCache: Map<string, number> | null = null;
+let capitalByCountryCache: Map<string, string> | null = null;
 
 /** Number of Terrastra catalogue items located in ISO alpha-2 country `a2`. */
 export function countryCatalogueCount(a2: string): number {
@@ -17,6 +19,18 @@ export function countryCatalogueCount(a2: string): number {
     }
   }
   return byCountryCache.get(a2) ?? 0;
+}
+
+/** Capital city name (from CITIES) for ISO alpha-2 country `a2`, if present. */
+export function countryCapitalCity(a2: string): string | undefined {
+  if (!a2) return undefined;
+  if (!capitalByCountryCache) {
+    capitalByCountryCache = new Map<string, string>();
+    for (const [name, code, , , , isCap] of CITIES) {
+      if (isCap && !capitalByCountryCache.has(code)) capitalByCountryCache.set(code, name);
+    }
+  }
+  return capitalByCountryCache.get(a2.toUpperCase());
 }
 
 export type LabelBox = [number, number, number, number];
@@ -83,9 +97,11 @@ export function countryMapLabel(c: CountryInfo, l: Lang, cache: Map<string, stri
 export function fillCountryTag(tag: HTMLElement, c: CountryInfo, l: Lang): void {
   tag.replaceChildren(document.createTextNode(countryDisplayName(c, l)));
   const cont = c.a2 !== 'AQ' ? CONTINENT_NAMES[c.continent]?.[l] ?? CONTINENT_NAMES[c.continent]?.en : '';
+  const cap = c.a2 !== 'AQ' ? countryCapitalCity(c.a2) : undefined;
+  const capLabel = cap ? `🏛️ ${cap}` : '';
   const count = countryCatalogueCount(c.a2);
   const countLabel = count > 0 ? (l === 'zh' ? `${count} 处发现` : `${count} ${count === 1 ? 'place' : 'places'}`) : '';
-  const subText = [cont, countLabel].filter(Boolean).join(' · ');
+  const subText = [cont, capLabel, countLabel].filter(Boolean).join(' · ');
   if (subText) {
     const sub = document.createElement('small');
     sub.textContent = subText;
@@ -121,7 +137,7 @@ export function overlapsBox(boxes: readonly LabelBox[], bx: LabelBox): boolean {
   return boxes.some(b => bx[0] < b[2] && bx[2] > b[0] && bx[1] < b[3] && bx[3] > b[1]);
 }
 
-const GEO_NUDGE_Y = [0, 18, -18] as const;
+const GEO_NUDGES: readonly (readonly [number, number])[] = [[0, 0], [0, 18], [0, -18], [22, 10], [-22, -10]];
 
 export function renderLabelPool(
   container: HTMLElement,
@@ -133,6 +149,7 @@ export function renderLabelPool(
 ): void {
   const boxes: LabelBox[] = [];
   if (outGeoHits) outGeoHits.length = 0;
+  const cw = container.clientWidth;
   const ch = container.clientHeight;
   let used = 0;
   let lowRankDone = !beforeLowRank;
@@ -143,13 +160,15 @@ export function renderLabelPool(
     }
     const base = labelBox(lb);
     let bx: LabelBox | null = null;
+    let dxUsed = 0;
     let dyUsed = 0;
     if (lb.geoKey && !lb.corner) {
-      for (const dy of GEO_NUDGE_Y) {
-        const cand: LabelBox = dy ? [base[0], base[1] + dy, base[2], base[3] + dy] : base;
-        if (dy && (cand[1] < 4 || (ch > 0 && cand[3] > ch - 4))) continue;
+      for (const [dx, dy] of GEO_NUDGES) {
+        const cand: LabelBox = dx || dy ? [base[0] + dx, base[1] + dy, base[2] + dx, base[3] + dy] : base;
+        if ((dx || dy) && (cand[0] < 4 || (cw > 0 && cand[2] > cw - 4) || cand[1] < 4 || (ch > 0 && cand[3] > ch - 4))) continue;
         if (!overlapsBox(boxes, cand)) {
           bx = cand;
+          dxUsed = dx;
           dyUsed = dy;
           break;
         }
@@ -174,7 +193,7 @@ export function renderLabelPool(
       delete el.dataset.geoKey;
     }
     el.style.display = '';
-    el.style.transform = `translate(${lb.x.toFixed(1)}px,${(lb.y + dyUsed).toFixed(1)}px) ` + (lb.corner ? 'translate(3px,-100%)' : 'translate(-50%,-50%)');
+    el.style.transform = `translate(${(lb.x + dxUsed).toFixed(1)}px,${(lb.y + dyUsed).toFixed(1)}px) ` + (lb.corner ? 'translate(3px,-100%)' : 'translate(-50%,-50%)');
     used++;
     if (used > maxLabels) break;
   }

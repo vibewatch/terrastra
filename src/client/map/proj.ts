@@ -68,28 +68,34 @@ export const wraps = (p: ProjId) => p !== 'equalearth';
  * - `parallelScale`: east-west scale factor k(φ)
  * - `meridianScale`: north-south scale factor h(φ)
  * - `shapeRatio`: maximum local axis stretch max(h/k, k/h) (1.0 everywhere on conformal Mercator)
+ * - `maxAngleDeg`: Tissot maximum angular deformation 2ω in degrees (0° everywhere on conformal Mercator)
  */
 export function projDistortion(p: ProjId, latDeg: number): {
   areaFactor: number;
   shapeRatio: number;
   parallelScale: number;
   meridianScale: number;
+  maxAngleDeg: number;
 } {
   const clamped = Math.max(-85, Math.min(85, Number.isFinite(latDeg) ? latDeg : 0));
   const phi = clamped * (Math.PI / 180);
   const cosPhi = Math.max(1e-4, Math.cos(phi));
+  const angleFromScales = (h: number, k: number) => {
+    const s = h + k > 0 ? Math.min(1, Math.abs(h - k) / (h + k)) : 0;
+    return (2 * Math.asin(s) * 180) / Math.PI;
+  };
   if (p === 'equalearth') {
     const parallelScale = xScale('equalearth', phi) / (cosPhi * xScale('equalearth', 0));
     const meridianScale = 1 / parallelScale;
     const shapeRatio = Math.max(parallelScale / meridianScale, meridianScale / parallelScale);
-    return { areaFactor: 1, shapeRatio, parallelScale, meridianScale };
+    return { areaFactor: 1, shapeRatio, parallelScale, meridianScale, maxAngleDeg: angleFromScales(meridianScale, parallelScale) };
   }
   if (p === 'mercator') {
     const sec = 1 / cosPhi;
-    return { areaFactor: sec * sec, shapeRatio: 1, parallelScale: sec, meridianScale: sec };
+    return { areaFactor: sec * sec, shapeRatio: 1, parallelScale: sec, meridianScale: sec, maxAngleDeg: 0 };
   }
   const sec = 1 / cosPhi;
-  return { areaFactor: sec, shapeRatio: sec, parallelScale: sec, meridianScale: 1 };
+  return { areaFactor: sec, shapeRatio: sec, parallelScale: sec, meridianScale: 1, maxAngleDeg: angleFromScales(1, sec) };
 }
 
 export const wrapPi = (a: number) => a - 2 * Math.PI * Math.floor((a + Math.PI) / (2 * Math.PI));

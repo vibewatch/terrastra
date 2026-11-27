@@ -49,4 +49,15 @@ describe('compare bench', () => {
     expect(keys.has('city:tokyo')).toBe(true);
     expect(keys.has('country:FR')).toBe(true);
   });
+
+  it('includes peaks & volcanoes summit elevation group separated from structural heights', () => {
+    const peaks = compareGroups().find(x => x.id === 'peaks')!;
+    expect(peaks.unit).toBe('m');
+    expect(peaks.pair).toEqual(['everest', 'fuji']);
+    expect(peaks.things[0].id).toBe('everest');
+    expect(peaks.things[0].size).toBe(8849);
+    expect(groupOf('everest')?.id).toBe('peaks');
+    expect(groupOf('vo_etna')?.id).toBe('peaks');
+    expect(groupOf('burj')?.id).toBe('tall');
+  });
 });

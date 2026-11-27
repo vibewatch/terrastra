@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { EXTENT, MERC_MAX, PROJ_IDS, boundsInView, forward, inverse, wrapPi, xScale, yOf } from '../../src/client/map/proj.ts';
+import { EXTENT, MERC_MAX, PROJ_IDS, boundsInView, forward, inverse, projDistortion, wrapPi, xScale, yOf } from '../../src/client/map/proj.ts';
 
 const D = Math.PI / 180;
 
@@ -62,5 +62,14 @@ describe('map projections', () => {
       expect(boundsInView(p, [-5, -5, 5, 5], view)).toBe(true);
       expect(boundsInView(p, [90, -5, 100, 5], view)).toBe(false);
     }
+  });
+
+  it('computes Tissot maximum angular deformation 2ω accurately across projections', () => {
+    expect(projDistortion('mercator', 0).maxAngleDeg).toBe(0);
+    expect(projDistortion('mercator', 70).maxAngleDeg).toBe(0);
+    expect(projDistortion('plate', 0).maxAngleDeg).toBe(0);
+    // Plate carrée at 60°: h=1, k=2 => 2*asin(1/3) ≈ 38.94°
+    expect(projDistortion('plate', 60).maxAngleDeg).toBeCloseTo(38.94, 1);
+    expect(projDistortion('equalearth', 60).maxAngleDeg).toBeGreaterThan(15);
   });
 });

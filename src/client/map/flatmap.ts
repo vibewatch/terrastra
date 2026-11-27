@@ -462,6 +462,13 @@ export class FlatMap {
     this.dirty = true;
   }
 
+  /** Smoothly resets the flat map to show the entire world centered on (0°, 0°). */
+  fitWorld(): void {
+    const to: View = { lon0: 0, cy: 0, k: this.kMin() };
+    this.clamp(to);
+    this.tween(to, 380);
+  }
+
   private setProj(p: ProjId): void {
     if (p === this.proj) return;
     const [lat, lon] = this.center();
@@ -834,7 +841,7 @@ export class FlatMap {
   }
 
   private updateScale(): void {
-    const [lat] = this.center();
+    const [lat, lon] = this.center();
     const phi = lat * D;
     const kmPerPx = (R_KM * Math.cos(phi)) / (this.v.k * xScale(this.proj, phi));
     if (!(kmPerPx > 0) || !isFinite(kmPerPx)) { this.scaleEl.hidden = true; return; }
@@ -843,34 +850,42 @@ export class FlatMap {
     const w = nice / kmPerPx;
     const dist = projDistortion(this.proj, lat);
     const latStr = `${Math.abs(Math.round(lat))}°${lat >= 0 ? 'N' : 'S'}`;
-    const distTxt = this.proj === 'equalearth'
+    const angSuffix = dist.maxAngleDeg >= 0.5 ? ` · ${t('mapDistAngle', { deg: Math.round(dist.maxAngleDeg) })}` : '';
+    const distTxt = (this.proj === 'equalearth'
       ? t('mapDistEqual', { lat: latStr, s: dist.shapeRatio.toFixed(2) })
       : this.proj === 'mercator'
         ? t('mapDistMerc', { lat: latStr, a: dist.areaFactor.toFixed(dist.areaFactor >= 10 ? 1 : 2) })
-        : t('mapDistPlate', { lat: latStr, a: dist.areaFactor.toFixed(2) });
+        : t('mapDistPlate', { lat: latStr, a: dist.areaFactor.toFixed(2) })) + angSuffix;
+    const ptrLL = this.cursor ? this.toLatLon(this.cursor.x, this.cursor.y) : null;
+    const [cLat, cLon] = ptrLL ?? [lat, lon];
+    const coordStr = `${Math.abs(cLat).toFixed(1)}°${cLat >= 0 ? 'N' : 'S'}, ${Math.abs(cLon).toFixed(1)}°${cLon >= 0 ? 'E' : 'W'}`;
     this.scaleEl.hidden = false;
     this.scaleEl.replaceChildren(
       h('i', { style: `width:${w.toFixed(1)}px` }),
       h('span', {}, t('kmN', { n: fmtNum(nice) })),
       h('small', { class: 'fm-distortion', 'data-testid': 'map-distortion' }, distTxt),
+      h('small', { class: 'fm-coords', 'data-testid': 'map-coords' }, coordStr),
     );
   }
 
   private renderBar(): void {
     const names: Record<ProjId, string> = { equalearth: t('projEqualEarth'), mercator: t('projMercator'), plate: t('projPlate') };
     const notes: Record<ProjId, string> = { equalearth: t('projEqualEarthNote'), mercator: t('projMercatorNote'), plate: t('projPlateNote') };
+    const totalCountries = this.host.shapes()?.filter(c => c.a2 !== 'AQ').length ?? 0;
     this.bar.replaceChildren(
       h('p', { class: 'fm-note' }, notes[this.proj],
         h('button', { class: 'fm-learn', 'data-testid': 'map-learn', html: icon('bulb', 14), onclick: () => this.host.learn() }, h('span', {}, t('mapLearn')))),
       ...!this.quiz ? []
         : this.revealed.size
-          ? [h('button', { class: 'pill pill-sm fm-quiz-reset', 'data-testid': 'map-quiz-reset', onclick: () => this.hideRevealed() }, t('mapQuizReset', { n: this.revealed.size }))]
+          ? [h('button', { class: 'pill pill-sm fm-quiz-reset', 'data-testid': 'map-quiz-reset', onclick: () => this.hideRevealed() },
+              totalCountries > 0 ? t('mapQuizProgress', { n: this.revealed.size, total: totalCountries }) : t('mapQuizReset', { n: this.revealed.size }))]
           : [h('span', { class: 'fm-quiz-hint' }, t('mapQuizHint'))],
       h('div', { class: 'fm-row' },
         h('label', { class: 'fm-switch' },
           h('input', { type: 'checkbox', role: 'switch', 'data-testid': 'map-names', checked: !this.quiz, onchange: (e: Event) => this.setQuiz(!(e.target as HTMLInputElement).checked) }),
           h('span', { class: 'fm-track', 'aria-hidden': 'true' }),
           h('span', {}, t('mapNames'))),
+        h('button', { class: 'pill pill-sm fm-fit', 'data-testid': 'map-fit', onclick: () => this.fitWorld() }, t('mapFitWorld')),
         h('div', { class: 'seg fm-proj', role: 'radiogroup', 'aria-label': t('mapProjection') },
           ...PROJ_IDS.map(p => h('button', {
             class: p === this.proj ? 'on' : '', role: 'radio', 'aria-checked': String(p === this.proj), 'data-testid': 'proj-' + p,
@@ -967,6 +982,7 @@ export class FlatMap {
       this.tween(to, 380);
     });
     c.addEventListener('keydown', e => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
       const k = e.key, step = 90;
       if (k === 'ArrowLeft') this.panBy(step, 0, phiAt(this.H / 2));
       else if (k === 'ArrowRight') this.panBy(-step, 0, phiAt(this.H / 2));
@@ -974,6 +990,11 @@ export class FlatMap {
       else if (k === 'ArrowDown') this.panBy(0, -step, 0);
       else if (k === '+' || k === '=') this.zoomBy(1.6);
       else if (k === '-' || k === '_') this.zoomBy(1 / 1.6);
+      else if (k === '0' || k === 'Home') this.fitWorld();
+      else if (k === '1') this.setProj('equalearth');
+      else if (k === '2') this.setProj('mercator');
+      else if (k === '3') this.setProj('plate');
+      else if (k === 'q' || k === 'Q') this.setQuiz(!this.quiz);
       else return;
       e.preventDefault();
     });
@@ -985,17 +1006,18 @@ export class FlatMap {
     this.canvas.style.cursor = '';
     if (!this.hoverC && !this.cursor) return;
     this.hoverC = null; this.cursor = null;
-    this.drawHighlight(); this.updateTag();
+    this.drawHighlight(); this.updateTag(); this.updateScale();
   }
 
   private hoverAt(x: number, y: number): void {
     const gh = !this.quiz && !this.host.globe.gameMode ? pickGeoLabel(this.geoHits, x, y, 2) : null;
     this.setHoveredGeo(gh?.key ?? null);
     this.canvas.style.cursor = gh ? 'pointer' : '';
+    this.cursor = { x, y };
+    this.updateScale();
     if (!this.countryUi()) return;
     const ll = this.toLatLon(x, y);
     const c = ll ? countryAt(this.host.shapes(), ll[0], ll[1]) : null;
-    this.cursor = { x, y };
     if (c !== this.hoverC) { this.hoverC = c; this.drawHighlight(); }
     this.updateTag();
   }

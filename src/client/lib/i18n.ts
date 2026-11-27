@@ -655,6 +655,21 @@ const en = {
   messierEmpty: "No Messier objects match.",
   missionElapsed: "Mission duration",
   cst_latBand: "Visible latitudes",
+  cmp_peaks: "Mountains & volcanoes",
+  cmpM_peaks: "summit elevation",
+  cmpSwap: "Swap",
+  cmpRandom: "Surprise pair",
+  cmpCopyScale: "Copy comparison",
+  cmpCopiedScale: "Comparison copied to clipboard",
+  "cmpDist.ship": "Cargo ship (40 km/h)",
+  "cmpDist.rhumbEqual": "Mercator rhumb line: {km} km (matches great circle)",
+  "cmpDist.rhumbDetour": "Mercator rhumb line: {km} km ({deg}° {dir}) · +{extra} km longer",
+  "cmpDist.arcPeak": "Highest latitude on arc: {lat}{cross}",
+  "cmpDist.crossEq": " · Crosses Equator",
+  "cmpDist.crossDl": " · Crosses Date Line",
+  mapFitWorld: "Fit world",
+  mapQuizProgress: "Hide again ({n}/{total})",
+  mapDistAngle: "∠{deg}°",
 } as const;
 
 export type I18nKey = keyof typeof en;
@@ -1311,6 +1326,21 @@ const zh: Record<I18nKey, string> = {
   messierEmpty: "没有匹配的梅西耶天体。",
   missionElapsed: "在轨时间",
   cst_latBand: "完整可见纬度",
+  cmp_peaks: "山峰与火山",
+  cmpM_peaks: "海拔高度",
+  cmpSwap: "互换",
+  cmpRandom: "随机配对",
+  cmpCopyScale: "复制对比",
+  cmpCopiedScale: "对比结果已复制",
+  "cmpDist.ship": "远洋货轮（40 公里/时）",
+  "cmpDist.rhumbEqual": "墨卡托恒向线：{km} 公里（与大圆航线重合）",
+  "cmpDist.rhumbDetour": "墨卡托恒向线：{km} 公里（{deg}° {dir}）· 比大圆多绕 {extra} 公里",
+  "cmpDist.arcPeak": "大圆航线最高纬度：{lat}{cross}",
+  "cmpDist.crossEq": " · 跨越赤道",
+  "cmpDist.crossDl": " · 跨越国际日期变更线",
+  mapFitWorld: "全图视野",
+  mapQuizProgress: "重新隐藏（{n}/{total}）",
+  mapDistAngle: "角变形 {deg}°",
 };
 
 const DICTS: Record<Lang, Dict> = { en, zh };

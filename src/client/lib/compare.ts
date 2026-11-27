@@ -49,12 +49,14 @@ export function earthPlaces(ensureKeys: string[], searchPlaces?: SearchPlaces): 
   return list;
 }
 
-export type GroupId = 'bodies' | 'tall' | 'long' | 'fast';
+export type GroupId = 'bodies' | 'tall' | 'peaks' | 'long' | 'fast';
 export interface Thing { id: string; name: I18n; emoji: string; /** in the group's unit: km for bodies, km/h for speed, metres otherwise */ size: number }
 export interface Group { id: GroupId; unit: 'km' | 'm' | 'kmh'; things: Thing[]; /** default pair (ids; English names until resolved) */ pair: [string, string] }
 
 /** Heights here are of the structure or tree itself, not the ground it stands on. */
 const TALL_SUBS = new Set(['skyscraper', 'tower', 'statue', 'pyramid', 'minaret', 'stupa', 'cathedral', 'church', 'mosque', 'monument', 'religious', 'tree']);
+/** Summit elevations above sea level for mountains and volcanoes. */
+const PEAK_SUBS = new Set(['mountain', 'volcano']);
 /** Facts that measure something else: elevation of a whole hill, a carving on a cliff, a wingspan. */
 const SKIP = new Set(['Mont-Saint-Michel', 'Mount Rushmore', 'Hanging Temple', 'Rock Churches of Lalibela', 'Itsukushima Shrine', 'Quetzalcoatlus']);
 const WALKER: Thing = { id: 'walker', name: { en: 'A person walking', zh: '一个人走路' }, emoji: '🚶', size: 5 };
@@ -73,6 +75,8 @@ export function compareGroups(): Group[] {
       things: BODIES.map(b => ({ id: b.id, name: b.name, emoji: b.emoji, size: Math.round(b.radiusKm * 2) })) },
     { id: 'tall', unit: 'm', pair: ['Burj Khalifa', 'Eiffel Tower'],
       things: [CHILD, ...fromItems(i => (i.type === 'landmark' || i.type === 'plant') && TALL_SUBS.has(i.sub) ? i.facts?.heightM : undefined)] },
+    { id: 'peaks', unit: 'm', pair: ['Mount Everest', 'Mount Fuji'],
+      things: fromItems(i => (i.type === 'volcano' || (i.type === 'landmark' && PEAK_SUBS.has(i.sub))) && (i.facts?.heightM ?? 0) >= 300 ? i.facts?.heightM : undefined) },
     { id: 'long', unit: 'm', pair: ['Blue whale', 'Tyrannosaurus rex'],
       things: [CHILD, ...fromItems(i => (i.type === 'animal' || i.type === 'dino') ? i.facts?.lengthM : undefined)] },
     // animals: top speed in a short dash; vehicles: their usual cruising or operating speed (dinosaur speeds are guesses, so none)

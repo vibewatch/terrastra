@@ -1003,11 +1003,12 @@ describe('static i18n key coverage, geodesic lab, quake tectonics & explorer fie
     expect(apparentArcsec('sun', 0, 'earth')).toBeLessThan(1960);
 
     // Iter 2: Map projection Tissot distortion
-    expect(projDistortion('plate', 0)).toEqual({ areaFactor: 1, shapeRatio: 1, parallelScale: 1, meridianScale: 1 });
-    // At 60° latitude, Mercator stretches area by sec²(60°) = 4× while remaining conformal (shapeRatio = 1)
+    expect(projDistortion('plate', 0)).toEqual({ areaFactor: 1, shapeRatio: 1, parallelScale: 1, meridianScale: 1, maxAngleDeg: 0 });
+    // At 60° latitude, Mercator stretches area by sec²(60°) = 4× while remaining conformal (shapeRatio = 1, maxAngleDeg = 0)
     const merc60 = projDistortion('mercator', 60);
     expect(merc60.areaFactor).toBeCloseTo(4, 1);
     expect(merc60.shapeRatio).toBeCloseTo(1, 1);
+    expect(merc60.maxAngleDeg).toBe(0);
     // Equal Earth is equal-area everywhere (areaFactor = 1)
     expect(projDistortion('equalearth', 55).areaFactor).toBe(1);
 
@@ -1125,6 +1126,34 @@ describe('static i18n key coverage, geodesic lab, quake tectonics & explorer fie
     expect(astronomicalSeasonAt(40, new Date(Date.UTC(2026, 6, 15)))).toBe('summer');
     expect(astronomicalSeasonAt(-40, new Date(Date.UTC(2026, 6, 15)))).toBe('winter');
     expect(astronomicalSeasonAt(5, new Date(Date.UTC(2026, 6, 15)))).toBe('tropical');
+  });
+
+  it('computes Wave 7 rhumb-line detour, great-circle vertex latitude, and country capitals accurately', async () => {
+    const { greatCircleSummary, rhumbLineSummary, greatCirclePeakLatDeg, formatGeodesicBriefMarkdown } = await import('../../src/shared/lib/geodesic.ts');
+    const { countryCapitalCity } = await import('../../src/client/globe/overlay.ts');
+
+    // Tokyo (35.68°N, 139.69°E) -> San Francisco (37.77°N, 122.42°W): crosses Date Line, arcs north > 47°N, rhumb detour > 350 km
+    const tokyo = { lat: 35.68, lon: 139.69 };
+    const sf = { lat: 37.77, lon: -122.42 };
+    const sum = greatCircleSummary(tokyo, sf);
+    expect(sum.crossesDateLine).toBe(true);
+    expect(sum.crossesEquator).toBe(false);
+    expect(sum.peakLatDeg).toBeGreaterThan(47);
+    expect(sum.rhumb.rhumbKm).toBeGreaterThan(sum.distanceKm + 350);
+    expect(sum.travelHours.ship).toBeCloseTo(sum.distanceKm / 40, 2);
+
+    // Along the Equator or a single meridian, rhumb line equals great circle (0 detour)
+    expect(rhumbLineSummary({ lat: 0, lon: 10 }, { lat: 0, lon: 80 }).detourKm).toBeLessThan(0.01);
+    expect(rhumbLineSummary({ lat: 10, lon: 25 }, { lat: 55, lon: 25 }).detourKm).toBeLessThan(0.01);
+    expect(greatCirclePeakLatDeg({ lat: 39.9, lon: 116.4 }, { lat: 40.7, lon: -74.0 })).toBeGreaterThan(75);
+
+    const md = formatGeodesicBriefMarkdown({ nameA: 'Tokyo', coordA: [35.68, 139.69], nameB: 'San Francisco', coordB: [37.77, -122.42], summary: sum, lang: 'en' });
+    expect(md).toContain('Mercator rhumb line');
+    expect(md).toContain('Highest latitude on arc');
+
+    expect(countryCapitalCity('JP')).toBe('Tokyo');
+    expect(countryCapitalCity('CN')).toBe('Beijing');
+    expect(countryCapitalCity('US')).toBe('Washington');
   });
 });
 

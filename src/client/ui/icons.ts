@@ -77,6 +77,8 @@ const P: Record<string, string> = {
   quake: '<path d="M2.5 12h4l2-5.5 3 11 2.8-8.5 2 3H21.5"/>',
   lock: '<rect x="5" y="11" width="14" height="9.5" rx="2"/><path d="M8 11V7.5a4 4 0 0 1 8 0V11"/>',
   key: '<circle cx="8" cy="14" r="3.5"/><path d="m10.7 11.7 8.8-5.2M16 8.6l2 2.9M18.8 7l1.7 2.5"/>',
+  copy: '<rect x="8.5" y="8.5" width="11" height="11" rx="1.8"/><path d="M5.5 15.5H5A1.5 1.5 0 0 1 3.5 14V5A1.5 1.5 0 0 1 5 3.5h9A1.5 1.5 0 0 1 15.5 5v.5"/>',
+  dice: '<rect x="4" y="4" width="16" height="16" rx="2.5"/><circle cx="8.5" cy="8.5" r="1.2" fill="currentColor"/><circle cx="15.5" cy="8.5" r="1.2" fill="currentColor"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/><circle cx="8.5" cy="15.5" r="1.2" fill="currentColor"/><circle cx="15.5" cy="15.5" r="1.2" fill="currentColor"/>',
 };
 
 export type IconName = keyof typeof P;

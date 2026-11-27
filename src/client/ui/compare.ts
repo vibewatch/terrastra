@@ -101,6 +101,19 @@ export function openCompare(start?: string, opts?: CompareOptions): void {
       }, h('span', { html: icon('shuffle', 13) }), ' ', t('cmpDist.swap')),
       h('button', {
         class: 'pill pill-sm',
+        'data-testid': 'cmp-dist-random',
+        onclick: () => {
+          if (places.length < 2) return;
+          sfx.tap();
+          const idxA = Math.floor(Math.random() * places.length);
+          let idxB = Math.floor(Math.random() * (places.length - 1));
+          if (idxB >= idxA) idxB++;
+          distPair = [places[idxA].key, places[idxB].key];
+          render();
+        },
+      }, h('span', { html: icon('dice', 13) }), ' ', t('cmpRandom')),
+      h('button', {
+        class: 'pill pill-sm',
         'data-testid': 'cmp-dist-copy',
         onclick: () => {
           sfx.tap();
@@ -149,6 +162,19 @@ export function openCompare(start?: string, opts?: CompareOptions): void {
       s('circle', { cx, cy, r, fill: 'rgba(14, 34, 58, 0.55)', stroke: 'rgba(125, 211, 252, 0.35)', 'stroke-width': 1.5 }),
       s('line', { x1: ax, y1: ay, x2: antix, y2: antiy, stroke: 'rgba(148, 163, 184, 0.35)', 'stroke-width': 1, 'stroke-dasharray': '3 3' }),
       s('line', { x1: ax, y1: ay, x2: bx, y2: by, stroke: 'rgba(255, 179, 71, 0.45)', 'stroke-width': 1.5, 'stroke-dasharray': '5 4' }),
+    ];
+    if (summary.rhumb.detourKm >= 25) {
+      const bulge = Math.min(24, 8 + (summary.rhumb.detourKm / Math.max(1, summary.distanceKm)) * 90);
+      kids.push(s('path', {
+        d: `M ${ax.toFixed(1)} ${ay.toFixed(1)} Q ${cx.toFixed(1)} ${(cy - r - bulge).toFixed(1)} ${bx.toFixed(1)} ${by.toFixed(1)}`,
+        fill: 'none',
+        stroke: 'rgba(244, 114, 182, 0.65)',
+        'stroke-width': 1.8,
+        'stroke-dasharray': '4 3',
+        'data-testid': 'cmp-rhumb-arc',
+      }));
+    }
+    kids.push(
       s('path', { d: `M ${ax.toFixed(1)} ${ay.toFixed(1)} A ${r} ${r} 0 ${largeArc} 1 ${bx.toFixed(1)} ${by.toFixed(1)}`, fill: 'none', stroke: '#38bdf8', 'stroke-width': 3.5 }),
       s('circle', { cx: mx, cy: my, r: 3.5, fill: '#34d399' }),
       s('circle', { cx: ax, cy: ay, r: 5, fill: COL[0] }),
@@ -158,19 +184,31 @@ export function openCompare(start?: string, opts?: CompareOptions): void {
       s('text', { x: cx + 120, y: 28, 'text-anchor': 'middle', class: 'cmp-lbl', fill: COL[1] }, `${b.emoji} ${nameB}`),
       s('text', { x: cx, y: cy + 5, 'text-anchor': 'middle', class: 'cmp-lbl', fill: '#bae6fd' }, `${kmRounded} km (${Math.round((theta * 180) / Math.PI)}°)`),
       s('text', { x: antix, y: Math.min(H - 8, antiy + 18), 'text-anchor': 'middle', class: 'cmp-badge', fill: '#f472b6' }, `${t('antipode.label')}: ${formatCoordPair(...antipodeOf(a.lat, a.lon))}`),
-    ];
+    );
     stage.replaceChildren(...kids);
 
     const [antiLat, antiLon] = antipodeOf(a.lat, a.lon);
     const nearAnti = nearestCatalogueItem(antiLat, antiLon, CATALOGUE, a.key);
     const travelItems: [string, string][] = [
       ['🚶 ' + t('cmpDist.walk'), formatDurationHours(summary.travelHours.walk, l)],
+      ['🚢 ' + t('cmpDist.ship'), formatDurationHours(summary.travelHours.ship, l)],
       ['🚄 ' + t('cmpDist.train'), formatDurationHours(summary.travelHours.train, l)],
       ['✈️ ' + t('cmpDist.jet'), formatDurationHours(summary.travelHours.jet, l)],
       ['🌋 ' + t('cmpDist.seismic'), formatDurationHours(summary.travelHours.seismicP, l)],
       ['🛰️ ' + t('cmpDist.iss'), formatDurationHours(summary.travelHours.iss, l)],
       ['💡 ' + t('cmpDist.light'), `${summary.lightMs.toFixed(1)} ms`],
     ];
+    const rhumbKmFmt = fmtNum(Math.round(summary.rhumb.rhumbKm));
+    const rhumbLine = summary.rhumb.detourKm >= 1
+      ? t('cmpDist.rhumbDetour', {
+          km: rhumbKmFmt,
+          deg: Math.round(summary.rhumb.rhumbBearingDeg),
+          dir: t('dir_' + summary.rhumb.rhumbCompassDir),
+          extra: fmtNum(Math.round(summary.rhumb.detourKm)),
+        })
+      : t('cmpDist.rhumbEqual', { km: rhumbKmFmt });
+    const peakLatStr = `${Math.abs(summary.peakLatDeg).toFixed(1)}°${summary.peakLatDeg >= 0 ? 'N' : 'S'}`;
+    const crossTags = (summary.crossesEquator ? t('cmpDist.crossEq') : '') + (summary.crossesDateLine ? t('cmpDist.crossDl') : '');
 
     distDetails.classList.remove('hidden');
     distDetails.replaceChildren(
@@ -181,6 +219,8 @@ export function openCompare(start?: string, opts?: CompareOptions): void {
       h('div', { class: 'cmp-antipode-card', 'data-testid': 'cmp-antipode-card' },
         h('div', { class: 'cmp-antipode-text' },
           h('strong', {}, t('cmpDist.antipodeTitle', { a: nameA })),
+          h('p', { class: 'muted small', 'data-testid': 'cmp-rhumb-line' }, rhumbLine),
+          h('p', { class: 'muted small', 'data-testid': 'cmp-arc-peak' }, t('cmpDist.arcPeak', { lat: peakLatStr, cross: crossTags })),
           h('p', { class: 'muted small', 'data-testid': 'cmp-midpoint-line' },
             t('cmpDist.midpointInfo', { coord: formatCoordPair(summary.midpoint[0], summary.midpoint[1]), chord: chordRounded })),
           h('p', { class: 'muted small' }, t('cmpDist.antipodeCoord', { coord: formatCoordPair(antiLat, antiLon) })),
@@ -235,14 +275,47 @@ export function openCompare(start?: string, opts?: CompareOptions): void {
       new Select({ testid: 'cmp-pick-' + i, label: t(i ? 'cmpPickB' : 'cmpPickA'), className: 'xsel-wide', value: pair[i],
         options: g.things.map(th => ({ value: th.id, label: `${th.emoji} ${tr(th.name, lang())} · ${fmt(th)}` })),
         onChange: v => { pair[i] = v; render(); } }).el)));
-    scales.replaceChildren(...(['true', 'zoom'] as const).map(m => h('button', { class: 'pill pill-sm' + (m === scale ? ' active' : ''), 'aria-pressed': String(m === scale), 'data-testid': 'cmp-' + m,
-      onclick: () => { scale = m; render(); } }, t(m === 'true' ? 'cmpTrue' : 'cmpZoom'))));
-
-    const [a, b] = pair.map(id => g.things.find(x => x.id === id)!);
+    const [a, b] = pair.map(id => g.things.find(x => x.id === id) ?? g.things[0]);
     const name = (x: Thing) => tr(x.name, lang());
     const m = t('cmpM_' + g.id);
     const r = ratio(a.size, b.size);
-    ratioP.textContent = r.times < 1.05 ? t('cmpSame', { m }) : t('cmpRatio', { m, a: name(r.big ? b : a), b: name(r.big ? a : b), n: fmtNum(r.times) });
+    const ratioSummary = r.times < 1.05 ? t('cmpSame', { m }) : t('cmpRatio', { m, a: name(r.big ? b : a), b: name(r.big ? a : b), n: fmtNum(r.times) });
+    ratioP.textContent = ratioSummary;
+    scales.replaceChildren(
+      ...(['true', 'zoom'] as const).map(sm => h('button', {
+        class: 'pill pill-sm' + (sm === scale ? ' active' : ''),
+        'aria-pressed': String(sm === scale),
+        'data-testid': 'cmp-' + sm,
+        onclick: () => { scale = sm; render(); },
+      }, t(sm === 'true' ? 'cmpTrue' : 'cmpZoom'))),
+      h('button', {
+        class: 'pill pill-sm',
+        'data-testid': 'cmp-scale-swap',
+        onclick: () => { sfx.tap(); pair = [pair[1], pair[0]]; render(); },
+      }, h('span', { html: icon('shuffle', 13) }), ' ', t('cmpSwap')),
+      h('button', {
+        class: 'pill pill-sm',
+        'data-testid': 'cmp-random',
+        onclick: () => {
+          if (g.things.length < 2) return;
+          sfx.tap();
+          const idxA = Math.floor(Math.random() * g.things.length);
+          let idxB = Math.floor(Math.random() * (g.things.length - 1));
+          if (idxB >= idxA) idxB++;
+          pair = [g.things[idxA].id, g.things[idxB].id];
+          render();
+        },
+      }, h('span', { html: icon('dice', 13) }), ' ', t('cmpRandom')),
+      h('button', {
+        class: 'pill pill-sm',
+        'data-testid': 'cmp-scale-copy',
+        onclick: () => {
+          sfx.tap();
+          const md = `**${t('cmp_' + g.id)}** — ${a.emoji} ${name(a)} (${fmt(a)}) vs ${b.emoji} ${name(b)} (${fmt(b)}): ${ratioSummary}`;
+          void copyText(md, t('cmpCopiedScale'), t('cmpCopyScale'));
+        },
+      }, h('span', { html: icon('copy', 13) }), ' ', t('cmpCopyScale')),
+    );
     const d = drawn(a.size, b.size, bars() ? 440 : MAX, scale);
     const small = r.big ? a : b;
     const tiny = d.tiny[0] ? a : d.tiny[1] ? b : null;
@@ -262,6 +335,12 @@ export function openCompare(start?: string, opts?: CompareOptions): void {
         const cx = W * (i ? 0.73 : 0.27);
         kids.push(s('circle', { cx, cy: BASE - px / 2, r: px / 2, fill: COL[i], 'fill-opacity': 0.85, stroke: COL[i], 'stroke-width': 2, ...dashed }));
         label(cx, Math.min(BASE - px - 8, BASE - 12), th, i);
+      } else if (g.id === 'peaks') {
+        const cx = W * (i ? 0.7 : 0.3);
+        const halfBase = Math.max(18, Math.min(76, px * 0.46));
+        const pts = `${(cx - halfBase).toFixed(1)},${BASE} ${cx.toFixed(1)},${(BASE - px).toFixed(1)} ${(cx + halfBase).toFixed(1)},${BASE}`;
+        kids.push(s('polygon', { points: pts, fill: COL[i], 'fill-opacity': 0.82, stroke: COL[i], 'stroke-width': 2, 'stroke-linejoin': 'round', ...dashed }));
+        label(cx, Math.max(BASE - px - 8, 14), th, i);
       } else if (g.id === 'tall') {
         const x = W * (i ? 0.62 : 0.3), w = 54;
         kids.push(s('rect', { x, y: BASE - px, width: w, height: px, rx: 3, fill: COL[i], 'fill-opacity': 0.85, stroke: COL[i], 'stroke-width': 2, ...dashed }));
@@ -272,7 +351,13 @@ export function openCompare(start?: string, opts?: CompareOptions): void {
         label(40, y - 10, th, i, 'start');
       }
       if (scale === 'zoom' && th === small && a.size !== b.size) {
-        const [x, y] = g.id === 'bodies' ? [W * (i ? 0.73 : 0.27), BASE - px / 2 + 6] : g.id === 'tall' ? [W * (i ? 0.62 : 0.3) + 27, BASE - px / 2] : [40 + px / 2, (i ? 150 : 70) + 20];
+        const [x, y] = g.id === 'bodies'
+          ? [W * (i ? 0.73 : 0.27), BASE - px / 2 + 6]
+          : g.id === 'peaks'
+            ? [W * (i ? 0.7 : 0.3), BASE - px * 0.38]
+            : g.id === 'tall'
+              ? [W * (i ? 0.62 : 0.3) + 27, BASE - px / 2]
+              : [40 + px / 2, (i ? 150 : 70) + 20];
         kids.push(s('text', { x, y, 'text-anchor': 'middle', class: 'cmp-x' }, '×' + fmtNum(r.times)));
       }
     });

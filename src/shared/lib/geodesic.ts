@@ -29,6 +29,77 @@ export function compassDir8(deg: number): CompassDir8 {
   return DIRS_8[Math.round(norm / 45) % 8];
 }
 
+export interface RhumbLineSummary {
+  /** Constant-compass-bearing (Mercator straight-line) distance in km. */
+  rhumbKm: number;
+  /** Constant compass bearing from A to B in degrees [0, 360). */
+  rhumbBearingDeg: number;
+  rhumbCompassDir: CompassDir8;
+  /** Extra distance vs. shortest great-circle arc in km (>= 0). */
+  detourKm: number;
+}
+
+/**
+ * Constant-compass rhumb-line (loxodrome) distance & heading on a spherical Earth (R = 6,371 km).
+ * A straight ruler line on a Mercator chart follows a rhumb line, which is ≥ the great-circle path.
+ */
+export function rhumbLineSummary(
+  a: { lat: number; lon: number },
+  b: { lat: number; lon: number },
+): RhumbLineSummary {
+  const distanceKm = haversineKm(a.lat, a.lon, b.lat, b.lon);
+  if (distanceKm < 0.01) {
+    return { rhumbKm: 0, rhumbBearingDeg: 0, rhumbCompassDir: 'N', detourKm: 0 };
+  }
+  const D = Math.PI / 180;
+  const clampRad = (deg: number) => Math.max(-89.999, Math.min(89.999, deg)) * D;
+  const p1 = clampRad(a.lat);
+  const p2 = clampRad(b.lat);
+  const dPhi = p2 - p1;
+  const dLon = wrapLon(b.lon - a.lon) * D;
+  const dPsi = Math.log(Math.tan(Math.PI / 4 + p2 / 2) / Math.tan(Math.PI / 4 + p1 / 2));
+  const q = Math.abs(dPsi) > 1e-10 ? dPhi / dPsi : Math.cos(p1);
+  const rhumbKm = Math.max(distanceKm, Math.hypot(dPhi, q * dLon) * 6371);
+  const rhumbBearingDeg = ((Math.atan2(dLon, dPsi) / D) + 360) % 360;
+  return {
+    rhumbKm,
+    rhumbBearingDeg,
+    rhumbCompassDir: compassDir8(rhumbBearingDeg),
+    detourKm: Math.max(0, rhumbKm - distanceKm),
+  };
+}
+
+/** Signed latitude of the furthest poleward point reached along the shortest great-circle segment A→B. */
+export function greatCirclePeakLatDeg(
+  a: { lat: number; lon: number },
+  b: { lat: number; lon: number },
+): number {
+  const D = Math.PI / 180;
+  const toVec = (p: { lat: number; lon: number }): [number, number, number] => {
+    const la = p.lat * D, lo = p.lon * D;
+    return [Math.cos(la) * Math.cos(lo), Math.cos(la) * Math.sin(lo), Math.sin(la)];
+  };
+  const u = toVec(a), v = toVec(b);
+  const dot = Math.max(-1, Math.min(1, u[0] * v[0] + u[1] * v[1] + u[2] * v[2]));
+  const omega = Math.acos(dot);
+  if (omega < 1e-6 || omega > Math.PI - 1e-6) {
+    return Math.abs(a.lat) >= Math.abs(b.lat) ? a.lat : b.lat;
+  }
+  const ex = v[0] - dot * u[0], ey = v[1] - dot * u[1], ez = v[2] - dot * u[2];
+  const eLen = Math.hypot(ex, ey, ez);
+  if (eLen < 1e-9) return Math.abs(a.lat) >= Math.abs(b.lat) ? a.lat : b.lat;
+  const e2z = ez / eLen;
+  let bestZ = Math.abs(u[2]) >= Math.abs(v[2]) ? u[2] : v[2];
+  const thetaPeak = Math.atan2(e2z, u[2]);
+  for (const cand of [thetaPeak, thetaPeak + Math.PI, thetaPeak - Math.PI]) {
+    if (cand > 0 && cand < omega) {
+      const z = u[2] * Math.cos(cand) + e2z * Math.sin(cand);
+      if (Math.abs(z) > Math.abs(bestZ)) bestZ = z;
+    }
+  }
+  return Math.asin(Math.max(-1, Math.min(1, bestZ))) / D;
+}
+
 export interface GreatCircleSummary {
   distanceKm: number;
   chordKm: number;
@@ -37,8 +108,14 @@ export interface GreatCircleSummary {
   compassDir: CompassDir8;
   midpoint: [number, number];
   solarOffsetHours: number;
+  /** Signed latitude of the furthest poleward point along the shortest arc A→B. */
+  peakLatDeg: number;
+  crossesEquator: boolean;
+  crossesDateLine: boolean;
+  rhumb: RhumbLineSummary;
   travelHours: {
     walk: number;
+    ship: number;
     train: number;
     jet: number;
     seismicP: number;
@@ -55,6 +132,9 @@ export function greatCircleSummary(
   const centralAngleRad = Math.min(Math.PI, distanceKm / 6371);
   const chordKm = 2 * 6371 * Math.sin(centralAngleRad / 2);
   const brg = distanceKm < 0.01 ? 0 : bearingDeg(a.lat, a.lon, b.lat, b.lon);
+  const lonA = wrapLon(a.lon), lonB = wrapLon(b.lon);
+  const crossesEquator = (a.lat > 0 && b.lat < 0) || (a.lat < 0 && b.lat > 0);
+  const crossesDateLine = Math.abs(lonB - lonA) > 180;
   return {
     distanceKm,
     chordKm,
@@ -63,8 +143,13 @@ export function greatCircleSummary(
     compassDir: compassDir8(brg),
     midpoint: slerpLatLon([a.lat, a.lon], [b.lat, b.lon], 0.5),
     solarOffsetHours: solarTimeOffsetHours(a.lon, b.lon),
+    peakLatDeg: greatCirclePeakLatDeg(a, b),
+    crossesEquator,
+    crossesDateLine,
+    rhumb: rhumbLineSummary(a, b),
     travelHours: {
       walk: distanceKm / 5,
+      ship: distanceKm / 40,
       train: distanceKm / 300,
       jet: distanceKm / 900,
       seismicP: distanceKm / 21600,
@@ -87,8 +172,12 @@ export interface GeodesicBriefInput {
 export function formatGeodesicBriefMarkdown(input: GeodesicBriefInput): string {
   const { nameA, coordA, nameB, coordB, summary, lang: l } = input;
   const [antiLat, antiLon] = antipodeOf(coordA[0], coordA[1]);
-  const km = Math.round(summary.distanceKm).toLocaleString(l === 'zh' ? 'zh-CN' : 'en-US');
-  const chord = Math.round(summary.chordKm).toLocaleString(l === 'zh' ? 'zh-CN' : 'en-US');
+  const locale = l === 'zh' ? 'zh-CN' : 'en-US';
+  const km = Math.round(summary.distanceKm).toLocaleString(locale);
+  const chord = Math.round(summary.chordKm).toLocaleString(locale);
+  const rhumbKm = Math.round(summary.rhumb.rhumbKm).toLocaleString(locale);
+  const detourKm = Math.round(summary.rhumb.detourKm).toLocaleString(locale);
+  const peakStr = `${Math.abs(summary.peakLatDeg).toFixed(1)}°${summary.peakLatDeg >= 0 ? 'N' : 'S'}`;
   const solar = (summary.solarOffsetHours >= 0 ? '+' : '') + summary.solarOffsetHours.toFixed(1);
   if (l === 'zh') {
     return [
@@ -96,7 +185,9 @@ export function formatGeodesicBriefMarkdown(input: GeodesicBriefInput): string {
       `- **起点 (A)**：${nameA}（${formatCoordPair(coordA[0], coordA[1])}）`,
       `- **终点 (B)**：${nameB}（${formatCoordPair(coordB[0], coordB[1])}）`,
       `- **球面大圆距离**：${km} km（占地球周长 ${summary.circumferencePct.toFixed(1)}%）`,
+      `- **墨卡托恒向线**：${rhumbKm} km${summary.rhumb.detourKm >= 1 ? `（比大圆多绕 ${detourKm} km）` : '（与大圆航线重合）'}`,
       `- **地壳内部直线弦长**：${chord} km`,
+      `- **航线最高纬度**：${peakStr}`,
       `- **初始方位角**：${Math.round(summary.bearingDeg)}° ${summary.compassDir} · **地方太阳时差**：${solar} 小时`,
       `- **球面大圆中点**：${formatCoordPair(summary.midpoint[0], summary.midpoint[1])}`,
       `- **${nameA} 的对跖点**：${formatCoordPair(antiLat, antiLon)}`,
@@ -107,7 +198,9 @@ export function formatGeodesicBriefMarkdown(input: GeodesicBriefInput): string {
     `- **Origin (A)**: ${nameA} (${formatCoordPair(coordA[0], coordA[1])})`,
     `- **Destination (B)**: ${nameB} (${formatCoordPair(coordB[0], coordB[1])})`,
     `- **Great-circle surface distance**: ${km} km (${summary.circumferencePct.toFixed(1)}% of Earth's circumference)`,
+    `- **Mercator rhumb line**: ${rhumbKm} km${summary.rhumb.detourKm >= 1 ? ` (+${detourKm} km detour)` : ' (matches great circle)'}`,
     `- **Straight interior chord**: ${chord} km`,
+    `- **Highest latitude on arc**: ${peakStr}`,
     `- **Initial bearing**: ${Math.round(summary.bearingDeg)}° ${summary.compassDir} · **Solar time offset**: ${solar} h`,
     `- **Spherical midpoint**: ${formatCoordPair(summary.midpoint[0], summary.midpoint[1])}`,
     `- **Antipode of ${nameA}**: ${formatCoordPair(antiLat, antiLon)}`,
