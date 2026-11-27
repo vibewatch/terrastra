@@ -3,7 +3,6 @@ import { currentQuality, lowFxFrom } from '../globe/quality.ts';
 import type { CatalogueItem, ModelRecipe } from '../../shared/data/types.ts';
 import { buildModel, modelReady, whenModelReady } from './library.ts';
 import { outdoorEnvironment } from './environment.ts';
-import { h } from '../ui/dom.ts';
 
 interface ActivePreview {
   canvas: HTMLCanvasElement;
@@ -212,12 +211,11 @@ export function createModelPreview(item: CatalogueItem, opts: { width?: number; 
   const w = opts.width ?? 220;
   const hPx = opts.height ?? 132;
   const dpr = Math.min(2, window.devicePixelRatio || 1);
-  const canvas = h('canvas', {
-    class: 'model-preview-canvas',
-    width: String(Math.round(w * dpr)),
-    height: String(Math.round(hPx * dpr)),
-    ...(opts.id ? { id: opts.id } : {}),
-  }) as HTMLCanvasElement;
+  const canvas = document.createElement('canvas');
+  canvas.className = 'model-preview-canvas';
+  canvas.width = Math.round(w * dpr);
+  canvas.height = Math.round(hPx * dpr);
+  if (opts.id) canvas.id = opts.id;
   canvas.style.width = `${w}px`;
   canvas.style.height = `${hPx}px`;
 
@@ -265,11 +263,16 @@ export function createModelPreview(item: CatalogueItem, opts: { width?: number; 
     }
   }
 
-  return h('div', { class: 'model-stage' },
-    canvas,
-    h('span', { class: 'model-stage-badge' }, item.emoji),
-    h('span', { class: 'model-stage-hint' }, '3D · 360°'),
-  );
+  const stage = document.createElement('div');
+  stage.className = 'model-stage';
+  const badge = document.createElement('span');
+  badge.className = 'model-stage-badge';
+  badge.textContent = item.emoji;
+  const hint = document.createElement('span');
+  hint.className = 'model-stage-hint';
+  hint.textContent = '3D · 360°';
+  stage.append(canvas, badge, hint);
+  return stage;
 }
 
 /** Mounts a 3D turntable canvas inside an encyclopedia item page `.hero` container. */
@@ -277,13 +280,12 @@ export function mountHeroPreview(hero: HTMLElement, recipe: ModelRecipe): void {
   const w = Math.min(400, Math.max(240, (hero.clientWidth || 380) - 32));
   const hPx = Math.min(244, Math.max(188, (hero.clientHeight || 260) - 32));
   const dpr = Math.min(2, window.devicePixelRatio || 1);
-  const canvas = h('canvas', {
-    class: 'hero-canvas',
-    'data-testid': 'hero-3d-canvas',
-    'aria-hidden': 'true',
-    width: String(Math.round(w * dpr)),
-    height: String(Math.round(hPx * dpr)),
-  }) as HTMLCanvasElement;
+  const canvas = document.createElement('canvas');
+  canvas.className = 'hero-canvas';
+  canvas.dataset.testid = 'hero-3d-canvas';
+  canvas.setAttribute('aria-hidden', 'true');
+  canvas.width = Math.round(w * dpr);
+  canvas.height = Math.round(hPx * dpr);
   canvas.style.width = `${w}px`;
   canvas.style.height = `${hPx}px`;
 

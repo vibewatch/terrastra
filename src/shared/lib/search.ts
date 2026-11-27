@@ -71,3 +71,29 @@ export function matchedAlias(q: string, names: readonly string[], aliases?: read
   }
   return bestRaw;
 }
+
+export interface RecentSearchEntry {
+  kind: 'item' | 'place' | 'space';
+  /** Catalogue key (`eiffel`), place key (`geo:mariana-trench` / `country:JP`), or space hash (`solar/saturn`). */
+  key: string;
+  emoji: string;
+  name: { en: string; zh?: string };
+}
+
+export function isRecentSearchEntry(v: unknown): v is RecentSearchEntry {
+  if (!v || typeof v !== 'object') return false;
+  const r = v as Record<string, unknown>;
+  if (r.kind !== 'item' && r.kind !== 'place' && r.kind !== 'space') return false;
+  if (typeof r.key !== 'string' || !r.key || typeof r.emoji !== 'string') return false;
+  const n = r.name as Record<string, unknown> | undefined;
+  return Boolean(n && typeof n === 'object' && typeof n.en === 'string' && (n.zh === undefined || typeof n.zh === 'string'));
+}
+
+export function pushRecentSearch(
+  list: readonly unknown[],
+  entry: RecentSearchEntry,
+  max = 6,
+): RecentSearchEntry[] {
+  const valid = Array.isArray(list) ? list.filter(isRecentSearchEntry) : [];
+  return [entry, ...valid.filter(x => !(x.kind === entry.kind && x.key === entry.key))].slice(0, max);
+}

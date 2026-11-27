@@ -56,6 +56,7 @@ export function openDb(path: string): DB {
       redeemed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
       redeemed_at INTEGER,
       revoked INTEGER NOT NULL DEFAULT 0);
+    CREATE INDEX IF NOT EXISTS redemption_codes_created ON redemption_codes(created_at DESC);
     CREATE TABLE IF NOT EXISTS reactions (
       visitor TEXT NOT NULL, item TEXT NOT NULL, kind TEXT NOT NULL CHECK (kind IN ('like','visited')),
       created_at INTEGER NOT NULL, PRIMARY KEY (visitor, item, kind));

@@ -5,7 +5,8 @@
  * Examples:
  *   npm run codes -- create --plan pro --count 10 --note "xiaohongshu-batch-1" --expires-days 365
  *   npm run codes -- create --plan pro --count 50 --raw > batch.txt
- *   npm run codes -- list
+ *   npm run codes -- create --plan pro --count 50 --csv --base-url https://terrastra.example > batch.csv
+ *   npm run codes -- list --status available --plan pro
  *   npm run codes -- inspect TRST-XXXX-XXXX-XXXX
  *   npm run codes -- stats
  *   npm run codes -- revoke TRST-XXXX-XXXX-XXXX --revoke-user
@@ -15,11 +16,14 @@ import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { openDb, transaction } from '../src/server/db.ts';
 import {
+  formatCodesCsv,
   getBillingStats,
   grantEntitlement,
   inspectRedemptionCode,
   issueRedemptionCodes,
+  listRedemptionCodes,
   revokeRedemptionCode,
+  type RedemptionCodeStatus,
 } from '../src/server/billing.ts';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
@@ -32,8 +36,8 @@ function argVal(args: readonly string[], flag: string): string | undefined {
 
 function usage(): never {
   console.error(`Usage:
-  npm run codes -- create [--plan pro|classroom] [--count N] [--note TEXT] [--expires-days N] [--raw] [--links] [--base-url URL]
-  npm run codes -- list [--limit N]
+  npm run codes -- create [--plan pro|classroom] [--count N] [--note TEXT] [--expires-days N] [--raw] [--links] [--csv] [--base-url URL]
+  npm run codes -- list [--limit N] [--status available|redeemed|expired|revoked] [--plan pro|classroom]
   npm run codes -- inspect <TRST-XXXX-XXXX-XXXX>
   npm run codes -- stats
   npm run codes -- revoke <TRST-XXXX-XXXX-XXXX> [--revoke-user]
@@ -71,48 +75,52 @@ try {
     const note = argVal(args, '--note');
     const rawOnly = args.includes('--raw');
     const asLinks = args.includes('--links');
+    const asCsv = args.includes('--csv');
     const baseUrl = (argVal(args, '--base-url') ?? process.env.BASE_URL ?? 'http://localhost:8787').replace(/\/$/, '');
     const codes = issueRedemptionCodes(db, { plan: planRaw, count, note, expiresAt });
-    if (!rawOnly) {
-      const expSuffix = expiresAt ? ` (expires ${new Date(expiresAt).toISOString().slice(0, 10)})` : '';
-      console.log(`Created ${codes.length} ${planRaw.toUpperCase()} activation code(s)${note ? ` [${note}]` : ''}${expSuffix}:`);
-    }
-    for (const c of codes) {
-      console.log(asLinks ? `${baseUrl}/#redeem=${c}` : c);
+    if (asCsv) {
+      console.log(formatCodesCsv(codes, { plan: planRaw, baseUrl, expiresAt, note }));
+    } else {
+      if (!rawOnly) {
+        const expSuffix = expiresAt ? ` (expires ${new Date(expiresAt).toISOString().slice(0, 10)})` : '';
+        console.log(`Created ${codes.length} ${planRaw.toUpperCase()} activation code(s)${note ? ` [${note}]` : ''}${expSuffix}:`);
+      }
+      for (const c of codes) {
+        console.log(asLinks ? `${baseUrl}/#redeem=${c}` : c);
+      }
     }
   } else if (cmd === 'list') {
     const limit = Math.max(1, Math.min(500, Number(argVal(args, '--limit') ?? '50') || 50));
-    const now = Date.now();
-    const rows = db.prepare(`
-      SELECT rc.code_hint, rc.plan, rc.note, rc.created_at, rc.expires_at, rc.redeemed_at, rc.revoked, u.email AS redeemed_email
-      FROM redemption_codes rc
-      LEFT JOIN users u ON u.id = rc.redeemed_by
-      ORDER BY rc.created_at DESC
-      LIMIT ?
-    `).all(limit) as {
-      code_hint: string;
-      plan: string;
-      note: string | null;
-      created_at: number;
-      expires_at: number | null;
-      redeemed_at: number | null;
-      revoked: number;
-      redeemed_email: string | null;
-    }[];
+    const statusRaw = argVal(args, '--status');
+    const validStatuses: RedemptionCodeStatus[] = ['available', 'redeemed', 'expired', 'revoked'];
+    if (statusRaw !== undefined && !validStatuses.includes(statusRaw as RedemptionCodeStatus)) {
+      console.error('Error: --status must be one of available, redeemed, expired, or revoked');
+      process.exit(1);
+    }
+    const planFilter = argVal(args, '--plan');
+    if (planFilter !== undefined && planFilter !== 'pro' && planFilter !== 'classroom') {
+      console.error('Error: --plan must be "pro" or "classroom"');
+      process.exit(1);
+    }
+    const rows = listRedemptionCodes(db, {
+      limit,
+      status: statusRaw as RedemptionCodeStatus | undefined,
+      plan: planFilter as 'pro' | 'classroom' | undefined,
+    });
     if (!rows.length) {
       console.log('No activation codes found.');
     } else {
       for (const r of rows) {
-        const status = r.revoked
+        const status = r.status === 'revoked'
           ? 'REVOKED'
-          : r.redeemed_at
-            ? `REDEEMED (${r.redeemed_email ?? 'deleted-user'} at ${new Date(r.redeemed_at).toISOString()})`
-            : r.expires_at !== null && r.expires_at <= now
-              ? `EXPIRED (${new Date(r.expires_at).toISOString().slice(0, 10)})`
-              : r.expires_at !== null
-                ? `AVAILABLE (until ${new Date(r.expires_at).toISOString().slice(0, 10)})`
+          : r.status === 'redeemed'
+            ? `REDEEMED (${r.redeemedEmail ?? 'deleted-user'} at ${new Date(r.redeemedAt!).toISOString()})`
+            : r.status === 'expired'
+              ? `EXPIRED (${new Date(r.expiresAt!).toISOString().slice(0, 10)})`
+              : r.expiresAt !== null
+                ? `AVAILABLE (until ${new Date(r.expiresAt).toISOString().slice(0, 10)})`
                 : 'AVAILABLE';
-        console.log(`TRST-••••-••••-${r.code_hint} | ${r.plan.padEnd(9)} | ${status}${r.note ? ` | ${r.note}` : ''}`);
+        console.log(`TRST-••••-••••-${r.codeHint} | ${r.plan.padEnd(9)} | ${status}${r.note ? ` | ${r.note}` : ''}`);
       }
     }
   } else if (cmd === 'inspect') {

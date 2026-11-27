@@ -188,13 +188,20 @@ export function createApp(o: AppOptions): express.Express {
     if (!v || !/^[a-f0-9]{32}$/.test(v)) { v = randomBytes(16).toString('hex'); res.cookie('pp_vid', v, cookieOpts(365 * 24 * 3600_000)); }
     return v;
   };
+  const healthProbeStmt = db.prepare('SELECT 1 AS ok');
+  const sessionUserStmt = db.prepare(
+    'SELECT u.id, u.email, u.handle FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.hash = ? AND s.expires > ?',
+  );
+  const progressSelectStmt = db.prepare('SELECT json FROM progress WHERE user_id = ?');
+  const extrasSelectStmt = db.prepare('SELECT json FROM learning_sync WHERE user_id = ?');
+  const reactionCountsStmt = db.prepare('SELECT kind, COUNT(*) AS n FROM reactions WHERE item = ? GROUP BY kind');
+
   type User = { id: number; email: string; handle: string | null; plan: Plan };
   const currentUser = (req: Request): User | null => {
     const sid = cookies(req).pp_sid;
     if (!sid) return null;
     const now = Date.now();
-    const row = db.prepare('SELECT u.id, u.email, u.handle FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.hash = ? AND s.expires > ?')
-      .get(sha(sid), now) as { id: number; email: string; handle: string | null } | undefined;
+    const row = sessionUserStmt.get(sha(sid), now) as { id: number; email: string; handle: string | null } | undefined;
     if (!row) return null;
     const ent = getUserEntitlement(db, row.id, now);
     return { id: row.id, email: row.email, handle: row.handle, plan: ent.plan };
@@ -239,7 +246,14 @@ export function createApp(o: AppOptions): express.Express {
   // reactions are anonymous, so cap them per IP: a cookie-dropping script could otherwise inflate counts without limit
   const reactLimit = limiter(60, 60_000, 10_000);
 
-  app.get('/api/health', (_req, res) => { res.json({ ok: true }); });
+  app.get('/api/health', (_req, res) => {
+    try {
+      healthProbeStmt.get();
+      res.json({ ok: true });
+    } catch {
+      res.status(503).json({ ok: false, error: 'Database unavailable' });
+    }
+  });
 
   app.post('/api/auth/request', async (req, res) => {
     if (!o.sendMail && !o.devLogin) return res.status(503).json({ error: 'Email sign-in is not available right now' });
@@ -397,8 +411,8 @@ export function createApp(o: AppOptions): express.Express {
 
   app.get('/api/progress', (req, res) => {
     const u = requireUser(req, res); if (!u) return;
-    const row = db.prepare('SELECT json FROM progress WHERE user_id = ?').get(u.id) as { json: string } | undefined;
-    const extrasRow = db.prepare('SELECT json FROM learning_sync WHERE user_id = ?').get(u.id) as { json: string } | undefined;
+    const row = progressSelectStmt.get(u.id) as { json: string } | undefined;
+    const extrasRow = extrasSelectStmt.get(u.id) as { json: string } | undefined;
     res.json({
       progress: row ? JSON.parse(row.json) as Progress : null,
       ...(extrasRow ? { extras: JSON.parse(extrasRow.json) as SyncExtras } : {}),
@@ -413,12 +427,12 @@ export function createApp(o: AppOptions): express.Express {
     if (rawExtras !== undefined && !isSyncExtras(rawExtras)) return res.status(400).json({ error: 'Invalid progress extras' });
     const synced = transaction(db, () => {
       const now = Date.now();
-      const row = db.prepare('SELECT json FROM progress WHERE user_id = ?').get(u.id) as { json: string } | undefined;
+      const row = progressSelectStmt.get(u.id) as { json: string } | undefined;
       const result = fitProgress(mergeProgress(row ? JSON.parse(row.json) as Progress : emptyProgress(), incoming));
       if (!isProgress(result) || !fitsSyncRequest(result)) return null;
       let mergedExtras: SyncExtras | undefined;
       if (rawExtras !== undefined) {
-        const storedRow = db.prepare('SELECT json FROM learning_sync WHERE user_id = ?').get(u.id) as { json: string } | undefined;
+        const storedRow = extrasSelectStmt.get(u.id) as { json: string } | undefined;
         const storedExtras = storedRow ? JSON.parse(storedRow.json) as SyncExtras : emptySyncExtras();
         const filtered = filterIncomingExtrasForPlan(rawExtras, u.plan, paywall);
         mergedExtras = fitSyncExtras(result, mergeSyncExtras(storedExtras, filtered), MAX_SYNC_REQUEST_BYTES);
@@ -436,7 +450,7 @@ export function createApp(o: AppOptions): express.Express {
   });
 
   const counts = (item: string) => {
-    const rows = db.prepare('SELECT kind, COUNT(*) AS n FROM reactions WHERE item = ? GROUP BY kind').all(item) as { kind: 'like' | 'visited'; n: number }[];
+    const rows = reactionCountsStmt.all(item) as { kind: 'like' | 'visited'; n: number }[];
     const out = { like: 0, visited: 0 };
     for (const r of rows) out[r.kind] = Number(r.n);
     return out;

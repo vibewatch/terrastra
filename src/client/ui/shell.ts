@@ -5,7 +5,7 @@ import { isFreeLesson } from '../../shared/lib/entitlements.ts';
 import { relatedLessonsForPlace } from '../../shared/data/gazetteer.ts';
 import { isOn } from '../../shared/lib/progress.ts';
 import { tr, type CatalogueItem } from '../../shared/data/types.ts';
-import { CATALOGUE, BY_TYPE } from '../../shared/data/catalogue.ts';
+import { CATALOGUE, BY_KEY, BY_TYPE } from '../../shared/data/catalogue.ts';
 import { TYPE_META, TYPE_ORDER } from '../../shared/data/typemeta.ts';
 import { CONTINENT_NAMES } from '../../shared/data/iso.ts';
 import { AURA_PRESETS, type AuraPreset, type SurfaceMode, type Globe, type Settings } from '../globe/scene.ts';
@@ -22,10 +22,11 @@ const greetingsReady = import('../../shared/data/greetings.ts').then(m => { GREE
 import { TimeMachine } from './timemachine.ts';
 import { api } from '../lib/api.ts';
 import { HAS_API, url } from '../lib/env.ts';
-import { sessionOnly } from '../lib/storage.ts';
+import { load, save, sessionOnly } from '../lib/storage.ts';
 import type { SpaceHit } from '../solar/space-index.ts';
 import type { AdminArea } from '../globe/admin.ts';
-import { searchAll, type PlaceHit, type SearchFilter } from '../lib/search.ts';
+import { resolvePlaceByKey, searchAll, type PlaceHit, type SearchFilter } from '../lib/search.ts';
+import { isRecentSearchEntry, pushRecentSearch, type RecentSearchEntry } from '../../shared/lib/search.ts';
 import { groupOf } from '../lib/compare.ts';
 import { narrate, narrationSupported, splitSentences, stopNarration, type Narration } from '../lib/narrate.ts';
 import { diagnosticsReport, errorCount } from '../lib/diagnostics.ts';
@@ -161,6 +162,7 @@ export class Shell {
         return;
       }
       const typing = (e.target as Element | null)?.closest?.('input, textarea, .xsel, [contenteditable]');
+      if (!typing && !e.metaKey && !e.ctrlKey && !e.altKey && e.key === '/' && !document.querySelector('.sky, .modal:not(.hidden)')) { e.preventDefault(); this.openSearch(); return; }
       if (!typing && !e.metaKey && !e.ctrlKey && !e.altKey && e.key.toLowerCase() === 'h' && !document.querySelector('.sky, .modal:not(.hidden)')) { this.setImmersive(!this.immersive); return; }
       if (!typing && !e.metaKey && !e.ctrlKey && !e.altKey && e.key.toLowerCase() === 'm' && !this.space && !document.querySelector('.sky, .modal:not(.hidden)')) { this.hooks.toggleMap?.(); return; }
       if (e.key !== 'Escape') return;
@@ -242,23 +244,89 @@ export class Shell {
     const l = lang();
     let query = initialQuery;
     let filter: SearchFilter = 'all';
+    let activeIdx = 0;
+    let kbdMoved = Boolean(initialQuery.trim());
+    const recentWrap = h('div', { class: 'search-recent hidden', 'data-testid': 'search-recent' });
     const listEl = h('div', { class: 'dex-grid search-grid' });
     let space: SpaceHit[] | null = null;
     let regions: readonly AdminArea[] = this.globe.adminRegions();
+    const recordRecent = (entry: RecentSearchEntry) => {
+      const prev = load<unknown[]>('recentSearches', []);
+      save('recentSearches', pushRecentSearch(prev, entry));
+    };
+    const syncActiveCard = (scroll = false) => {
+      const cards = listEl.querySelectorAll<HTMLButtonElement>('.dex-card');
+      const showHighlight = Boolean(query.trim()) || kbdMoved;
+      cards.forEach((c, idx) => {
+        const on = showHighlight && idx === activeIdx;
+        c.classList.toggle('kbd-active', on);
+        if (on && scroll) c.scrollIntoView({ block: 'nearest' });
+      });
+    };
+    const renderRecent = () => {
+      const raw = load<unknown[]>('recentSearches', []);
+      const recents = Array.isArray(raw) ? raw.filter(isRecentSearchEntry) : [];
+      if (query.trim() || filter !== 'all' || !recents.length) {
+        recentWrap.classList.add('hidden');
+        recentWrap.replaceChildren();
+        return;
+      }
+      recentWrap.classList.remove('hidden');
+      recentWrap.replaceChildren(
+        h('span', { class: 'search-recent-lbl' }, t('searchRecent')),
+        ...recents.map(rec => h('button', {
+          class: 'pill pill-sm',
+          'data-testid': 'search-recent-' + rec.key,
+          onclick: () => {
+            recordRecent(rec);
+            if (rec.kind === 'item') {
+              const it = BY_KEY.get(rec.key);
+              if (it) { closeModal(); this.showItem(it, true); }
+              return;
+            }
+            if (rec.kind === 'place') {
+              const pl = resolvePlaceByKey(rec.key, { countries: this.globe.fineShapes(), regions });
+              if (pl) { closeModal(); this.showPlace(pl, true); }
+              else { closeModal(); location.hash = '#' + rec.key; }
+              return;
+            }
+            closeModal();
+            location.hash = '#' + rec.key;
+          },
+        }, `${rec.emoji} ${tr(rec.name, l)}`)),
+        h('button', {
+          class: 'search-recent-clear',
+          'data-testid': 'search-recent-clear',
+          onclick: () => { save('recentSearches', []); renderRecent(); },
+        }, t('searchClearRecent')),
+      );
+    };
     void import('../solar/space-index.ts').then(m => { space = m.spaceIndex(); if (query.trim() || filter === 'space') renderList(); });
     if (!regions.length && this.hooks.loadAdminForSearch) {
       void this.hooks.loadAdminForSearch().then(r => { regions = r; if (query.trim() && filter === 'all') renderList(); }, () => {});
     }
     const renderList = () => {
+      renderRecent();
       const hits = searchAll(query, l, space, filter, { countries: this.globe.fineShapes(), regions });
       if (!hits.length) {
+        activeIdx = 0;
         listEl.replaceChildren(h('p', { class: 'muted' }, filter === 'space' && !space ? '…' : t('notFound')));
         return;
       }
+      const shown = hits.slice(0, 400);
+      if (activeIdx >= shown.length) activeIdx = 0;
       // Each result says where it lives (level) and what it is (type).
-      listEl.replaceChildren(...hits.slice(0, 400).map(r => {
+      listEl.replaceChildren(...shown.map(r => {
         if (r.kind === 'item') {
-          return h('button', { class: 'dex-card unlocked', 'data-testid': 'search-item-' + r.item.key, onclick: () => { closeModal(); this.showItem(r.item, true); } },
+          return h('button', {
+            class: 'dex-card unlocked',
+            'data-testid': 'search-item-' + r.item.key,
+            onclick: () => {
+              recordRecent({ kind: 'item', key: r.item.key, emoji: r.item.emoji, name: r.item.name });
+              closeModal();
+              this.showItem(r.item, true);
+            },
+          },
             h('span', { class: 'dex-emoji' }, r.item.emoji),
             h('strong', {}, tr(r.item.name, l)),
             h('small', {}, [r.alias, t('lvEarth'), typeName(r.item.type), countryName(r.item.country, l)].filter(Boolean).join(' · ')));
@@ -268,6 +336,7 @@ export class Shell {
             class: 'dex-card unlocked',
             'data-testid': 'search-place-' + r.hit.key,
             onclick: () => {
+              recordRecent({ kind: 'place', key: r.hit.key, emoji: r.hit.emoji, name: r.hit.name });
               closeModal();
               this.showPlace(r.hit, true);
             },
@@ -277,11 +346,20 @@ export class Shell {
             h('small', {}, [r.alias, t('pk_' + r.hit.placeKind), tr(r.hit.sub, l)].filter(Boolean).join(' · ')));
         }
         const spaceSub = r.hit.kind === 'scaleIs' ? t('scaleIs') : tr(r.hit.level, l) + ' · ' + t(r.hit.kind);
-        return h('button', { class: 'dex-card unlocked', onclick: () => { closeModal(); location.hash = '#' + r.hit.hash; } },
+        return h('button', {
+          class: 'dex-card unlocked',
+          'data-testid': 'search-space-' + r.hit.hash,
+          onclick: () => {
+            recordRecent({ kind: 'space', key: r.hit.hash, emoji: r.hit.emoji, name: r.hit.name });
+            closeModal();
+            location.hash = '#' + r.hit.hash;
+          },
+        },
           h('span', { class: 'dex-emoji' }, r.hit.emoji),
           h('strong', {}, tr(r.hit.name, l)),
           h('small', {}, r.alias ? r.alias + ' · ' + spaceSub : spaceSub));
       }));
+      syncActiveCard(false);
     };
     const input = h('input', {
       type: 'search',
@@ -289,7 +367,32 @@ export class Shell {
       'data-testid': 'search-input',
       value: initialQuery,
       placeholder: t('searchPlaceholder'),
-      oninput: () => { query = input.value; renderList(); },
+      oninput: () => {
+        query = input.value;
+        activeIdx = 0;
+        kbdMoved = Boolean(query.trim());
+        renderList();
+      },
+      onkeydown: (ev: Event) => {
+        const e = ev as KeyboardEvent;
+        if (e.isComposing) return;
+        const cards = listEl.querySelectorAll<HTMLButtonElement>('.dex-card');
+        if (!cards.length) return;
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          activeIdx = kbdMoved ? Math.min(cards.length - 1, activeIdx + 1) : 0;
+          kbdMoved = true;
+          syncActiveCard(true);
+        } else if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          activeIdx = kbdMoved ? Math.max(0, activeIdx - 1) : 0;
+          kbdMoved = true;
+          syncActiveCard(true);
+        } else if (e.key === 'Enter' && (Boolean(query.trim()) || kbdMoved)) {
+          e.preventDefault();
+          cards[activeIdx]?.click();
+        }
+      },
     });
     const filterBar = h('div', { class: 'seg-row' },
       ...(['all', 'geo', 'space', ...TYPE_ORDER.filter(ty => BY_TYPE[ty].length)] as const).map(f =>
@@ -299,6 +402,8 @@ export class Shell {
           'aria-pressed': String(filter === f),
           onclick: e => {
             filter = f;
+            activeIdx = 0;
+            kbdMoved = Boolean(query.trim());
             (e.currentTarget as HTMLElement).parentElement?.querySelectorAll('.pill').forEach(b => {
               b.classList.remove('active');
               b.setAttribute('aria-pressed', 'false');
@@ -313,7 +418,7 @@ export class Shell {
     );
     renderList();
     const random = h('button', { class: 'pill search-random', 'data-testid': 'btn-random', title: t('randomHop'), html: icon('shuffle', 15), onclick: () => { sfx.tap(); closeModal(); this.randomHop(); } }, h('span', {}, t('randomHop')));
-    openModal('search', t('search'), h('div', { class: 'search-modal' }, h('div', { class: 'search-row' }, input, random), filterBar, listEl), { wide: true });
+    openModal('search', t('search'), h('div', { class: 'search-modal' }, h('div', { class: 'search-row' }, input, random), filterBar, recentWrap, listEl), { wide: true });
     setTimeout(() => input.focus(), 40);
   }
 

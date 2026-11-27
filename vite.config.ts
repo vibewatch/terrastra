@@ -20,8 +20,8 @@ export default defineConfig({
         strictExecutionOrder: true,
         codeSplitting: {
           groups: [
-            { name: 'three', test: /\/node_modules\/three\// },
-            { name: 'shared-lib', test: /\/src\/shared\/lib\// },
+            { name: 'three', test: /\/node_modules\/three\//, includeDependenciesRecursively: false },
+            { name: 'astro-ephem', test: /\/src\/shared\/lib\/astro\//, includeDependenciesRecursively: false },
             { name: 'lessons-free', test: /\/src\/client\/lessons\/(?:free-bundle\.ts|free-senior\.ts|catalog\.ts|catalog-meta\.json|l-earth\.ts|l-land\.ts|l-home\.ts|geo(?:-cn2?)?\.ts|climate\.ts|figs\.ts|kit\.ts|models\.ts|shuffle\.ts|stage\.ts|astro\/(?:l-earthmoon|free-solar|draw|stage|sunspots|types)\.ts)/, includeDependenciesRecursively: false },
             { name: 'lessons-ssbs', test: /\/src\/client\/lessons\/ssbs\//, includeDependenciesRecursively: false },
             { name: 'pro-lessons-astro', test: /\/src\/client\/lessons\/(?:pro-astro-bundle\.ts|astro\/(?:data\.ts|l-(?!earthmoon\.ts)))/, includeDependenciesRecursively: false },

@@ -38,7 +38,7 @@ import {
   type MistakeBook,
 } from '../../src/shared/lib/journal.ts';
 import { openDb } from '../../src/server/db.ts';
-import { getUserEntitlement, redeemCodeForUser } from '../../src/server/billing.ts';
+import { formatCodesCsv, getUserEntitlement, listRedemptionCodes, redeemCodeForUser } from '../../src/server/billing.ts';
 
 describe('entitlements & redemption code rules', () => {
   it('normalizes valid activation codes and rejects ambiguous or malformed inputs', () => {
@@ -291,6 +291,14 @@ describe('manage-codes CLI', () => {
       expect(linkedRaw.status, linkedRaw.stderr).toBe(0);
       expect(linkedRaw.stdout.trim()).toMatch(/^https:\/\/terrastra\.example\/#redeem=TRST-[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}$/);
 
+      const csvCreated = run('create', '--plan', 'classroom', '--count', '1', '--csv', '--base-url', 'https://terrastra.example/', '--note', '=school, "A"');
+      expect(csvCreated.status, csvCreated.stderr).toBe(0);
+      const csvLines = csvCreated.stdout.trim().split('\n');
+      expect(csvLines[0]).toBe('code,plan,redeem_url,expires_at,note');
+      expect(csvLines[1]).toContain(',classroom,https://terrastra.example/#redeem=TRST-');
+      // Formula prefix '=' is neutralized with leading apostrophe and quotes/commas are RFC 4180 escaped
+      expect(csvLines[1]).toContain(`"'=school, ""A"""`);
+
       const inspected = run('inspect', codes[0]!);
       expect(inspected.status, inspected.stderr).toBe(0);
       expect(inspected.stdout).toContain('Status:     AVAILABLE');
@@ -304,6 +312,10 @@ describe('manage-codes CLI', () => {
       const revoked = run('revoke', codes[0]!);
       expect(revoked.status).toBe(0);
       expect(run('list').stdout).toContain('REVOKED');
+      expect(run('list', '--status', 'revoked').stdout).toContain('REVOKED');
+      expect(run('list', '--status', 'revoked').stdout).not.toContain('AVAILABLE');
+      expect(run('list', '--status', 'available', '--plan', 'classroom').stdout).toContain('classroom');
+      expect(run('list', '--status', 'available', '--plan', 'classroom').stdout).not.toContain(' pro ');
       expect(run('inspect', codes[0]!).stdout).toContain('Status:     REVOKED');
 
       const statsOut = run('stats');
@@ -333,9 +345,13 @@ describe('manage-codes CLI', () => {
       try {
         const buyer = db2.prepare('SELECT id FROM users WHERE email = ?').get('buyer@example.com') as { id: number };
         expect(getUserEntitlement(db2, buyer.id).plan).toBe('free');
+        expect(listRedemptionCodes(db2, { status: 'revoked' }).every(r => r.status === 'revoked')).toBe(true);
       } finally {
         db2.close();
       }
+      expect(formatCodesCsv(['TRST-ABCD-2345-HJKL'], { plan: 'pro', baseUrl: 'https://t.co/', note: '+promo' })).toBe(
+        `code,plan,redeem_url,expires_at,note\nTRST-ABCD-2345-HJKL,pro,https://t.co/#redeem=TRST-ABCD-2345-HJKL,,'+promo`,
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

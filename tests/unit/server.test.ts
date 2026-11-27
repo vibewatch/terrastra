@@ -75,11 +75,25 @@ describe('auth', () => {
     expect(compression.status).toBe(415);
     expect(await compression.json()).toEqual({ error: 'Unsupported request encoding' });
   });
-  it('requires a session for private endpoints', async () => {
+  it('requires a session for private endpoints and probes SQLite on /api/health', async () => {
+    expect((await call('GET', '/api/health')).json).toEqual({ ok: true });
     expect((await call('GET', '/api/progress')).status).toBe(401);
     expect((await call('POST', '/api/guestbook', { body: 'hi' })).status).toBe(401);
     expect((await call('GET', '/api/me')).json).toEqual({ user: null });
     expect((await fetch(base + '/api/me')).headers.get('cache-control')).toBe('no-store');
+
+    const closedDb = openDb(':memory:');
+    const closedApp = createApp({ db: closedDb, devLogin: true, baseUrl: 'http://test', secureCookies: false });
+    const closedSrv: Server = await new Promise(r => { const s = closedApp.listen(0, () => r(s)); });
+    try {
+      closedDb.close();
+      const port = (closedSrv.address() as { port: number }).port;
+      const healthRes = await fetch(`http://127.0.0.1:${port}/api/health`);
+      expect(healthRes.status).toBe(503);
+      expect(await healthRes.json()).toEqual({ ok: false, error: 'Database unavailable' });
+    } finally {
+      await new Promise<void>(r => closedSrv.close(() => r()));
+    }
   });
   it('magic link signs in once; token cannot be reused', async () => {
     const r = await call('POST', '/api/auth/request', { email: 'Kid@Example.com' });

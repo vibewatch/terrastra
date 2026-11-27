@@ -25,11 +25,14 @@ test('paywall enforcement: gates Pro lessons & chunks until signed-in activation
 
   const distDir = join(process.cwd(), 'dist');
   const indexHtml = readFileSync(join(distDir, 'index.html'), 'utf8');
-  expect(indexHtml).not.toMatch(/lessons-(free|ssbs)|pro-lessons-/);
+  expect(indexHtml).not.toMatch(/lessons-(free|ssbs)|pro-lessons-|astro-ephem-/);
   const assetFiles = readdirSync(join(distDir, 'assets'));
   const modelEntry = assetFiles.find(f => /^model-[A-Za-z0-9_-]+\.js$/.test(f));
   expect(modelEntry).toBeTruthy();
   expect(readFileSync(join(distDir, 'assets', modelEntry!), 'utf8')).not.toMatch(/lessons-(free|ssbs)|pro-lessons-/);
+  const encEntry = assetFiles.find(f => /^encyclopedia-[A-Za-z0-9_-]+\.js$/.test(f));
+  expect(encEntry).toBeTruthy();
+  expect(readFileSync(join(distDir, 'assets', encEntry!), 'utf8')).not.toMatch(/dom-|lessons-(free|ssbs)|pro-lessons-/);
 
   const proFiles = readdirSync(join(distDir, '.pro-assets'));
   for (const prefix of ['pro-lessons-earth-', 'pro-lessons-china-', 'pro-lessons-world-', 'pro-lessons-astro-', 'pro-lessons-exams-']) {

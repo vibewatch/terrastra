@@ -408,3 +408,113 @@ export function getBillingStats(db: DB, now = Date.now()): BillingStats {
   };
 }
 
+export type RedemptionCodeStatus = 'available' | 'redeemed' | 'expired' | 'revoked';
+
+export interface ListedRedemptionCode {
+  codeHint: string;
+  plan: 'pro' | 'classroom';
+  note: string | null;
+  createdAt: number;
+  expiresAt: number | null;
+  redeemedAt: number | null;
+  redeemedEmail: string | null;
+  status: RedemptionCodeStatus;
+}
+
+export function listRedemptionCodes(
+  db: DB,
+  opts: {
+    limit?: number;
+    status?: RedemptionCodeStatus;
+    plan?: 'pro' | 'classroom';
+    now?: number;
+  } = {},
+): ListedRedemptionCode[] {
+  const limit = Math.max(1, Math.min(500, Math.floor(opts.limit ?? 50) || 50));
+  const now = opts.now ?? Date.now();
+  const clauses: string[] = [];
+  const params: (string | number)[] = [];
+  if (opts.plan === 'pro' || opts.plan === 'classroom') {
+    clauses.push('rc.plan = ?');
+    params.push(opts.plan);
+  }
+  if (opts.status === 'revoked') {
+    clauses.push('rc.revoked = 1');
+  } else if (opts.status === 'redeemed') {
+    clauses.push('rc.revoked = 0 AND rc.redeemed_at IS NOT NULL');
+  } else if (opts.status === 'expired') {
+    clauses.push('rc.revoked = 0 AND rc.redeemed_at IS NULL AND rc.expires_at IS NOT NULL AND rc.expires_at <= ?');
+    params.push(now);
+  } else if (opts.status === 'available') {
+    clauses.push('rc.revoked = 0 AND rc.redeemed_at IS NULL AND (rc.expires_at IS NULL OR rc.expires_at > ?)');
+    params.push(now);
+  }
+  const whereSql = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+  const rows = db.prepare(`
+    SELECT rc.code_hint, rc.plan, rc.note, rc.created_at, rc.expires_at, rc.redeemed_at, rc.revoked, u.email AS redeemed_email
+    FROM redemption_codes rc
+    LEFT JOIN users u ON u.id = rc.redeemed_by
+    ${whereSql}
+    ORDER BY rc.created_at DESC, rc.rowid DESC
+    LIMIT ?
+  `).all(...params, limit) as {
+    code_hint: string;
+    plan: 'pro' | 'classroom';
+    note: string | null;
+    created_at: number;
+    expires_at: number | null;
+    redeemed_at: number | null;
+    revoked: number;
+    redeemed_email: string | null;
+  }[];
+  return rows.map(r => ({
+    codeHint: r.code_hint,
+    plan: r.plan,
+    note: r.note,
+    createdAt: Number(r.created_at),
+    expiresAt: r.expires_at === null ? null : Number(r.expires_at),
+    redeemedAt: r.redeemed_at === null ? null : Number(r.redeemed_at),
+    redeemedEmail: r.redeemed_email,
+    status: r.revoked
+      ? 'revoked'
+      : r.redeemed_at !== null
+        ? 'redeemed'
+        : r.expires_at !== null && r.expires_at <= now
+          ? 'expired'
+          : 'available',
+  }));
+}
+
+function csvCell(raw: string): string {
+  // Neutralize spreadsheet formula prefixes when opened in Excel / Numbers / Google Sheets.
+  const safe = /^[=+\-@]/.test(raw) ? `'${raw}` : raw;
+  return /[",\r\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
+}
+
+/** Formats issued activation codes as RFC 4180 CSV for storefront auto-delivery pools or school rosters. */
+export function formatCodesCsv(
+  codes: readonly string[],
+  opts: {
+    plan: 'pro' | 'classroom';
+    baseUrl: string;
+    expiresAt?: number | null;
+    note?: string | null;
+  },
+): string {
+  const base = opts.baseUrl.replace(/\/$/, '');
+  const expStr = opts.expiresAt ? new Date(opts.expiresAt).toISOString().slice(0, 10) : '';
+  const noteStr = opts.note ?? '';
+  const lines = ['code,plan,redeem_url,expires_at,note'];
+  for (const c of codes) {
+    lines.push([
+      csvCell(c),
+      csvCell(opts.plan),
+      csvCell(`${base}/#redeem=${c}`),
+      csvCell(expStr),
+      csvCell(noteStr),
+    ].join(','));
+  }
+  return lines.join('\n');
+}
+
+

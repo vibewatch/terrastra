@@ -957,6 +957,11 @@ html.classroom .lv-text b { font-size: .95rem; }
 .search-row { display: flex; gap: 8px; align-items: stretch; }
 .search-row .input { flex: 1; min-width: 0; }
 .search-random { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.search-recent { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 2px 0 6px; }
+.search-recent-lbl { font: 500 .72rem var(--font-mono); letter-spacing: .1em; text-transform: uppercase; color: var(--hud-dim); margin-right: 2px; }
+.search-recent-clear { background: none; border: 0; color: var(--hud-dim); font: 500 .74rem var(--font-mono); cursor: pointer; padding: 3px 6px; }
+.search-recent-clear:hover { color: var(--hud-hi); }
+.search-grid .dex-card.kbd-active { border-color: var(--sig); box-shadow: var(--sig-glow), inset 0 2px 0 var(--sig); background-color: rgba(255, 181, 71, 0.1); }
 
 @media (max-width: 760px) {
   .top-left { gap: 8px; }

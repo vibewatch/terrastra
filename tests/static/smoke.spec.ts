@@ -225,8 +225,8 @@ test('static build works below a sub-path', async ({ page }) => {
   await expect.poll(() => page.evaluate(() => (window as any).__pp.globe.adminData?.regions.length ?? 0), { timeout: 60_000 }).toBeGreaterThan(4000);
   await page.keyboard.press('Escape');
 
-  // Textbook physical-geography gazetteer search (地中海 / 马里亚纳海沟 / 安第斯山脉), place info card & #geo: deep link
-  await page.getByTestId('btn-search').click();
+  // Textbook physical-geography gazetteer search (地中海 / 马里亚纳海沟 / 安第斯山脉), `/` shortcut, Enter selection & recent chips
+  await page.keyboard.press('/');
   await expect(page.getByTestId('search-input')).toBeVisible();
   await page.getByTestId('search-filter-geo').click();
   await expect(page.getByTestId('search-place-geo:mediterranean-sea')).toBeVisible();
@@ -234,6 +234,14 @@ test('static build works below a sub-path', async ({ page }) => {
   await page.getByTestId('search-input').fill('马里亚纳海沟');
   await expect(page.getByTestId('search-place-geo:mariana-trench')).toBeVisible();
   await expect(page.getByTestId('search-item-dc_challenger')).toContainText('马里亚纳海沟');
+  await page.keyboard.press('Enter');
+  await expect(page).toHaveURL(/#geo:mariana-trench$/);
+  await page.getByTestId('info-close').click();
+  await page.keyboard.press('/');
+  await expect(page.getByTestId('search-recent')).toBeVisible();
+  await expect(page.getByTestId('search-recent-geo:mariana-trench')).toBeVisible();
+  await page.getByTestId('search-recent-clear').click();
+  await expect(page.getByTestId('search-recent')).toBeHidden();
   await page.getByTestId('search-input').fill('地中海');
   await expect(page.getByTestId('search-place-geo:mediterranean-sea')).toBeVisible();
   await page.getByTestId('search-place-geo:mediterranean-sea').click();
@@ -317,12 +325,14 @@ test('static build works below a sub-path', async ({ page }) => {
   await expect(page.locator('h1')).toBeVisible();
   await page.locator('[data-set=zh]').click();
   await expect(page.locator('html')).toHaveAttribute('data-l', 'zh');
+  await expect(page.locator('html')).toHaveAttribute('lang', 'zh-CN');
   await page.locator('[data-set=en]').click();
+  await expect(page.locator('html')).toHaveAttribute('lang', 'en');
   // Alias search on static section page (e.g. 马里亚纳海沟 matches Challenger Deep)
   await page.goto('discover/');
   await page.locator('#q').fill('马里亚纳海沟');
   await expect(page.locator('ul.cards a[href="/terrastra/discover/challenger-deep/"]')).toBeVisible();
-  // Physical Geography encyclopedia section & feature detail page (including kind-label filtering)
+  // Physical Geography encyclopedia section & feature detail page (including kind-label filtering & curriculum links)
   await page.goto('geography/');
   await expect(page.locator('h1')).toContainText('Physical Geography');
   await page.locator('#q').fill('plateau');
@@ -332,6 +342,8 @@ test('static build works below a sub-path', async ({ page }) => {
   await expect(page.locator('h1')).toContainText('Mariana Trench');
   await expect(page.locator('.fun')).toBeVisible();
   await expect(page.locator('a[href="/terrastra/#geo:mariana-trench"]')).toBeVisible();
+  await expect(page.getByTestId('geo-page-lessons')).toBeVisible();
+  await expect(page.locator('[data-testid="geo-page-lessons"] a[href="/terrastra/#lesson/plates"]')).toBeVisible();
   await page.goto('animals/');
   // an item page under the category, then back into the app at the base path
   await page.locator('main a[href^="/terrastra/animals/"]').first().click();

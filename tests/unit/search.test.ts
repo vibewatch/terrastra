@@ -4,7 +4,7 @@ import { spaceIndex } from '../../src/client/solar/space-index.ts';
 import { ALIASES } from '../../src/shared/data/aliases.ts';
 import { CATALOGUE } from '../../src/shared/data/catalogue.ts';
 import { GAZETTEER, GAZETTEER_BY_KEY, KEY_LESSON_OVERRIDES, relatedLessonsForPlace } from '../../src/shared/data/gazetteer.ts';
-import { matchedAlias, norm } from '../../src/shared/lib/search.ts';
+import { isRecentSearchEntry, matchedAlias, norm, pushRecentSearch, type RecentSearchEntry } from '../../src/shared/lib/search.ts';
 
 const space = spaceIndex();
 const keyOf = (h: SearchHit) => h.kind === 'item' ? h.item.key : h.hit.key;
@@ -213,5 +213,26 @@ describe('search', () => {
       }
     }
     expect(relatedLessonsForPlace('city:tokyo', 'capital', 'Japan')).toEqual([]);
+  });
+
+  it('validates, deduplicates, and caps recent search chips', () => {
+    let list: RecentSearchEntry[] = [];
+    list = pushRecentSearch(list, { kind: 'place', key: 'geo:mariana-trench', emoji: '🌊', name: { en: 'Mariana Trench', zh: '马里亚纳海沟' } });
+    list = pushRecentSearch(list, { kind: 'item', key: 'eiffel', emoji: '🗼', name: { en: 'Eiffel Tower', zh: '埃菲尔铁塔' } });
+    list = pushRecentSearch(list, { kind: 'space', key: 'localgroup/dp_m31', emoji: '🌌', name: { en: 'Andromeda Galaxy', zh: '仙女座星系' } });
+    // Re-selecting Mariana Trench moves it to index 0 without duplicating
+    list = pushRecentSearch(list, { kind: 'place', key: 'geo:mariana-trench', emoji: '🌊', name: { en: 'Mariana Trench', zh: '马里亚纳海沟' } });
+    expect(list.map(e => e.key)).toEqual(['geo:mariana-trench', 'localgroup/dp_m31', 'eiffel']);
+    expect(list.every(isRecentSearchEntry)).toBe(true);
+
+    for (let i = 0; i < 10; i++) {
+      list = pushRecentSearch(list, { kind: 'item', key: `item-${i}`, emoji: '📍', name: { en: `Item ${i}`, zh: `条目 ${i}` } });
+    }
+    expect(list).toHaveLength(6);
+    expect(list[0]?.key).toBe('item-9');
+
+    expect(isRecentSearchEntry(null)).toBe(false);
+    expect(isRecentSearchEntry({ kind: 'item', key: '', emoji: '📍', name: { en: 'Empty' } })).toBe(false);
+    expect(isRecentSearchEntry({ kind: 'unknown', key: 'x', emoji: '📍', name: { en: 'X', zh: 'X' } })).toBe(false);
   });
 });
