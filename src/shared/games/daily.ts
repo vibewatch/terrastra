@@ -76,3 +76,9 @@ export function shareText(state: DailyState, title = 'Terrastra Daily'): string 
   const rows = state.guesses.map(g => BAND_EMOJI[g.band] + g.arrow).join('\n');
   return `${title} #${n} ${state.won ? state.guesses.length : 'X'}/${MAX_GUESSES}\n${rows}`;
 }
+
+/** Integer win-rate percentage (0–100) for Daily Planet lifetime stats. */
+export function dailyWinRatePct(stats: Pick<DailyStats, 'played' | 'won'>): number {
+  if (stats.played <= 0) return 0;
+  return Math.min(100, Math.max(0, Math.round((stats.won / stats.played) * 100)));
+}

@@ -1213,8 +1213,38 @@ html.classroom .lv-text b { font-size: .95rem; }
 .reader-credit-actions {
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px;
 }
-.lesson-speak-btn[aria-pressed="true"], .reader-listen[aria-pressed="true"] {
+.lesson-speak-btn[aria-pressed="true"], .reader-listen[aria-pressed="true"], .tour-speak-btn[aria-pressed="true"] {
   border-color: var(--sig); color: var(--sig-hi);
+}
+.daily-dist {
+  display: flex; flex-direction: column; gap: 4px; width: 100%; margin: 6px 0; text-align: left;
+}
+.daily-dist-row {
+  display: grid; grid-template-columns: 18px 1fr; align-items: center; gap: 6px; font-size: .78rem; font-family: var(--font-data);
+}
+.daily-dist-bar {
+  display: inline-flex; align-items: center; justify-content: flex-end; min-width: 24px; padding: 2px 7px;
+  background: rgba(125, 211, 252, 0.18); border: 1px solid var(--hud-line); color: var(--text);
+}
+.daily-dist-bar.today {
+  background: rgba(52, 211, 153, 0.25); border-color: rgba(52, 211, 153, 0.65); color: #6ee7b7; font-weight: 700;
+}
+.round-list-btn {
+  display: inline-flex; align-items: center; gap: 6px; background: none; border: 0; padding: 2px 4px;
+  color: inherit; font: inherit; text-align: left; cursor: pointer; border-radius: 4px;
+}
+.round-list-btn:hover, .round-list-btn:focus-visible {
+  background: var(--hud-fill-hi); color: var(--hud-hi);
+}
+.passport-filter-row {
+  display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 8px;
+}
+.radio-fav-list {
+  display: flex; flex-direction: column; gap: 6px; max-height: 340px; overflow-y: auto;
+}
+.radio-fav-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px;
+  border: 1px solid var(--hud-line); background: var(--hud-fill);
 }
 
 

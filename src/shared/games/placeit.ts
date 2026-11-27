@@ -61,3 +61,17 @@ export function summarizePlaceItRun(results: readonly { km: number; score: numbe
   const grade = accuracyPct >= 90 ? 'S' : accuracyPct >= 75 ? 'A' : accuracyPct >= 50 ? 'B' : 'C';
   return { meanKm, bestKm, accuracyPct, grade };
 }
+
+/** Shareable compact emoji scorecard for a Place-It 10-round run. */
+export function placeItShareText(
+  diff: Difficulty,
+  total: number,
+  results: readonly { km: number; score: number }[],
+  title = 'Terrastra Place-It',
+): string {
+  const stats = summarizePlaceItRun(results);
+  const row = results
+    .map(r => (r.score >= 1000 ? '🎯' : r.score >= 700 ? '🟩' : r.score >= 300 ? '🟨' : '🟥'))
+    .join('');
+  return `${title} (${diff}) ${total.toLocaleString('en-US')}/${(ROUNDS * MAX_ROUND_SCORE).toLocaleString('en-US')} [${stats.grade} · ${stats.accuracyPct}%]\n${row}`;
+}

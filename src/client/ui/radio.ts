@@ -107,13 +107,21 @@ export class Radio {
       h('button', { class: 'radio-btn ' + cls, 'aria-label': t(key), title: t(key), 'data-key': key, 'data-testid': test, html: icon(ico, 18), onclick: () => { fn(); } });
     this.playBtn = btn('radio-play', 'play', 'radioPlay', () => this.togglePlay(), 'radio-play');
     this.favBtn = btn('radio-fav', 'star', 'radioFav', () => this.toggleFav());
+    const favListBtn = h('button', {
+      class: 'radio-btn radio-favs',
+      'aria-label': t('radioFavList', { n: this.favs.size }),
+      title: t('radioFavList', { n: this.favs.size }),
+      'data-testid': 'radio-favs',
+      html: icon('heart', 17),
+      onclick: () => this.openFavourites(),
+    });
     const vol = h('input', { type: 'range', class: 'radio-vol', min: '0', max: '1', step: '0.05', value: String(this.engine.volume), 'aria-label': t('radioVolume'), title: t('radioVolume') });
     vol.addEventListener('input', () => { this.engine.setVolume(Number(vol.value)); save(VOL_KEY, this.engine.volume); });
     this.el = h('div', { class: 'radio-bar hidden', 'data-testid': 'radio-bar', role: 'group', 'aria-label': t('radio') },
       this.eq,
       h('div', { class: 'radio-meta', 'aria-live': 'polite' }, this.nameEl, this.subEl),
       h('div', { class: 'radio-ctl' },
-        this.favBtn, this.playBtn,
+        this.favBtn, favListBtn, this.playBtn,
         btn('radio-next', 'skip', 'radioNext', () => this.step(), 'radio-next'),
         btn('radio-rand', 'shuffle', 'radioRandom', () => this.random()),
         btn('radio-hide', 'flag', 'radioHide', () => this.hideCurrent(), 'radio-hide'),
@@ -240,6 +248,46 @@ export class Radio {
     this.render();
   }
 
+  /** Opens a modal listing all starred radio stations so listeners can jump directly to any favourite. */
+  private openFavourites(): void {
+    sfx.tap();
+    const wrap = h('div', { class: 'radio-fav-list', 'data-testid': 'radio-fav-modal' });
+    const draw = () => {
+      const starred = this.st.map((s, idx) => ({ s, idx })).filter(x => this.favs.has(x.s.url));
+      if (!starred.length) {
+        wrap.replaceChildren(h('p', { class: 'muted', 'data-testid': 'radio-fav-empty' }, t('radioFavEmpty')));
+        return;
+      }
+      wrap.replaceChildren(...starred.map(({ s, idx }) => h('div', { class: 'radio-fav-row', 'data-testid': 'radio-fav-item' },
+        h('div', { class: 'grow' },
+          h('strong', {}, s.name),
+          h('div', { class: 'muted small' }, [countryName(s.cc), stationSolarBadge(s.lat, s.lon), ...genres(s.tags).slice(0, 1), s.kbps ? `${s.kbps} kbps` : ''].filter(Boolean).join(' · '))),
+        h('div', { class: 'row' },
+          h('button', {
+            type: 'button',
+            class: 'cta pill-sm',
+            'data-testid': 'radio-fav-tune',
+            onclick: () => { closeModal('radio-favs'); this.fly(idx, true); void this.tune(idx); },
+          }, t('radioPlay')),
+          h('button', {
+            type: 'button',
+            class: 'icon-btn',
+            'aria-label': t('radioUnfav'),
+            title: t('radioUnfav'),
+            html: icon('trash', 14),
+            onclick: () => {
+              this.favs.delete(s.url);
+              save(FAV_KEY, [...this.favs]);
+              this.dots.setFavourites(k => this.favs.has(this.st[k].url));
+              this.render();
+              draw();
+            },
+          })))));
+    };
+    draw();
+    openModal('radio-favs', t('radioFavList', { n: this.favs.size }), wrap);
+  }
+
   private fly(i: number, far: boolean): void {
     const s = this.st[i];
     this.globe.flyTo(s.lat, s.lon, far ? Math.max(this.globe.h, DEFAULT_H * 0.8) : this.globe.h, far ? 1600 : 900);
@@ -296,6 +344,12 @@ export class Radio {
     this.favBtn.setAttribute('aria-pressed', String(fav));
     this.favBtn.setAttribute('aria-label', t(fav ? 'radioUnfav' : 'radioFav'));
     this.favBtn.title = t(fav ? 'radioUnfav' : 'radioFav');
+    const favsBtn = this.el.querySelector<HTMLButtonElement>('.radio-favs');
+    if (favsBtn) {
+      const flbl = t('radioFavList', { n: this.favs.size });
+      favsBtn.setAttribute('aria-label', flbl);
+      favsBtn.title = flbl;
+    }
     if (!st) {
       this.nameEl.textContent = t('radioHint');
       this.subEl.textContent = t('radioCount', { n: fmtNum(this.st.length), c: fmtNum(this.countries) }) + (this.snapshot ? ' · ' + t('radioAsOf', { d: this.snapshot }) : '');

@@ -1,5 +1,5 @@
 import { h, openModal, closeModal, toast } from './dom.ts';
-import { t, lang } from '../lib/i18n.ts';
+import { t, lang, fmtNum } from '../lib/i18n.ts';
 import { store } from '../store.ts';
 import { BY_KEY } from '../../shared/data/catalogue.ts';
 import { tr, type CatalogueItem } from '../../shared/data/types.ts';
@@ -35,6 +35,7 @@ function nextStop(b: PassportBook, seen: Record<string, number>, here: [number, 
 export function openPassport(hooks: PassportHooks): void {
   let cur = load<string>('passportBook', PASSPORTS[0].id);
   if (!PASSPORTS.some(b => b.id === cur)) cur = PASSPORTS[0].id;
+  let stampFilter: 'all' | 'stamped' | 'unvisited' = 'all';
   const summaryBar = h('div', { class: 'passport-summary', 'data-testid': 'passport-summary' });
   const tabs = h('div', { class: 'seg-row passport-tabs', role: 'tablist' });
   const page = h('div', { class: 'passport-page' });
@@ -59,6 +60,7 @@ export function openPassport(hooks: PassportHooks): void {
     const l = lang(), seen = store.progress.seen;
     const rawJ = load<unknown>('lessonJournal', {});
     const stats = computeExplorerStats(store.progress, isLessonJournal(rawJ) ? rawJ : undefined);
+    const peakM = stats.highestPeak?.facts?.heightM;
     summaryBar.replaceChildren(
       h('div', { class: 'passport-summary-text' },
         h('strong', { 'data-testid': 'passport-summary-stats' }, t('passport.summaryStats', {
@@ -69,6 +71,10 @@ export function openPassport(hooks: PassportHooks): void {
         stats.northernmost && stats.southernmost ? h('small', { class: 'muted', 'data-testid': 'passport-extremes' }, t('passport.extremes', {
           north: `${stats.northernmost.emoji} ${tr(stats.northernmost.name, l)} (${formatCoordPair(stats.northernmost.lat, stats.northernmost.lon)})`,
           south: `${stats.southernmost.emoji} ${tr(stats.southernmost.name, l)} (${formatCoordPair(stats.southernmost.lat, stats.southernmost.lon)})`,
+        })) : null,
+        stats.highestPeak && typeof peakM === 'number' ? h('small', { class: 'muted', 'data-testid': 'passport-highest-peak' }, t('passport.highestPeak', {
+          name: `${stats.highestPeak.emoji} ${tr(stats.highestPeak.name, l)}`,
+          m: fmtNum(peakM),
         })) : null),
       h('button', {
         class: 'pill pill-sm',
@@ -84,6 +90,13 @@ export function openPassport(hooks: PassportHooks): void {
     }));
     const got = bookProgress(b, seen);
     const next = nextStop(b, seen, hooks.here());
+    const bookItems = b.keys.map(k => BY_KEY.get(k)).filter((x): x is CatalogueItem => !!x);
+    if (stampFilter === 'stamped' && got === 0) stampFilter = 'all';
+    if (stampFilter === 'unvisited' && got === bookItems.length) stampFilter = 'all';
+    const filteredItems = bookItems.filter(it => {
+      const has = Boolean(seen[it.key]);
+      return stampFilter === 'all' ? true : stampFilter === 'stamped' ? has : !has;
+    });
     page.replaceChildren(
       h('div', { class: 'passport-head' },
         h('div', {},
@@ -93,7 +106,19 @@ export function openPassport(hooks: PassportHooks): void {
           onclick: () => { closeModal('passport'); closeModal('collection'); hooks.travel(next, hooks.here()); } }, h('span', {}, t('nextStop', { p: tr(next.name, l) })))
           : h('span', { class: 'ok' }, t('bookDone'))),
       h('div', { class: 'passport-bar' }, h('span', { style: `width:${(100 * got / b.keys.length).toFixed(1)}%` })),
-      h('div', { class: 'stamp-grid' }, ...b.keys.map(k => BY_KEY.get(k)).filter((x): x is CatalogueItem => !!x).map((it, i) => {
+      h('div', { class: 'passport-filter-row', 'data-testid': 'passport-filters' },
+        ...([
+          { id: 'all' as const, label: t('passport.filterAll', { n: bookItems.length }) },
+          { id: 'stamped' as const, label: t('passport.filterStamped', { n: got }), hide: got === 0 },
+          { id: 'unvisited' as const, label: t('passport.filterUnvisited', { n: bookItems.length - got }), hide: got === bookItems.length },
+        ]).filter(x => !x.hide).map(f => h('button', {
+          type: 'button',
+          class: 'pill pill-sm' + (stampFilter === f.id ? ' on' : ''),
+          'aria-pressed': String(stampFilter === f.id),
+          'data-testid': 'passport-filter-' + f.id,
+          onclick: () => { stampFilter = f.id; render(); },
+        }, f.label))),
+      h('div', { class: 'stamp-grid' }, ...filteredItems.map((it, i) => {
         const at = seen[it.key];
         return h('button', { class: 'stamp' + (at ? ' have' : ''), 'data-testid': 'stamp-' + it.key, style: `--r:${((i * 37) % 13) - 6}deg`,
           onclick: () => { closeModal('passport'); closeModal('collection'); hooks.travel(it, hooks.here()); } },

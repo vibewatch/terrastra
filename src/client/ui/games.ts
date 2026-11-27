@@ -1,5 +1,5 @@
 import { subName } from '../../shared/data/subs.ts';
-import { h, openModal, closeModal, toast, confetti } from './dom.ts';
+import { h, openModal, closeModal, toast, confetti, copyText } from './dom.ts';
 import { t, lang, countryName, fmtNum } from '../lib/i18n.ts';
 import { store, updateProgress } from '../store.ts';
 import { CATALOGUE, LANDMARKS } from '../../shared/data/catalogue.ts';
@@ -12,9 +12,9 @@ import { formatKm, slerpLatLon } from '../../shared/lib/geo.ts';
 import type { Globe } from '../globe/scene.ts';
 import { createModelPreview } from '../models/preview.ts';
 import { icon } from './icons.ts';
-import { DIFFS, ROUNDS, effectiveKm, scoreFor, summarizePlaceItRun, verdict, pickRounds, updateRecord, type Difficulty } from '../../shared/games/placeit.ts';
+import { DIFFS, ROUNDS, effectiveKm, scoreFor, summarizePlaceItRun, placeItShareText, verdict, pickRounds, updateRecord, type Difficulty } from '../../shared/games/placeit.ts';
 import { generateQuiz, applyAnswer, ranking, QUIZ_SETS, type QuizSet, type QuizLevel, type PlayerScore } from '../../shared/games/quiz.ts';
-import { buildPool, dayIndex, puzzleFor, evaluate, applyGuess, finishStats, hintsUnlocked, shareText, MAX_GUESSES, BAND_EMOJI, type DailyState } from '../../shared/games/daily.ts';
+import { buildPool, dayIndex, puzzleFor, evaluate, applyGuess, finishStats, hintsUnlocked, shareText, dailyWinRatePct, MAX_GUESSES, BAND_EMOJI, type DailyState } from '../../shared/games/daily.ts';
 
 export interface GameHost { globe: Globe; setGameMode: (on: boolean, names?: boolean) => void }
 
@@ -43,9 +43,31 @@ async function runPlaceIt(host: GameHost, diff: Difficulty, rnd: () => number = 
   document.body.append(hud);
   g.flyTo(20, 10, 2.6);
 
-  const quit = () => { hud.remove(); host.setGameMode(false); g.clearPins(); };
+  let cancelRound: (() => void) | null = null;
+  const quit = () => { document.removeEventListener('keydown', onPlaceItKey); hud.remove(); host.setGameMode(false); g.clearPins(); };
+  const onPlaceItKey = (e: KeyboardEvent) => {
+    if (e.isComposing || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (document.querySelector('.modal')) return;
+    const tgt = e.target instanceof HTMLElement ? e.target : null;
+    if (tgt?.closest('input, textarea, select, [contenteditable]')) return;
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      cancelRound?.();
+      return;
+    }
+    if (e.key === 'Enter') {
+      const btn = hud.querySelector<HTMLButtonElement>('[data-testid="placeit-confirm"]:not([disabled]), [data-testid="placeit-next"]:not([disabled])');
+      if (btn && tgt !== btn) { e.preventDefault(); btn.click(); }
+    } else if (e.key === 'h' || e.key === 'H') {
+      const hint = hud.querySelector<HTMLButtonElement>('[data-testid="placeit-hint"]:not([disabled])');
+      if (hint) { e.preventDefault(); hint.click(); }
+    }
+  };
+  document.addEventListener('keydown', onPlaceItKey);
 
   const playRound = () => new Promise<void>(resolve => {
+    const abort = () => { g.ev.onGlobeTap = undefined; quit(); r = ROUNDS + 1; resolve(); };
+    cancelRound = abort;
     const it = rounds[r];
     let guess: [number, number] | null = null;
     let hintLevel = 0;
@@ -62,7 +84,7 @@ async function runPlaceIt(host: GameHost, diff: Difficulty, rnd: () => number = 
       h('div', { class: 'hud-top' },
         h('span', { class: 'hud-pill' }, t('round', { r: r + 1, n: ROUNDS })),
         h('span', { class: 'hud-pill hud-score', 'data-testid': 'placeit-total' }, `${t('total')}: ${fmtNum(total)}`),
-        h('button', { class: 'pill danger pill-sm', 'aria-label': t('close'), onclick: () => { g.ev.onGlobeTap = undefined; quit(); resolve(); r = ROUNDS + 1; } }, '✕')),
+        h('button', { class: 'pill danger pill-sm', 'aria-label': t('close'), onclick: abort }, '✕')),
       h('div', { class: 'hud-main' },
         createModelPreview(it, { width: 112, height: 72, id: 'placeit-preview' }),
         h('div', { class: 'hud-info' },
@@ -114,6 +136,7 @@ async function runPlaceIt(host: GameHost, diff: Difficulty, rnd: () => number = 
   updateProgress(p => { const u = updateRecord(p.placeit[diff], total); p.placeit[diff] = u.rec; isNew = u.isNew; });
   if (isNew) { confetti(); sfx.fanfare(); }
   const runStats = summarizePlaceItRun(results);
+  const shareCard = placeItShareText(diff, total, results, `Terrastra ${t('placeit')}`);
   openModal('placeit-results', t('results'), h('div', { class: 'results', 'data-testid': 'placeit-results' },
     h('p', { class: 'big-score' }, fmtNum(total), h('small', {}, ` / ${fmtNum(ROUNDS * 1000)}`)),
     h('p', { class: 'muted', 'data-testid': 'placeit-summary' }, t('placeitSummary', {
@@ -123,8 +146,24 @@ async function runPlaceIt(host: GameHost, diff: Difficulty, rnd: () => number = 
       best: formatKm(runStats.bestKm, lang()),
     })),
     isNew ? h('p', { class: 'record' }, '🏆 ' + t('newRecord')) : h('p', { class: 'muted' }, `${t('best')}: ${fmtNum(store.progress.placeit[diff].best)}`),
-    h('ol', { class: 'round-list' }, ...results.map(x => h('li', {}, `${x.item.emoji} ${tr(x.item.name, lang())} — ${formatKm(x.km, lang())} · ${fmtNum(x.score)}`))),
-    h('button', { class: 'cta', onclick: () => { closeModal('placeit-results'); void runPlaceIt(host, diff); } }, t('playAgain'))));
+    h('ol', { class: 'round-list' }, ...results.map(x => h('li', {},
+      h('button', {
+        type: 'button',
+        class: 'round-list-btn',
+        'data-testid': 'placeit-round-fly',
+        onclick: () => { closeModal('placeit-results'); g.flyTo(x.item.lat, x.item.lon, 1.4); },
+      }, `${x.item.emoji} ${tr(x.item.name, lang())} — ${formatKm(x.km, lang())} · ${fmtNum(x.score)}`)))),
+    h('div', { class: 'row' },
+      h('button', { class: 'cta', onclick: () => { closeModal('placeit-results'); void runPlaceIt(host, diff); } }, t('playAgain')),
+      h('button', {
+        class: 'pill',
+        'data-testid': 'placeit-share',
+        html: icon('share', 15),
+        onclick: async () => {
+          if (navigator.share) await navigator.share({ text: shareCard }).catch(() => {});
+          else await copyText(shareCard, t('copied'));
+        },
+      }, ' ' + t('share')))));
 }
 
 // ================= Quiz =================
@@ -163,7 +202,7 @@ function runQuiz(host: GameHost, names: string[], set: QuizSet, level: QuizLevel
     const q = qs[i], pi = i % players.length, pl = players[pi];
     const opts = h('div', { class: 'opts' });
     const fb = h('p', { class: 'feedback', 'aria-live': 'polite' });
-    q.options.forEach((o, k) => opts.append(h('button', { class: 'opt', 'data-testid': 'quiz-opt', 'data-correct': String(k === q.answer), onclick: () => {
+    q.options.forEach((o, k) => opts.append(h('button', { class: 'opt', 'data-testid': 'quiz-opt', 'data-correct': String(k === q.answer), title: `${k + 1}. ${o}`, onclick: () => {
       const ok = k === q.answer;
       players[pi] = applyAnswer(pl, ok);
       if (ok) bySet[q.set] = (bySet[q.set] ?? 0) + 1;
@@ -176,10 +215,26 @@ function runQuiz(host: GameHost, names: string[], set: QuizSet, level: QuizLevel
       next.focus();
     } }, o)));
     const next = h('button', { class: 'cta', disabled: true, 'data-testid': 'quiz-next', onclick: () => { i++; closeModal('quiz'); ask(); } }, i + 1 >= qs.length ? t('results') : t('next'));
+    const onQuizKey = (e: KeyboardEvent) => {
+      if (e.isComposing || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (document.querySelector('.modal:last-of-type')?.id !== 'quiz') return;
+      const k = e.key.toLowerCase();
+      const idx = k === '1' || k === 'a' ? 0 : k === '2' || k === 'b' ? 1 : k === '3' || k === 'c' ? 2 : k === '4' || k === 'd' ? 3 : -1;
+      const optBtns = opts.querySelectorAll<HTMLButtonElement>('button.opt');
+      if (idx >= 0 && idx < optBtns.length && !optBtns[idx].disabled) {
+        e.preventDefault();
+        optBtns[idx].click();
+      } else if (e.key === 'Enter' && !next.disabled && document.activeElement !== next) {
+        e.preventDefault();
+        next.click();
+      }
+    };
+    document.addEventListener('keydown', onQuizKey);
     openModal('quiz', t('question', { q: i + 1, n: qs.length }), h('div', { class: 'quiz-q' },
       players.length > 1 ? h('p', { class: 'turn' }, t('yourTurn', { p: pl.name })) : null,
       h('p', { class: 'prompt', 'data-testid': 'quiz-prompt' }, tr(q.prompt, lang())), opts, fb, next,
-      h('div', { class: 'scoreline' }, ...players.map(p => h('span', {}, `${p.name}: ${p.score}`)))));
+      h('div', { class: 'scoreline' }, ...players.map(p => h('span', {}, `${p.name}: ${p.score}`)))),
+      { onClose: () => document.removeEventListener('keydown', onQuizKey) });
   };
   const finish = () => {
     const ranked = ranking(players);
@@ -239,7 +294,7 @@ function openDaily(host: GameHost): void {
   const dl = h('datalist', { id: 'daily-list' }, ...list.map(g => h('option', { value: g.label })));
   const labelOf = (key: string) => key.startsWith('pin:') ? '⌖ ' + key.slice(4) : list.find(x => x.key === key)?.label ?? key;
   const submitGuess = (g: { key: string; lat: number; lon: number }) => {
-    if (state!.guesses.some(x => x.key === g.key)) return;
+    if (state!.guesses.some(x => x.key === g.key)) { toast(t('dailyAlreadyGuessed')); return; }
     const res = evaluate(target, g);
     state = applyGuess(state!, res);
     save('dailyState', state);
@@ -291,16 +346,41 @@ function openDaily(host: GameHost): void {
     form.style.display = s.done ? 'none' : '';
     if (s.done) {
       const st = store.progress.daily;
+      const winPct = dailyWinRatePct(st);
+      const dist = Array.isArray(st.dist) && st.dist.length >= MAX_GUESSES
+        ? st.dist.slice(0, MAX_GUESSES)
+        : [0, 0, 0, 0, 0, 0];
+      const maxCount = Math.max(1, ...dist);
+      const todayIdx = s.won ? s.guesses.length - 1 : -1;
       const text = shareText(s);
       clue.querySelector('.big')!.textContent = target.emoji;
       endEl.replaceChildren(
         h('div', { class: 'daily-preview-wrap' }, createModelPreview(target, { width: 150, height: 100 })),
         h('p', { class: 'result', 'data-testid': 'daily-result' }, s.won ? '🎉 ' + t('dailyWin', { n: s.guesses.length }) : t('dailyLose', { a: tr(target.name, lang()) })),
         h('pre', { class: 'share-text' }, text),
-        h('button', { class: 'cta', 'data-testid': 'daily-share', onclick: async () => {
-          try { if (navigator.share) await navigator.share({ text }); else { await navigator.clipboard.writeText(text); toast(t('copied')); } } catch { /* cancelled */ }
-        }, html: icon('share', 16) }, ' ' + t('share')),
-        h('div', { class: 'stats' }, h('span', {}, `${t('played')}: ${st.played}`), h('span', {}, `${t('streak')}: ${st.streak}`), h('span', {}, `${t('best')}: ${st.maxStreak}`)),
+        h('div', { class: 'row' },
+          h('button', { class: 'cta', 'data-testid': 'daily-share', onclick: async () => {
+            try { if (navigator.share) await navigator.share({ text }); else { await navigator.clipboard.writeText(text); toast(t('copied')); } } catch { /* cancelled */ }
+          }, html: icon('share', 16) }, ' ' + t('share')),
+          h('button', {
+            class: 'pill',
+            'data-testid': 'daily-explore',
+            html: icon('pin', 14),
+            onclick: () => { closeModal('daily'); host.globe.flyTo(target.lat, target.lon, 1.35); },
+          }, ' ' + t('dailyExploreBtn'))),
+        h('div', { class: 'stats' },
+          h('span', {}, `${t('played')}: ${st.played}`),
+          h('span', {}, `${t('dailyWinPct')}: ${winPct}%`),
+          h('span', {}, `${t('streak')}: ${st.streak}`),
+          h('span', {}, `${t('best')}: ${st.maxStreak}`)),
+        h('div', { class: 'daily-dist', 'data-testid': 'daily-dist', role: 'group', 'aria-label': t('dailyDistTitle') },
+          h('small', { class: 'muted' }, t('dailyDistTitle')),
+          ...dist.map((cnt, idx) => h('div', { class: 'daily-dist-row' },
+            h('span', {}, String(idx + 1)),
+            h('span', {
+              class: 'daily-dist-bar' + (idx === todayIdx ? ' today' : ''),
+              style: `width:${Math.max(10, Math.round((cnt / maxCount) * 100))}%`,
+            }, String(cnt))))),
         h('p', { class: 'muted' }, t('nextPuzzle', { t: untilMidnight() })));
     } else endEl.replaceChildren();
   }

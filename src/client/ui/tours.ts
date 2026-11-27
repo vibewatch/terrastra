@@ -9,6 +9,7 @@ import { t, lang, onLang } from '../lib/i18n.ts';
 import { load, save } from '../lib/storage.ts';
 import { store, canUsePro, effectivePlan, isPaywallEnabled, scheduleSync } from '../store.ts';
 import { classroomLink } from '../lib/classroom.ts';
+import { narrate, narrationSupported, splitSentences, type Narration } from '../lib/narrate.ts';
 import { closeTutorial } from './tutorial.ts';
 import { isFreeTour, maskLicenseEmail } from '../../shared/lib/entitlements.ts';
 import { skyEvents } from '../../shared/lib/astro/events.ts';
@@ -218,6 +219,44 @@ export function startTour(id: string, host: TourHost): void {
   closeTutorial();
   const steps = tour.steps();
   let i = 0;
+  let tourSpeech: Narration | null = null;
+  const stopSpeech = () => {
+    if (!tourSpeech) return;
+    const cur = tourSpeech;
+    tourSpeech = null;
+    cur.stop();
+  };
+  const toggleSpeech = (btn: HTMLButtonElement) => {
+    if (tourSpeech) {
+      stopSpeech();
+      btn.setAttribute('aria-pressed', 'false');
+      btn.setAttribute('aria-label', t('listen'));
+      btn.title = t('listen');
+      btn.innerHTML = icon('sound', 15);
+      return;
+    }
+    const st = steps[i];
+    tourSpeech = narrate([L(st.title), ...splitSentences(L(st.body))], lang(), {
+      sentence: () => {},
+      end: () => {
+        tourSpeech = null;
+        if (btn.isConnected) {
+          btn.setAttribute('aria-pressed', 'false');
+          btn.setAttribute('aria-label', t('listen'));
+          btn.title = t('listen');
+          btn.innerHTML = icon('sound', 15);
+        }
+      },
+    });
+    if (tourSpeech) {
+      btn.setAttribute('aria-pressed', 'true');
+      btn.setAttribute('aria-label', t('listenStop'));
+      btn.title = t('listenStop');
+      btn.innerHTML = icon('pause', 15);
+    } else {
+      toast(t('noSpeech'));
+    }
+  };
   const ring = h('div', { class: 'tour-spot', 'aria-hidden': 'true' });
   const card = h('section', { class: 'tour-card', 'data-occludes': true, 'data-testid': 'tour', 'aria-labelledby': 'tour-title' });
   const root = h('div', { class: 'tour' }, ring, card);
@@ -230,21 +269,40 @@ export function startTour(id: string, host: TourHost): void {
   };
   const render = () => {
     const st = steps[i], last = i === steps.length - 1;
+    const speakBtn = narrationSupported() ? h('button', {
+      type: 'button',
+      class: 'icon-btn tour-speak-btn',
+      'aria-pressed': String(!!tourSpeech),
+      'aria-label': t(tourSpeech ? 'listenStop' : 'listen'),
+      title: t(tourSpeech ? 'listenStop' : 'listen'),
+      'data-testid': 'tour-speak',
+      html: icon(tourSpeech ? 'pause' : 'sound', 15),
+      onclick: (ev: Event) => toggleSpeech(ev.currentTarget as HTMLButtonElement),
+    }) as HTMLButtonElement : null;
     card.replaceChildren(
       h('header', { class: 'tour-head' },
         h('span', { class: 'tour-kicker', html: icon(tour.icon, 14) }, h('span', {}, `${L(tour.title)} · ${t('tutStep', { i: i + 1, n: steps.length })}`)),
+        speakBtn,
         h('button', { class: 'icon-btn tour-x', 'aria-label': t('tourExit'), 'data-testid': 'tour-exit', html: icon('close', 16), onclick: () => stop() })),
       h('h2', { id: 'tour-title' }, L(st.title)),
       st.when !== undefined ? h('p', { class: 'tour-when', 'data-testid': 'tour-when' }, missionTime(st.when, tour.t0)) : '',
       st.track ? h('p', { class: 'tour-track tour-' + st.track, 'data-testid': 'tour-track', html: icon(st.track === 'record' ? 'pin' : 'sparkle', 14) },
         h('span', {}, t(st.track === 'record' ? 'tourRecord' : 'tourSketch'))) : '',
       h('p', { class: 'tour-body', 'aria-live': 'polite' }, L(st.body)),
-      h('div', { class: 'dots', 'aria-hidden': 'true' }, ...steps.map((sStep, j) => h('span', {
+      h('div', { class: 'dots', role: 'navigation', 'aria-label': L(tour.title) }, ...steps.map((sStep, j) => h('span', {
         class: j === i ? 'on' : '',
+        role: 'button',
+        tabindex: '0',
+        'aria-label': `${j + 1}. ${L(sStep.title)}`,
+        ...(j === i ? { 'aria-current': 'step' } : {}),
         'data-testid': `tour-dot-${j}`,
         title: L(sStep.title),
         style: 'cursor:pointer',
         onclick: () => go(j),
+        onkeydown: (ev: Event) => {
+          const ke = ev as KeyboardEvent;
+          if (ke.key === 'Enter' || ke.key === ' ') { ke.preventDefault(); go(j); }
+        },
       }))),
       h('div', { class: 'row' },
         h('button', { class: 'pill', 'data-testid': 'tour-back', disabled: i === 0, onclick: () => go(i - 1) }, t('tourBack')),
@@ -252,6 +310,7 @@ export function startTour(id: string, host: TourHost): void {
   };
   const go = (k: number) => {
     if (k < 0 || k >= steps.length) return;
+    stopSpeech();
     i = k;
     render();
     (card.querySelector('[data-testid="tour-next"]') as HTMLButtonElement).focus({ preventScroll: true });
@@ -261,7 +320,19 @@ export function startTour(id: string, host: TourHost): void {
     // scenes load and settle at their own pace: keep the spotlight on its target while it moves into place
     if (steps[i].spot) spotTimer = window.setInterval(place, 400);
   };
+  const onKey = (e: KeyboardEvent) => {
+    if (e.isComposing || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (document.querySelector('.modal:not(.hidden)')) return;
+    const tgt = e.target instanceof HTMLElement ? e.target : null;
+    if (tgt?.closest('input, textarea, select, [contenteditable]')) return;
+    if (e.key === 'Escape') { e.preventDefault(); stop(); return; }
+    if (tgt?.tagName === 'CANVAS') return;
+    if (e.key === 'ArrowLeft' && i > 0) { e.preventDefault(); go(i - 1); }
+    else if (e.key === 'ArrowRight') { e.preventDefault(); if (i === steps.length - 1) finish(); else go(i + 1); }
+  };
   const stop = () => {
+    stopSpeech();
+    document.removeEventListener('keydown', onKey);
     clearInterval(spotTimer);
     offLang();
     root.remove();
@@ -274,7 +345,8 @@ export function startTour(id: string, host: TourHost): void {
     stop();
     confetti(40);
   };
-  const offLang = onLang(() => render());
+  document.addEventListener('keydown', onKey);
+  const offLang = onLang(() => { stopSpeech(); render(); });
   active = { root, stop };
   document.body.append(root);
   document.body.classList.add('touring');

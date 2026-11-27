@@ -75,29 +75,51 @@ async function postcard(url: string, c: Caption, when = new Date()): Promise<str
 /** Resolve a pending frame grab, or give up so a paused scene can't hang the shutter. */
 const within = <T,>(p: Promise<T>, ms: number) => Promise.race([p, new Promise<never>((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
 
+/** Generates a descriptive safe download filename for a saved postcard. */
+export function photoFilename(p: Pick<Photo, 'id' | 'at' | 'place'>): string {
+  const dateStr = new Date(p.at).toISOString().slice(0, 10);
+  const slug = (p.place || '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\u4e00-\u9fff]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 36);
+  return `terrastra-${slug || p.id}-${dateStr}.jpg`;
+}
+
 export function openPhotoMode(shot: Shot): void {
   document.body.classList.add('photo-mode');
-  const exit = () => { document.body.classList.remove('photo-mode'); bar.remove(); frame.remove(); document.removeEventListener('keydown', esc, true); };
-  const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); exit(); } };
-  document.addEventListener('keydown', esc, true);
+  const exit = () => { document.body.classList.remove('photo-mode'); bar.remove(); frame.remove(); document.removeEventListener('keydown', onKey, true); };
   const frame = h('div', { class: 'viewfinder', 'aria-hidden': 'true' }, h('i', { class: 'c tl' }), h('i', { class: 'c tr' }), h('i', { class: 'c bl' }), h('i', { class: 'c br' }));
   let busy = false;
+  const snap = async () => {
+    if (busy) return;
+    busy = true;
+    sfx.shutter();
+    frame.classList.add('flash');
+    setTimeout(() => frame.classList.remove('flash'), 300);
+    try {
+      const c = await shot.caption();
+      const url = await postcard(await within(shot.capture(), 3000), c);
+      await photos.add({ at: Date.now(), url, place: c.title || c.level });
+      toast('📸 ' + t('photoSaved'));
+    } catch { toast('⚠️ ' + t('photoSaveFail'), 4000); }
+    finally { busy = false; }
+  };
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') { e.stopPropagation(); exit(); return; }
+    const tgt = e.target instanceof HTMLElement ? e.target : null;
+    if ((e.key === ' ' || e.key === 'Enter') && !tgt?.closest('button, a')) {
+      e.preventDefault();
+      e.stopPropagation();
+      void snap();
+    }
+  };
+  document.addEventListener('keydown', onKey, true);
   const bar = h('div', { class: 'photo-bar' },
     h('button', { class: 'pill', 'data-testid': 'photo-album', onclick: () => { exit(); void openAlbum(); }, html: icon('image', 16) }, ' ' + t('album')),
-    h('button', { class: 'shutter', 'aria-label': t('shutter'), 'data-testid': 'shutter', onclick: async () => {
-      if (busy) return;
-      busy = true;
-      sfx.shutter();
-      frame.classList.add('flash');
-      setTimeout(() => frame.classList.remove('flash'), 300);
-      try {
-        const c = await shot.caption();
-        const url = await postcard(await within(shot.capture(), 3000), c);
-        await photos.add({ at: Date.now(), url, place: c.title || c.level });
-        toast('📸 ' + t('photoSaved'));
-      } catch { toast('⚠️ ' + t('photoSaveFail'), 4000); }
-      finally { busy = false; }
-    } }),
+    h('button', { class: 'shutter', 'aria-label': t('shutter'), 'data-testid': 'shutter', onclick: () => void snap() }),
     h('button', { class: 'pill', 'data-testid': 'photo-exit', onclick: exit }, t('close')));
   document.body.append(frame, bar);
 }
@@ -105,21 +127,49 @@ export function openPhotoMode(shot: Shot): void {
 export async function openAlbum(): Promise<void> {
   let list: Photo[] = [], failed = false;
   try { list = await photos.all(); } catch { failed = true; }
+  const wrap = h('div', { class: 'album-wrap' });
+  if (!failed && list.length > 0) {
+    wrap.append(h('p', { class: 'muted small', 'data-testid': 'album-count', style: 'margin:0 0 8px' }, t('photoCount', { n: list.length })));
+  }
   const grid = h('div', { class: 'album-grid', 'data-testid': 'album-grid' });
   if (failed) grid.append(h('p', { class: 'muted', role: 'alert' }, t('albumFail')));
   else if (!list.length) grid.append(h('p', { class: 'muted' }, t('noPhotos')));
   for (const p of list) {
     grid.append(h('button', { class: 'thumb', onclick: () => view(p) }, h('img', { src: p.url, alt: p.place || t('photoAlt'), loading: 'lazy' })));
   }
-  openModal('album', t('album'), grid, { wide: true });
+  wrap.append(grid);
+  openModal('album', t('album'), wrap, { wide: true });
   function view(p: Photo) {
-    const dl = h('a', { class: 'pill', href: p.url, download: `terrastra-${p.id}.jpg`, html: icon('download', 16) }, ' ' + t('save'));
+    const fname = photoFilename(p);
+    const dl = h('a', { class: 'pill', href: p.url, download: fname, 'data-testid': 'photo-download', html: icon('download', 16) }, ' ' + t('save'));
+    const canCopyImg = typeof ClipboardItem !== 'undefined' && !!navigator.clipboard?.write;
+    const copyBtn = canCopyImg ? h('button', {
+      class: 'pill',
+      'data-testid': 'photo-copy',
+      html: icon('copy', 16),
+      onclick: async () => {
+        try {
+          const img = new Image();
+          img.src = p.url;
+          await img.decode();
+          const cv = document.createElement('canvas');
+          cv.width = img.naturalWidth; cv.height = img.naturalHeight;
+          cv.getContext('2d')!.drawImage(img, 0, 0);
+          const pngBlob = await new Promise<Blob | null>(res => cv.toBlob(res, 'image/png'));
+          if (!pngBlob) throw new Error('no png');
+          await navigator.clipboard.write([new ClipboardItem({ 'image/png': pngBlob })]);
+          toast(t('photoCopied'));
+        } catch {
+          toast('⚠️ ' + t('photoSaveFail'));
+        }
+      },
+    }, ' ' + t('photoCopy')) : null;
     const share = navigator.share ? h('button', { class: 'pill', onclick: async () => {
       const blob = await (await fetch(p.url)).blob();
-      await navigator.share({ files: [new File([blob], 'terrastra.jpg', { type: blob.type })], title: t('title') }).catch(() => {});
+      await navigator.share({ files: [new File([blob], fname, { type: blob.type })], title: t('title') }).catch(() => {});
     }, html: icon('share', 16) }, ' ' + t('share')) : null;
     openModal('photo-view', p.place || t('album'), h('div', { class: 'photo-view' }, h('img', { src: p.url, alt: p.place || t('photoAlt') }),
       h('p', { class: 'muted' }, new Date(p.at).toLocaleString()),
-      h('div', { class: 'row' }, dl, share, h('button', { class: 'pill danger', onclick: async () => { try { await photos.del(p.id); } catch { toast('⚠️ ' + t('albumFail')); return; } closeModal('photo-view'); closeModal('album'); void openAlbum(); }, html: icon('trash', 16) }, ' ' + t('del')))), { wide: true });
+      h('div', { class: 'row' }, dl, copyBtn, share, h('button', { class: 'pill danger', onclick: async () => { try { await photos.del(p.id); } catch { toast('⚠️ ' + t('albumFail')); return; } closeModal('photo-view'); closeModal('album'); void openAlbum(); }, html: icon('trash', 16) }, ' ' + t('del')))), { wide: true });
   }
 }

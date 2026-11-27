@@ -131,3 +131,34 @@ describe('progress backup file', async () => {
     expect(readBackup(JSON.stringify({ ...backupOf(p, 5), kind: 'other-app' }))).toBeNull();
   });
 });
+
+describe('game sharecards, daily win rate, and postcard filenames', async () => {
+  const { placeItShareText } = await import('../../src/shared/games/placeit.ts');
+  const { dailyWinRatePct } = await import('../../src/shared/games/daily.ts');
+  const { photoFilename } = await import('../../src/client/ui/photo.ts');
+
+  it('formats Place-It emoji sharecard with grade and accuracy', () => {
+    const txt = placeItShareText('normal', 8200, [
+      { km: 10, score: 1000 },
+      { km: 250, score: 800 },
+      { km: 900, score: 450 },
+      { km: 4000, score: 100 },
+    ]);
+    expect(txt).toContain('Terrastra Place-It (normal) 8,200/10,000');
+    expect(txt).toContain('🎯🟩🟨🟥');
+  });
+
+  it('computes bounded Daily Planet win rate percentages', () => {
+    expect(dailyWinRatePct({ played: 0, won: 0 })).toBe(0);
+    expect(dailyWinRatePct({ played: 8, won: 6 })).toBe(75);
+    expect(dailyWinRatePct({ played: 3, won: 3 })).toBe(100);
+  });
+
+  it('slugifies English and Chinese place names into safe postcard filenames', () => {
+    const at = Date.UTC(2026, 3, 18, 12, 0, 0);
+    expect(photoFilename({ id: 7, at, place: 'Tour Eiffel, Paris!' })).toBe('terrastra-tour-eiffel-paris-2026-04-18.jpg');
+    expect(photoFilename({ id: 8, at, place: '埃菲尔铁塔 · Paris' })).toBe('terrastra-埃菲尔铁塔-paris-2026-04-18.jpg');
+    expect(photoFilename({ id: 9, at, place: '' })).toBe('terrastra-9-2026-04-18.jpg');
+  });
+});
+
