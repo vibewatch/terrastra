@@ -194,6 +194,80 @@ export function apparentArcsec(id: BodyId, d: number, from: BodyId = 'earth'): n
   return (2 * Math.atan2(BODY[id].radiusKm, dist) * 180 / Math.PI) * 3600;
 }
 
+/** IAU 2015 nominal total solar irradiance at 1 AU (W/m²). */
+export const SOLAR_CONSTANT_WM2 = 1361;
+
+/** Representative Bond albedos for planetary radiative-equilibrium calculations. */
+const BOND_ALBEDO: Partial<Record<BodyId, number>> = {
+  mercury: 0.068, venus: 0.77, earth: 0.306, moon: 0.11, mars: 0.25, ceres: 0.034,
+  jupiter: 0.503, io: 0.63, europa: 0.67, ganymede: 0.43, callisto: 0.17,
+  saturn: 0.342, enceladus: 0.81, titan: 0.22,
+  uranus: 0.30, neptune: 0.29, triton: 0.76,
+  pluto: 0.72, charon: 0.25, haumea: 0.51, makemake: 0.81, eris: 0.96,
+};
+
+/** Instantaneous top-of-atmosphere solar irradiance (W/m²) at body `id` on day `d` since J2000 (`null` for the Sun). */
+export function solarIrradianceWm2(id: BodyId, d: number): number | null {
+  if (id === 'sun' || !BODY[id]) return null;
+  const p = helioKm(id, d);
+  const rAu = Math.hypot(p[0], p[1], p[2]) / AU_KM;
+  if (!(rAu > 0)) return null;
+  const flux = SOLAR_CONSTANT_WM2 / (rAu * rAu);
+  return flux >= 10 ? Math.round(flux) : flux >= 1 ? +flux.toFixed(1) : +flux.toFixed(2);
+}
+
+/** Zero-greenhouse rapid-rotator blackbody equilibrium temperature (°C) on day `d` since J2000 (`null` for the Sun). */
+export function equilibriumTempC(id: BodyId, d: number): number | null {
+  if (id === 'sun' || !BODY[id]) return null;
+  const p = helioKm(id, d);
+  const rAu = Math.hypot(p[0], p[1], p[2]) / AU_KM;
+  if (!(rAu > 0)) return null;
+  const albedo = BOND_ALBEDO[id] ?? 0.12;
+  const tK = (278.5 * Math.pow(Math.max(0.01, 1 - albedo), 0.25)) / Math.sqrt(rAu);
+  return Math.round(tK - 273.15);
+}
+
+/** Mean Keplerian synodic period (days) between two bodies sharing the same primary (Sun or host planet). */
+export function synodicPeriodDays(a: BodyId, b: BodyId): number | null {
+  if (a === b) return null;
+  const ba = BODY[a], bb = BODY[b];
+  if (!ba || !bb) return null;
+  let pa = 0, pb = 0;
+  if (ba.kepler && bb.kepler) {
+    pa = 365.25636 * Math.pow(ba.kepler.a[0], 1.5);
+    pb = 365.25636 * Math.pow(bb.kepler.a[0], 1.5);
+  } else if (ba.moon && bb.moon && ba.parent && ba.parent === bb.parent) {
+    // Preserve retrograde sign when one moon orbits retrograde so opposing revolutions add!
+    pa = ba.moon.periodD;
+    pb = bb.moon.periodD;
+  } else {
+    return null;
+  }
+  const diff = Math.abs(1 / pa - 1 / pb);
+  if (!(diff > 1e-9)) return null;
+  const syn = 1 / diff;
+  return syn >= 10 ? +syn.toFixed(1) : +syn.toFixed(2);
+}
+
+/** Gravitational Hill sphere radius at periapsis (km) for a planet, dwarf planet, or moon (`null` for the Sun). */
+export function hillSphereKm(id: BodyId): number | null {
+  const b = BODY[id];
+  if (!b || b.facts.gravity === undefined || !(b.facts.gravity > 0) || !(b.radiusKm > 0)) return null;
+  const muBodyKm3S2 = b.facts.gravity * (G_EARTH_MS2 / 1000) * b.radiusKm * b.radiusKm;
+  if (b.kepler) {
+    const periKm = b.kepler.a[0] * (1 - Math.max(0, b.kepler.e[0])) * AU_KM;
+    return Math.round(periKm * Math.cbrt(muBodyKm3S2 / (3 * GM_SUN_KM3_S2)));
+  }
+  if (b.moon && b.parent) {
+    const p = BODY[b.parent];
+    if (!p || p.facts.gravity === undefined || !(p.facts.gravity > 0) || !(p.radiusKm > 0)) return null;
+    const muParentKm3S2 = p.facts.gravity * (G_EARTH_MS2 / 1000) * p.radiusKm * p.radiusKm;
+    const periKm = b.moon.aKm * (1 - Math.max(0, b.moon.e ?? 0));
+    return Math.round(periKm * Math.cbrt(muBodyKm3S2 / (3 * muParentKm3S2)));
+  }
+  return null;
+}
+
 /**
  * Display scale for the overview: real distances would put Neptune 80,000 Earth-radii away, so orbit radii are
  * compressed with a square root and body sizes with a power law. Close-ups use the body at radius `displayRadius`.

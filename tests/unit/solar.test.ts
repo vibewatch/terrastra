@@ -138,4 +138,44 @@ describe('distance meter', () => {
     const voyager = SOLAR_SITES.find(s => s.helio)!;
     expect(siteEarthDistKm(voyager, Date.UTC(2026, 0, 1))).toBeGreaterThan(15e9);
   });
+
+  it('computes solar irradiance, planetary equilibrium temperature, synodic windows, Hill sphere & probe cruise speed', async () => {
+    const { solarIrradianceWm2, equilibriumTempC, synodicPeriodDays, hillSphereKm } = await import('../../src/shared/lib/orbits.ts');
+    const { probeHelioSpeedKms } = await import('../../src/client/solar/sites.ts');
+    const { SOLAR_SITES } = await import('../../src/shared/data/solar-sites.ts');
+
+    const d = daysJ2000(Date.UTC(2026, 6, 4)); // near Earth aphelion (~1.0167 AU)
+    expect(solarIrradianceWm2('sun', d)).toBeNull();
+    const earthFlux = solarIrradianceWm2('earth', d)!;
+    expect(earthFlux).toBeGreaterThan(1300);
+    expect(earthFlux).toBeLessThan(1380);
+    expect(solarIrradianceWm2('mercury', d)!).toBeGreaterThan(5500);
+    expect(solarIrradianceWm2('neptune', d)!).toBeCloseTo(1.51, 1);
+
+    // Earth's blackbody equilibrium temperature (without greenhouse effect) is ~-18°C to -20°C
+    const earthEq = equilibriumTempC('earth', d)!;
+    expect(earthEq).toBeGreaterThan(-24);
+    expect(earthEq).toBeLessThan(-14);
+    // Venus reflects ~76% of sunlight so its equilibrium temperature is cooler than Earth's despite being closer!
+    expect(equilibriumTempC('venus', d)!).toBeLessThan(earthEq);
+    expect(equilibriumTempC('pluto', d)!).toBeLessThan(-220);
+
+    // Earth–Mars synodic launch window ~780 days; Earth–Venus ~584 days; Io–Europa 2:1 resonance ~3.55 days
+    expect(synodicPeriodDays('earth', 'mars')!).toBeCloseTo(779.9, 0);
+    expect(synodicPeriodDays('earth', 'venus')!).toBeCloseTo(583.9, 0);
+    expect(synodicPeriodDays('io', 'europa')!).toBeCloseTo(3.55, 1);
+    expect(synodicPeriodDays('earth', 'moon')).toBeNull(); // different primary
+    expect(synodicPeriodDays('earth', 'earth')).toBeNull();
+
+    // Earth's perihelion Hill sphere is ~1.47 million km (~L1/L2 distance); Jupiter's is ~49.8 million km
+    expect(hillSphereKm('earth')! / 1e6).toBeCloseTo(1.47, 1);
+    expect(hillSphereKm('moon')!).toBeCloseTo(58_000, -4);
+    expect(hillSphereKm('jupiter')! / 1e6).toBeCloseTo(49.8, 0);
+    expect(hillSphereKm('sun')).toBeNull();
+
+    const v1 = SOLAR_SITES.find(s => s.key === 'ss_sun_voyager1')!;
+    const orbiter = SOLAR_SITES.find(s => !s.helio)!;
+    expect(probeHelioSpeedKms(v1)).toBeCloseTo(16.9, 1);
+    expect(probeHelioSpeedKms(orbiter)).toBeNull();
+  });
 });

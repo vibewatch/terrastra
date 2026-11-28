@@ -14,20 +14,21 @@ import { tr, type Lang } from '../../shared/data/types.ts';
 import { BODIES, BODY, type BodyId, type SolarBody } from '../../shared/data/solar.ts';
 import { BODY_TEXT } from '../../shared/data/solar-text.ts';
 import { SOLAR_FEATURES } from '../../shared/data/solar-features.ts';
-import { AU_KM, LIGHT_KMS, apparentArcsec, daysJ2000, distanceKm, escapeVelocityKms, hohmannTransferHours, lightDelaySec, orbitalSpeedKms, probeTransitHours, relativePosition } from '../../shared/lib/orbits.ts';
-import { fmtRadec, galToRadec } from '../../shared/lib/sky.ts';
+import { CONSTELLATIONS } from '../../shared/data/constellations.ts';
+import { AU_KM, LIGHT_KMS, apparentArcsec, daysJ2000, distanceKm, equilibriumTempC, escapeVelocityKms, hillSphereKm, hohmannTransferHours, lightDelaySec, orbitalSpeedKms, probeTransitHours, relativePosition, solarIrradianceWm2, synodicPeriodDays } from '../../shared/lib/orbits.ts';
+import { fmtRadec, galToRadec, nearestConstellation } from '../../shared/lib/sky.ts';
 import type { Quality } from '../globe/quality.ts';
 import type { Reader, Readable } from '../ui/reader.ts';
 import { SolarView, SPEEDS, featuresOf, type SolarSelection } from './view.ts';
-import { sitesOf, helioAU, siteEarthDistKm } from './sites.ts';
+import { sitesOf, helioAU, probeHelioSpeedKms, siteEarthDistKm } from './sites.ts';
 import { deepThumb } from './deep.ts';
 import { fmtLy, fmtParsec, fmtYears } from './fmt.ts';
 import { invalidateUI } from '../ui/occluders.ts';
 import { foldable, foldButton } from '../ui/fold.ts';
 import { drawConstellation, constellationLatBand, constellationText } from './constellations.ts';
 import { SOLAR_SITES } from '../../shared/data/solar-sites.ts';
-import { starClass, starTempK } from '../../shared/data/nearby-stars.ts';
-import { DEEP_OBJECTS, MESSIER, SCALE_INFO, hubbleFlowKms, lookbackEarthEra, type DeepObject, type DeepKind, type DeepScale, type ScaleId } from '../../shared/data/cosmos.ts';
+import { habitableZoneAu, starClass, starLuminositySun, starTempK } from '../../shared/data/nearby-stars.ts';
+import { DEEP_OBJECTS, MESSIER, SCALE_INFO, cosmicRedshiftZ, deepAngularArcmin, hubbleFlowKms, lookbackEarthEra, type DeepObject, type DeepKind, type DeepScale, type ScaleId } from '../../shared/data/cosmos.ts';
 import { messierGroup, type MessierGroup } from '../../shared/data/messier.ts';
 
 type Sel = SolarSelection | { kind: 'deep'; o: DeepObject } | { kind: 'scale'; id: ScaleId };
@@ -128,9 +129,10 @@ export class SolarUI {
       h('button', { class: 'icon-btn', 'data-testid': 'meter-close', 'aria-label': t('close'), html: icon('close', 14), onclick: () => this.setMeter(false) })),
     this.meterOut,
     h('p', { class: 'meter-note', 'data-i18n': 'meterNote' }, t('meterNote')));
-  private messierBtn = h('button', { class: 'icon-btn cst-toggle', 'data-testid': 'solar-messier', 'data-i18n-tip': 'messier', title: t('messier'), 'aria-pressed': 'false', html: icon('telescope', 15) });
+  private messierBtn = h('button', { class: 'icon-btn cst-toggle', 'data-testid': 'solar-messier', 'data-i18n-tip': 'messier', title: t('messier'), 'aria-label': t('messier'), 'aria-pressed': 'false', html: icon('telescope', 15) });
   private messierEl = h('div', { class: 'solar-messier hidden', role: 'group', 'data-testid': 'messier-panel', 'data-occludes': true });
   private mFilter: MessierGroup | 'all' = 'all';
+  private mSort: 'num' | 'near' | 'size' = 'num';
   private mQuery = '';
   /** Telemetry in the HUD corner: target, coordinates/field of view, range. */
   private readout = h('dl', { class: 'hud-readout', 'data-occludes': true, 'aria-hidden': 'true' });
@@ -193,6 +195,11 @@ export class SolarUI {
     this.renderDock();
     this.setSpeed(2);
     this.view.setEarthCanvas(host.earthCanvas());
+    for (const el of this.el.querySelectorAll<HTMLElement>('[data-i18n-tip]')) {
+      const lbl = t(el.dataset.i18nTip!);
+      el.title = lbl;
+      el.setAttribute('aria-label', lbl);
+    }
     onLang(() => this.relabel());
     document.addEventListener('keydown', e => {
       if (!this.view.isActive) return;
@@ -310,6 +317,8 @@ export class SolarUI {
     ];
     const hohmannH = hohmannTransferHours(a, b);
     if (hohmannH && hohmannH > 0) rows.push([t('meterHohmann'), fmtDur(hohmannH)]);
+    const synD = synodicPeriodDays(a, b);
+    if (synD && synD > 0) rows.push([t('meterSynodic'), fmtDur(synD * 24)]);
     rows.push([t('meterCar'), fmtDur(carH)]);
     this.showMeterRows(rows);
     this.view.meterLabel.textContent = a === b ? '' : fmtKm(km, l);
@@ -359,10 +368,23 @@ export class SolarUI {
       if (`m${o.messier}` === q || (/^\d+$/.test(numQ) && String(o.messier).startsWith(numQ))) return true;
       return o.name.en.toLowerCase().includes(q) || (o.name.zh ?? '').toLowerCase().includes(q);
     });
+    if (this.mSort === 'near') list.sort((a, b) => a.distLy - b.distLy || a.messier! - b.messier!);
+    else if (this.mSort === 'size') list.sort((a, b) => (b.sizeLy ?? 0) - (a.sizeLy ?? 0) || b.distLy - a.distLy);
     const groups: (MessierGroup | 'all')[] = ['all', 'galaxy', 'nebula', 'open', 'globular'];
+    const sorts: ('num' | 'near' | 'size')[] = ['num', 'near', 'size'];
     const short = (o: DeepObject) => {
       const n = tr(o.name, l).replace(/ ?[(（]M\d+[)）]$/, '');
       return /^(Messier |梅西耶)\d+$/.test(n) ? t('dk_' + o.kind) : n;
+    };
+    const compactLy = (ly: number) => {
+      if (l === 'zh') {
+        if (ly >= 1e6) return `${+(ly / 1e4).toFixed(0)}万`;
+        if (ly >= 1e4) return `${+(ly / 1e4).toFixed(1)}万`;
+        return `${Math.round(ly)}光年`;
+      }
+      if (ly >= 1e6) return `${+(ly / 1e6).toFixed(1)}M ly`;
+      if (ly >= 1e3) return `${+(ly / 1e3).toFixed(1)}k ly`;
+      return `${Math.round(ly)} ly`;
     };
     this.messierEl.setAttribute('aria-label', t('messier'));
     if (rebuildShell || !this.messierEl.querySelector('.messier-list')) {
@@ -378,6 +400,7 @@ export class SolarUI {
           h('button', { class: 'icon-btn', 'data-testid': 'messier-close', 'aria-label': t('close'), html: icon('close', 14), onclick: () => this.setMessier(false) })),
         search,
         h('div', { class: 'messier-filters', role: 'radiogroup' }),
+        h('div', { class: 'messier-sorts', role: 'radiogroup', 'aria-label': t('sortBy') }),
         h('div', { class: 'messier-list', role: 'list' }),
         h('p', { class: 'messier-note' }, t('messierNote')));
     }
@@ -385,10 +408,16 @@ export class SolarUI {
     this.messierEl.querySelector('.messier-filters')!.replaceChildren(...groups.map(g => h('button', {
       class: 'tag-chip' + (g === f ? ' on' : ''), role: 'radio', 'aria-checked': String(g === f), 'data-testid': 'mf-' + g,
       onclick: () => { sfx.tap(); this.mFilter = g; this.renderMessier(); } }, g === 'all' ? t('messierAll') : t('mg_' + g))));
+    this.messierEl.querySelector('.messier-sorts')!.replaceChildren(...sorts.map(sMode => h('button', {
+      class: 'tag-chip' + (sMode === this.mSort ? ' on' : ''), role: 'radio', 'aria-checked': String(sMode === this.mSort), 'data-testid': 'msort-' + sMode,
+      onclick: () => { sfx.tap(); this.mSort = sMode; this.renderMessier(); } }, t('msort_' + sMode))));
     this.messierEl.querySelector('.messier-list')!.replaceChildren(...(list.length ? list.map(o => h('button', {
-      class: 'messier-item', role: 'listitem', 'data-testid': 'mx-' + o.messier, 'data-key': o.key, title: tr(o.name, l),
+      class: 'messier-item', role: 'listitem', 'data-testid': 'mx-' + o.messier, 'data-key': o.key, title: `${tr(o.name, l)} · ${fmtLy(o.distLy, l)}`,
       onclick: () => { sfx.tap(); this.goTo(o.key); } },
-      h('b', {}, 'M' + o.messier), h('span', { class: 'chip-emoji', 'aria-hidden': 'true' }, o.emoji), h('span', {}, short(o))))
+      h('b', {}, 'M' + o.messier),
+      h('span', { class: 'chip-emoji', 'aria-hidden': 'true' }, o.emoji),
+      h('span', { class: 'messier-name' }, short(o)),
+      h('small', { class: 'messier-dist' }, compactLy(o.distLy))))
       : [h('p', { class: 'messier-empty', 'data-testid': 'messier-empty' }, t('messierEmpty'))]));
     this.syncMessier();
   }
@@ -460,11 +489,13 @@ export class SolarUI {
     const site = focus.startsWith('ss_') ? SOLAR_SITES.find(x => x.key === focus) : undefined;
     const feat = SOLAR_FEATURES.find(x => x.key === focus);
     const deep = focus.startsWith('dp_') ? DEEP_OBJECTS.find(x => x.key === focus) : undefined;
-    const want: ScaleId = deep?.scale ?? (site || feat || focus in BODY ? 'solar' : scale ?? 'solar');
+    const cst = focus.startsWith('cst_') ? CONSTELLATIONS.find(c => 'cst_' + c.id === focus) : undefined;
+    const want: ScaleId = deep?.scale ?? (site || feat || cst || focus in BODY ? 'solar' : scale ?? 'solar');
     if (v.scale !== want) v.goScale(want, 'jump');
     if (deep) { if (!v.selectDeep(deep.key)) this.showCard({ kind: 'scale', id: want }); }
     else if (site) v.selectSite(site);
     else if (feat) v.selectFeature(feat);
+    else if (cst) { this.setCst(true); v.selectConstellation(cst); }
     else if (focus in BODY) v.select(focus as BodyId);
     else if (want === 'solar') this.overview();
     this.syncDock();
@@ -562,7 +593,11 @@ export class SolarUI {
   private relabel(): void {
     this.view.relabel();
     for (const el of this.el.querySelectorAll<HTMLElement>('[data-i18n]')) el.textContent = t(el.dataset.i18n!);
-    for (const el of this.el.querySelectorAll<HTMLElement>('[data-i18n-tip]')) el.title = t(el.dataset.i18nTip!);
+    for (const el of this.el.querySelectorAll<HTMLElement>('[data-i18n-tip]')) {
+      const lbl = t(el.dataset.i18nTip!);
+      el.title = lbl;
+      el.setAttribute('aria-label', lbl);
+    }
     this.dockBar.setAttribute('aria-label', t('dockLabel'));
     this.el.querySelector('.solar-time')?.setAttribute('aria-label', t('timeSpeed'));
     this.view.root.querySelector('canvas')?.setAttribute('aria-label', t('solarLabel'));
@@ -595,7 +630,7 @@ export class SolarUI {
       this.applyMeter();
     }
     this.syncMessier();
-    const key = sel.kind === 'body' ? sel.id : sel.kind === 'feature' ? sel.f.key : sel.kind === 'site' ? sel.s.key : sel.kind === 'deep' ? sel.o.key : '';
+    const key = sel.kind === 'body' ? sel.id : sel.kind === 'feature' ? sel.f.key : sel.kind === 'site' ? sel.s.key : sel.kind === 'deep' ? sel.o.key : sel.kind === 'cst' ? 'cst_' + sel.c.id : '';
     history.replaceState(null, '', key ? base + '/' + key : base);
     this.renderCard();
     this.info.classList.remove('hidden');
@@ -714,7 +749,13 @@ export class SolarUI {
       if (vEsc !== null) extra.push([t('escapeVel'), t('kmsVal', { n: fmtNum(vEsc, l) })]);
       const vOrb = orbitalSpeedKms(body.id, d);
       if (vOrb !== null) extra.push([t('orbitalSpeed'), t('kmsVal', { n: fmtNum(vOrb, l) })]);
+      const hillKm = hillSphereKm(body.id);
+      if (hillKm !== null) extra.push([t('hillSphere'), fmtKm(hillKm, l)]);
+      const flux = solarIrradianceWm2(body.id, d);
+      if (flux !== null) extra.push([t('solarFlux'), t('wm2Val', { n: fmtNum(flux, l) })]);
+      const eqT = equilibriumTempC(body.id, d);
       if (f.tempC) extra.push([t('temperature'), f.tempC[0] === f.tempC[1] ? `${fmtNum(f.tempC[0])} °C` : `${fmtNum(f.tempC[0])} ~ ${fmtNum(f.tempC[1])} °C`]);
+      if (eqT !== null) extra.push([t('eqTemp'), `${fmtNum(eqT)} °C`]);
     } else {
       const f = s.f;
       eyebrow = `${t('fk_' + f.kind)} · ${tr(body.name, l)}`;
@@ -786,15 +827,18 @@ export class SolarUI {
       if (x.helio) key.push([t('fromSun'), t('fromSunAU', { n: fmtNum(Math.round(helioAU(x, this.view.simMs))) })]);
       else if (!x.orbit) key.push([t('where'), `${Math.abs(x.lat).toFixed(1)}°${x.lat >= 0 ? 'N' : 'S'} · ${Math.abs(x.lon).toFixed(1)}°${x.lon >= 0 ? 'E' : 'W'}`]);
       const siteKm = siteEarthDistKm(x, this.view.simMs);
+      const cruiseKms = probeHelioSpeedKms(x);
+      if (cruiseKms !== null) extra.push([t('probeSpeed'), t('kmsVal', { n: fmtNum(cruiseKms, l) })]);
       if (siteKm > 100_000) {
+        const fmtSignal = (sec: number) => sec < 90
+          ? t('secondsN', { n: fmtNum(+sec.toFixed(1)) })
+          : sec < 5400
+            ? t('minutesN', { n: fmtNum(+(sec / 60).toFixed(1)) })
+            : t('hoursN', { n: fmtNum(+(sec / 3600).toFixed(1)) });
         const delayS = siteKm / LIGHT_KMS;
-        const delayTxt = delayS < 90
-          ? t('secondsN', { n: fmtNum(+delayS.toFixed(1)) })
-          : delayS < 5400
-            ? t('minutesN', { n: fmtNum(+(delayS / 60).toFixed(1)) })
-            : t('hoursN', { n: fmtNum(+(delayS / 3600).toFixed(1)) });
         extra.push([t('fromEarth'), fmtKm(siteKm, l)]);
-        extra.push([t('earthLightDelay'), delayTxt]);
+        extra.push([t('earthLightDelay'), fmtSignal(delayS)]);
+        if (x.helio || delayS >= 60) extra.push([t('dsnRoundTrip'), fmtSignal(delayS * 2)]);
       }
       if (x.year && !x.future) {
         const simYear = new Date(this.view.simMs).getUTCFullYear();
@@ -818,6 +862,15 @@ export class SolarUI {
       key.push([t('cst_stars'), fmtNum(s.c.stars.length)]);
       if (b) key.push([t('cst_brightest'), tr(b, l)]);
       extra.push([t('cst_latBand'), `${fmtLat(northLat)} – ${fmtLat(southLat)}`]);
+      const inCst = DEEP_OBJECTS
+        .filter(o => o.kind !== 'cmb' && o.kind !== 'arm' && o.kind !== 'bar' && o.kind !== 'void')
+        .filter(o => {
+          const [ra, dec] = galToRadec(o.l, o.b);
+          return nearestConstellation(ra, dec).id === s.c.id;
+        })
+        .sort((a, b2) => (b2.rank ?? 1) - (a.rank ?? 1) || a.distLy - b2.distLy)
+        .slice(0, 8);
+      list = tagList(t('cst_objects'), inCst.map(o => tagChip('cst-deep-' + o.key, () => this.goTo(o.key), h('span', { class: 'chip-emoji', 'aria-hidden': 'true' }, o.emoji), tr(o.name, l))));
     } else if (s.kind === 'deep') {
       const o = s.o;
       eyebrow = t('dk_' + o.kind) + (o.morph && o.kind !== 'dwarf' ? ' · ' + t('mo_' + o.morph) : '');
@@ -827,13 +880,31 @@ export class SolarUI {
         key.push([t('starType'), t('stc_' + starClass(o.spec))]);
         const tempK = starTempK(o.spec);
         if (tempK) extra.push([t('starTemp'), t('kelvinVal', { n: fmtNum(tempK, l) })]);
+        const lumSun = starLuminositySun(o.spec);
+        if (lumSun !== null) extra.push([t('starLum'), t('xSun', { n: fmtNum(lumSun, l) })]);
+        const hz = habitableZoneAu(o.spec);
+        if (hz) extra.push([t('habZone'), `${hz[0]} – ${hz[1]} AU`]);
       }
+      if (o.planets) key.push([t('knownPlanets'), fmtNum(o.planets, l)]);
       if (o.messier) key.push([t('messierNo'), 'M' + o.messier]);
       if (o.sizeLy) key.push([t('across'), fmtLy(o.sizeLy, l)]);
+      const spanArcmin = deepAngularArcmin(o);
+      if (spanArcmin !== null && spanArcmin >= 0.5) {
+        const baseSpan = spanArcmin >= 120 ? `${+(spanArcmin / 60).toFixed(1)}°` : `${spanArcmin}′`;
+        const moonsNote = spanArcmin >= 25 ? t('fullMoonsEq', { n: +(spanArcmin / 31).toFixed(spanArcmin >= 90 ? 0 : 1) }) : '';
+        extra.push([t('apparentSpan'), baseSpan + moonsNote]);
+      }
       if (o.distLy > 0) extra.push([t('meterParsec'), fmtParsec(o.distLy, l)]);
       if (o.kind !== 'cmb' && o.kind !== 'arm') {
         const [ra, dec] = galToRadec(o.l, o.b);
+        const con = nearestConstellation(ra, dec);
         extra.push([t('skyCoord'), fmtRadec(ra, dec)]);
+        footer.push(h('button', { class: 'pill pill-sm', 'data-testid': 'deep-cst-link', onclick: () => { sfx.tap(); this.goTo('cst_' + con.id); } }, `✨ ${tr(con.name, l)}`));
+      }
+      const zCos = cosmicRedshiftZ(o);
+      if (zCos !== null) {
+        const stretch = zCos >= 10 ? Math.round(1 + zCos) : +(1 + zCos).toFixed(zCos >= 1 ? 2 : 3);
+        extra.push([t('cosmicRedshift'), t('redshiftVal', { z: fmtNum(zCos, l), stretch: fmtNum(stretch, l) })]);
       }
       const hubble = hubbleFlowKms(o.distLy);
       if (hubble) extra.push([t('hubbleFlow'), t('kmsVal', { n: fmtNum(hubble, l) })]);

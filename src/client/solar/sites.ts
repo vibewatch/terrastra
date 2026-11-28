@@ -30,6 +30,12 @@ export function helioAU(s: SolarSite, ms: number): number {
   return Math.max(1, h.au + h.auPerYear * ((ms - Date.UTC(2026, 0, 1)) / 3.15576e10));
 }
 
+/** Outward heliocentric cruise speed (km/s) for a deep-space probe (`null` for planetary surface/orbit sites). */
+export function probeHelioSpeedKms(s: SolarSite): number | null {
+  if (!s.helio || !(s.helio.auPerYear > 0)) return null;
+  return +((s.helio.auPerYear * AU_KM) / 31_557_600).toFixed(1);
+}
+
 /** Approximate straight-line distance from Earth (km) to an explorer site or deep-space probe at epoch `ms`. */
 export function siteEarthDistKm(s: SolarSite, ms: number): number {
   const d = daysJ2000(ms);

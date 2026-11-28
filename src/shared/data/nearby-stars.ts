@@ -7,7 +7,7 @@ import type { DeepObject } from './cosmos.ts';
 type Star = Omit<DeepObject, 'scale' | 'kind'>;
 
 const S: Star[] = [
-  { key: 'dp_proxima_centauri', name: { en: 'Proxima Centauri', zh: '比邻星' }, emoji: '👋', spec: 'M5.5V',
+  { key: 'dp_proxima_centauri', name: { en: 'Proxima Centauri', zh: '比邻星' }, emoji: '👋', spec: 'M5.5V', planets: 2,
     l: 313.94, b: -1.93, distLy: 4.25, rank: 2,
     desc: { en: 'A small red dwarf and the nearest star to the Sun. It has at least one rocky planet, Proxima b.',
       zh: '一颗小小的红矮星，也是离太阳最近的恒星。它至少有一颗岩石行星——比邻星b。' },
@@ -21,7 +21,7 @@ const S: Star[] = [
     funFact: { en: 'Its light takes about 4.4 years to reach us. A car driving nonstop would need over 40 million years!',
       zh: '它的光要走约4.4年才能到达地球；一辆汽车不停地开，要开4000多万年！' },
     wiki: 'Alpha Centauri' },
-  { key: 'dp_barnards_star', name: { en: "Barnard's Star", zh: '巴纳德星' }, emoji: '🏃', spec: 'M4V',
+  { key: 'dp_barnards_star', name: { en: "Barnard's Star", zh: '巴纳德星' }, emoji: '🏃', spec: 'M4V', planets: 4,
     l: 31.01, b: 14.06, distLy: 5.96, rank: 2,
     desc: { en: 'A lone, old red dwarf, the nearest star you can see from the north. It moves across our sky faster than any other star.',
       zh: '一颗孤单的老红矮星，是北半球能看到的最近的恒星。它在天空中移动得比任何其他恒星都快。' },
@@ -42,7 +42,7 @@ const S: Star[] = [
     funFact: { en: 'If it took the Sun\'s place, our daytime sky would be about as bright as a cloudy evening.',
       zh: '如果把太阳换成它，我们的白天大概只有阴天傍晚那么亮。' },
     wiki: 'Wolf 359' },
-  { key: 'dp_lalande_21185', name: { en: 'Lalande 21185', zh: '拉兰德21185' }, emoji: '🔴', spec: 'M2V',
+  { key: 'dp_lalande_21185', name: { en: 'Lalande 21185', zh: '拉兰德21185' }, emoji: '🔴', spec: 'M2V', planets: 2,
     l: 185.12, b: 65.43, distLy: 8.31,
     desc: { en: 'A red dwarf in the Great Bear, one of the brightest red dwarfs in our sky, though still too faint to see without binoculars.',
       zh: '大熊座里的一颗红矮星，是天空中最亮的红矮星之一，不过不用双筒望远镜还是看不见。' },
@@ -71,19 +71,19 @@ const S: Star[] = [
     funFact: { en: 'In about 36,000 years it will pass just 3 light-years from the Sun and be our nearest star for a while.',
       zh: '大约3.6万年后，它会从离太阳只有3光年的地方经过，那时它会暂时成为离我们最近的恒星。' },
     wiki: 'Ross 248' },
-  { key: 'dp_epsilon_eridani', name: { en: 'Epsilon Eridani', zh: '天苑四' }, emoji: '🧡', spec: 'K2V',
+  { key: 'dp_epsilon_eridani', name: { en: 'Epsilon Eridani', zh: '天苑四' }, emoji: '🧡', spec: 'K2V', planets: 1,
     l: 195.84, b: -48.05, distLy: 10.5, rank: 2,
     desc: { en: 'A young orange star a little smaller than the Sun, wrapped in rings of dust like a baby solar system, with a giant planet.',
       zh: '一颗比太阳稍小的年轻橙色恒星，周围环绕着一圈圈尘埃带，像一个“婴儿太阳系”，还有一颗巨行星。' },
     funFact: { en: 'In 1960 Project Ozma pointed a radio telescope at it, one of the first searches for signals from aliens.',
       zh: '1960年，“奥兹玛计划”把射电望远镜对准它，这是人类最早寻找外星人信号的尝试之一。' },
     wiki: 'Epsilon Eridani' },
-  { key: 'dp_lacaille_9352', name: { en: 'Lacaille 9352', zh: '拉卡伊9352' }, emoji: '🔴', spec: 'M0.5V',
+  { key: 'dp_lacaille_9352', name: { en: 'Lacaille 9352', zh: '拉卡伊9352' }, emoji: '🔴', spec: 'M0.5V', planets: 2,
     l: 5.1, b: -65.96, distLy: 10.7,
     desc: { en: 'A red dwarf in the southern sky with at least two planets, a little bit too dim to see with your eyes.',
       zh: '南天的一颗红矮星，至少有两颗行星，亮度只差一点点就能用肉眼看到了。' },
     wiki: 'Lacaille 9352' },
-  { key: 'dp_ross_128', name: { en: 'Ross 128', zh: '罗斯128' }, emoji: '😴', spec: 'M4V',
+  { key: 'dp_ross_128', name: { en: 'Ross 128', zh: '罗斯128' }, emoji: '😴', spec: 'M4V', planets: 1,
     l: 270.15, b: 59.56, distLy: 11.0,
     desc: { en: 'A calm, quiet red dwarf with an Earth-sized planet, Ross 128 b, that may be mild enough for liquid water.',
       zh: '一颗安静温和的红矮星，有一颗和地球差不多大的行星——罗斯128b，那里可能温和到能有液态水。' },
@@ -102,26 +102,26 @@ const S: Star[] = [
     funFact: { en: 'Friedrich Bessel measured how it shifts a tiny bit as Earth goes round the Sun: a shift as small as a coin seen from 10 km away.',
       zh: '贝塞尔测量了地球绕太阳转时它位置的一点点移动——小得就像从10公里外看一枚硬币。' },
     wiki: '61 Cygni' },
-  { key: 'dp_epsilon_indi', name: { en: 'Epsilon Indi', zh: '天园增四' }, emoji: '📸', spec: 'K5V',
+  { key: 'dp_epsilon_indi', name: { en: 'Epsilon Indi', zh: '天园增四' }, emoji: '📸', spec: 'K5V', planets: 1,
     l: 336.19, b: -48.04, distLy: 11.9,
     desc: { en: 'An orange star with two brown dwarfs and a giant planet. In 2024 the James Webb telescope took a picture of that planet.',
       zh: '一颗橙色恒星，身边有两颗褐矮星和一颗巨行星。2024年，韦布望远镜给这颗行星拍了照片。' },
     wiki: 'Epsilon Indi' },
-  { key: 'dp_tau_ceti', name: { en: 'Tau Ceti', zh: '天仓五' }, emoji: '🟡', spec: 'G8V', rank: 2,
+  { key: 'dp_tau_ceti', name: { en: 'Tau Ceti', zh: '天仓五' }, emoji: '🟡', spec: 'G8V', planets: 4, rank: 2,
     l: 173.1, b: -73.44, distLy: 11.9,
     desc: { en: 'The nearest lone star that is a lot like the Sun: a calm, yellow star, a bit smaller and older, with several planets.',
       zh: '离我们最近、又很像太阳的单颗恒星：一颗平静的黄色恒星，比太阳小一点、老一点，还有好几颗行星。' },
     funFact: { en: 'Because it is so Sun-like, it shows up in lots of science-fiction stories as a home for aliens or colonies.',
       zh: '因为它太像太阳了，许多科幻故事都把它写成外星人或人类移民的家园。' },
     wiki: 'Tau Ceti' },
-  { key: 'dp_luytens_star', name: { en: "Luyten's Star", zh: '吕伊滕星' }, emoji: '📡', spec: 'M3.5V',
+  { key: 'dp_luytens_star', name: { en: "Luyten's Star", zh: '吕伊滕星' }, emoji: '📡', spec: 'M3.5V', planets: 2,
     l: 212.34, b: 10.37, distLy: 12.3,
     desc: { en: 'A red dwarf near Procyon in our sky, with a planet, GJ 273 b, that sits where water could be liquid.',
       zh: '一颗红矮星，在天空中挨着南河三。它有一颗行星GJ 273b，位置刚好可能有液态水。' },
     funFact: { en: 'In 2017 people beamed a radio message with music to it. It will arrive in 2030!',
       zh: '2017年，人们向它发射了一条带着音乐的无线电信息，要到2030年才能到达！' },
     wiki: "Luyten's Star" },
-  { key: 'dp_teegardens_star', name: { en: "Teegarden's Star", zh: '提嘉登星' }, emoji: '🌍', spec: 'M7V',
+  { key: 'dp_teegardens_star', name: { en: "Teegarden's Star", zh: '提嘉登星' }, emoji: '🌍', spec: 'M7V', planets: 3,
     l: 160.26, b: -37.03, distLy: 12.5,
     desc: { en: 'A very dim little red dwarf, only found in 2003, with planets about as heavy as Earth.',
       zh: '一颗非常暗的小红矮星，直到2003年才被发现，它的行星和地球差不多重。' },
@@ -136,7 +136,7 @@ const S: Star[] = [
     desc: { en: 'Two red dwarfs in Cepheus that circle each other every 44 years. One of them is a flare star.',
       zh: '仙王座里的两颗红矮星，每44年互相绕一圈，其中一颗是会突然变亮的耀星。' },
     wiki: 'Kruger 60' },
-  { key: 'dp_wolf_1061', name: { en: 'Wolf 1061', zh: '沃夫1061' }, emoji: '🔴', spec: 'M3V',
+  { key: 'dp_wolf_1061', name: { en: 'Wolf 1061', zh: '沃夫1061' }, emoji: '🔴', spec: 'M3V', planets: 3,
     l: 3.35, b: 23.68, distLy: 14.0,
     desc: { en: 'A red dwarf in Ophiuchus with three planets, one of them a "super-Earth" near the zone where water could be liquid.',
       zh: '蛇夫座里的一颗红矮星，有三颗行星，其中一颗“超级地球”靠近可能有液态水的区域。' },
@@ -174,7 +174,7 @@ const S: Star[] = [
     desc: { en: 'The "lonely star of autumn", alone in a dark patch of sky, ringed by a huge belt of icy dust like our Kuiper Belt.',
       zh: '“秋季孤独的星”，独自待在一片黑暗的天空里。它周围有一圈巨大的冰尘带，就像我们的柯伊伯带。' },
     wiki: 'Fomalhaut' },
-  { key: 'dp_pollux', name: { en: 'Pollux', zh: '北河三' }, emoji: '🟠', spec: 'K0III',
+  { key: 'dp_pollux', name: { en: 'Pollux', zh: '北河三' }, emoji: '🟠', spec: 'K0III', planets: 1,
     l: 192.23, b: 23.41, distLy: 33.8,
     desc: { en: 'The nearest giant star: an orange giant in the Twins, nine times wider than the Sun, with a giant planet of its own.',
       zh: '最近的巨星：双子座里的一颗橙巨星，比太阳宽9倍，还有一颗属于自己的巨行星。' },
@@ -186,7 +186,7 @@ const S: Star[] = [
     funFact: { en: 'In 1933 its light, which had left it about 40 years before, was used to switch on the lights of the Chicago World\'s Fair.',
       zh: '1933年，人们用它约40年前发出的星光，点亮了芝加哥世界博览会的灯。' },
     wiki: 'Arcturus' },
-  { key: 'dp_trappist_1', name: { en: 'TRAPPIST-1', zh: 'TRAPPIST-1' }, emoji: '🪐', spec: 'M8V',
+  { key: 'dp_trappist_1', name: { en: 'TRAPPIST-1', zh: 'TRAPPIST-1' }, emoji: '🪐', spec: 'M8V', planets: 7,
     l: 69.71, b: -56.64, distLy: 40.7, rank: 2,
     desc: { en: 'A tiny, cool red dwarf, barely bigger than Jupiter, with seven Earth-sized rocky planets packed close around it.',
       zh: '一颗又小又冷的红矮星，只比木星大一点，身边紧紧挤着七颗和地球差不多大的岩石行星。' },
@@ -198,7 +198,7 @@ const S: Star[] = [
     desc: { en: 'Looks like one yellow star, but it is two yellow giants circling each other every 104 days, plus a pair of red dwarfs.',
       zh: '看起来是一颗黄色的星，其实是两颗黄巨星每104天互相绕一圈，外面还有一对红矮星。' },
     wiki: 'Capella' },
-  { key: 'dp_51_pegasi', name: { en: '51 Pegasi', zh: '飞马座51' }, emoji: '🏆', spec: 'G2IV',
+  { key: 'dp_51_pegasi', name: { en: '51 Pegasi', zh: '飞马座51' }, emoji: '🏆', spec: 'G2IV', planets: 1,
     l: 90.06, b: -34.73, distLy: 50.6,
     desc: { en: 'A Sun-like star where, in 1995, the first planet around a normal star like ours was found: a "hot Jupiter".',
       zh: '一颗像太阳一样的恒星。1995年，人们在这里发现了第一颗绕普通恒星转的行星——一颗“热木星”。' },
@@ -264,4 +264,75 @@ export function starTempK(spec: string): number | null {
   const sub = Math.max(0, Math.min(9.9, numMatch && !numMatch[1] ? Number(numMatch[2]) : 5));
   const raw = band[0] + (band[1] - band[0]) * (sub / 10);
   return Math.round(raw / 50) * 50;
+}
+
+const MS_LUM: Record<string, [number, number]> = {
+  O: [500_000, 55_000],
+  B: [25_000, 80],
+  A: [36, 5.5],
+  F: [5.5, 1.4],
+  G: [1.20, 0.48],
+  K: [0.46, 0.08],
+};
+const M_DWARF_LUM = [0.07, 0.04, 0.022, 0.012, 0.0055, 0.0022, 0.0011, 0.00075, 0.00055, 0.0003];
+
+function roundSig(x: number): number {
+  if (!(x > 0) || !Number.isFinite(x)) return 0;
+  if (x >= 100) return Math.round(x);
+  if (x >= 10) return +x.toFixed(1);
+  if (x >= 1) return +x.toFixed(2);
+  const p = Math.max(2, -Math.floor(Math.log10(x)) + 1);
+  return +x.toFixed(Math.min(6, p));
+}
+
+/** Approximate bolometric luminosity relative to the Sun (`L / L☉`) from MK spectral classification `spec`. */
+export function starLuminositySun(spec: string): number | null {
+  if (!spec) return null;
+  const c = spec[0].toUpperCase();
+  const tail = spec.slice(1);
+  const numMatch = tail.match(/^([A-Z]*)(\d+(?:\.\d+)?)/i);
+  const sub = Math.max(0, Math.min(9.9, numMatch && !numMatch[1] ? Number(numMatch[2]) : 5));
+  if (c === 'D') {
+    const tK = starTempK(spec);
+    return tK ? roundSig(0.000144 * Math.pow(tK / 5772, 4)) : null;
+  }
+  if (c === 'L' || c === 'T' || c === 'Y') {
+    const tK = starTempK(spec);
+    return tK ? roundSig(0.009 * Math.pow(tK / 5772, 4)) : null;
+  }
+  const lumClass = /I{1,3}|IV|V/.exec(tail)?.[0] ?? 'V';
+  if (lumClass === 'I' || lumClass === 'II') {
+    return c === 'O' || c === 'B' ? 60_000 : c === 'M' ? 40_000 : 15_000;
+  }
+  if (lumClass === 'III') {
+    if (c === 'K') return roundSig(40 * Math.pow(12, sub / 5));
+    if (c === 'G') return roundSig(55 + sub * 5);
+    if (c === 'M') return 1_200;
+    if (c === 'B') return 1_500;
+    return 80;
+  }
+  let ms = 0;
+  if (c === 'M') {
+    const i0 = Math.min(8, Math.floor(sub)), f = sub - i0;
+    ms = M_DWARF_LUM[i0] * Math.pow(M_DWARF_LUM[i0 + 1] / M_DWARF_LUM[i0], f);
+  } else {
+    const band = MS_LUM[c];
+    if (!band) return null;
+    ms = band[0] * Math.pow(band[1] / band[0], sub / 10);
+  }
+  if (lumClass === 'IV') ms *= 2.1;
+  return roundSig(ms);
+}
+
+/**
+ * Conservative liquid-water habitable zone inner and outer radii `[innerAu, outerAu]` (Kopparapu scaling)
+ * around a hydrogen-fusing star of spectral type `spec` (`null` for white/brown dwarfs).
+ */
+export function habitableZoneAu(spec: string): [number, number] | null {
+  if (!spec || /^[DLTY]/i.test(spec)) return null;
+  const lum = starLuminositySun(spec);
+  if (!lum || !(lum > 0)) return null;
+  const s = Math.sqrt(lum);
+  const fmt = (v: number) => (v >= 10 ? +v.toFixed(1) : v >= 0.1 ? +v.toFixed(2) : +v.toFixed(3));
+  return [fmt(0.95 * s), fmt(1.67 * s)];
 }

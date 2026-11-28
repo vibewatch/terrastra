@@ -49,6 +49,10 @@ export interface DeepObject {
   rank?: number;
   /** Stars: spectral type of the (main) star, e.g. `M5.5V`, `K1.5III`, `DZ8`. */
   spec?: string;
+  /** Stars: confirmed exoplanet count when hosted by this star system. */
+  planets?: number;
+  /** Extragalactic landmarks: spectroscopic / cosmological redshift `z`. */
+  z?: number;
   /** Number in Messier's catalogue (M1–M110), if it has one. */
   messier?: number;
   desc: I18n;
@@ -681,7 +685,7 @@ const UNIVERSE: DeepObject[] = [
       zh: '“拉尼亚凯亚”在夏威夷语里的意思是“无边无际的天堂”。' },
     wiki: 'Laniakea Supercluster' },
   { key: 'dp_shapley_supercluster', scale: 'universe', kind: 'supercluster', name: { en: 'Shapley Supercluster', zh: '沙普利超星系团' }, emoji: '🕸️',
-    l: 312.01, b: 30.7, distLy: 6.5e8, rank: 3,
+    l: 312.01, b: 30.7, distLy: 6.5e8, z: 0.048, rank: 3,
     desc: { en: 'The biggest crowd of galaxies in our part of the universe, with over 8,000 galaxies, pulling on Laniakea from beyond the Great Attractor.',
       zh: '我们附近宇宙中星系最密集的地方，有8000多个星系，在巨引源的后方拉扯着拉尼亚凯亚。' },
     funFact: { en: "It is so massive that part of our galaxy's motion through space is caused by its pull.",
@@ -695,7 +699,7 @@ const UNIVERSE: DeepObject[] = [
       zh: '它里面的英仙座星系团中，炽热气体会“哼”出一个降B音，比中央C低57个八度！' },
     wiki: 'Perseus–Pisces Supercluster' },
   { key: 'dp_coma_cluster', scale: 'universe', kind: 'cluster', name: { en: 'Coma Cluster', zh: '后发星系团' }, emoji: '🏙️',
-    l: 56.49, b: 88, distLy: 3.21e8, rank: 2,
+    l: 56.49, b: 88, distLy: 3.21e8, z: 0.023, rank: 2,
     desc: { en: 'A huge cluster of over 1,000 galaxies in Coma Berenices, mostly round, old elliptical galaxies.',
       zh: '后发座里一个巨大的星系团，有1000多个星系，大多是圆圆的古老椭圆星系。' },
     funFact: { en: 'In 1933 Fritz Zwicky saw its galaxies move too fast for the matter we can see: the first clue to dark matter.',
@@ -723,7 +727,7 @@ const UNIVERSE: DeepObject[] = [
       zh: '后发星系团就在它的中间。' },
     wiki: 'CfA2 Great Wall' },
   { key: 'dp_sloan_great_wall', scale: 'universe', kind: 'wall', name: { en: 'Sloan Great Wall', zh: '斯隆长城' }, emoji: '🧱',
-    l: 307.62, b: 62.79, distLy: 1.04e9, sizeLy: 1.37e9, rank: 2,
+    l: 307.62, b: 62.79, distLy: 1.04e9, sizeLy: 1.37e9, z: 0.073, rank: 2,
     desc: { en: 'One of the largest known structures: a wall of galaxies about 1.4 billion light-years long, found by the Sloan Digital Sky Survey.',
       zh: '已知最大的结构之一：一堵长约14亿光年的星系“长城”，由斯隆数字巡天发现。' },
     funFact: { en: 'Light would need about 1.4 billion years just to travel from one end of it to the other.',
@@ -737,49 +741,49 @@ const UNIVERSE: DeepObject[] = [
       zh: '如果银河系在它的中心，人类要到20世纪60年代才会知道还有别的星系！' },
     wiki: 'Boötes Void' },
   { key: 'dp_phoenix_cluster', scale: 'universe', kind: 'cluster', name: { en: 'Phoenix Cluster', zh: '凤凰座星系团' }, emoji: '🔥',
-    l: 339.63, b: -69.34, distLy: 7.37e9,
+    l: 339.63, b: -69.34, distLy: 7.37e9, z: 0.597,
     desc: { en: "One of the heaviest galaxy clusters known. Its central galaxy makes hundreds of Suns' worth of new stars every year!",
       zh: '已知最重的星系团之一，它中心的星系每年诞生的新恒星相当于几百个太阳！' },
     funFact: { en: "Our Milky Way makes only about one or two Suns' worth of new stars a year.",
       zh: '相比之下，银河系每年诞生的新恒星只相当于一两个太阳。' },
     wiki: 'Phoenix Cluster' },
   { key: 'dp_bullet_cluster', scale: 'universe', kind: 'cluster', name: { en: 'Bullet Cluster', zh: '子弹星系团' }, emoji: '💨',
-    l: 266.05, b: -21.26, distLy: 3.97e9,
+    l: 266.05, b: -21.26, distLy: 3.97e9, z: 0.296,
     desc: { en: 'Two galaxy clusters that crashed into each other. Their hot gas got stuck in the middle, but invisible dark matter kept going.',
       zh: '两个相撞的星系团。炽热气体被卡在了中间，但看不见的暗物质却继续向前冲。' },
     funFact: { en: 'It is one of the best pieces of evidence that dark matter is real.',
       zh: '它是证明暗物质真实存在的最好证据之一。' },
     wiki: 'Bullet Cluster' },
   { key: 'dp_3c_273', scale: 'universe', kind: 'quasar', name: { en: 'Quasar 3C 273', zh: '类星体3C 273' }, emoji: '💡',
-    l: 289.95, b: 64.36, distLy: 2.2e9, rank: 2,
+    l: 289.95, b: 64.36, distLy: 2.2e9, z: 0.158, rank: 2,
     desc: { en: 'The first quasar ever identified: a feeding supermassive black hole shining brighter than a hundred Milky Ways.',
       zh: '人类认出的第一个类星体：一个正在吞食物质的超大质量黑洞，比一百个银河系加起来还亮。' },
     funFact: { en: 'Even though it is billions of light-years away, it can be seen with a good backyard telescope.',
       zh: '虽然它远在几十亿光年之外，用一台好的家用望远镜也能看到它。' },
     wiki: '3C 273' },
   { key: 'dp_el_gordo', scale: 'universe', kind: 'cluster', name: { en: 'El Gordo', zh: '“胖子”星系团' }, emoji: '🐘',
-    l: 297.99, b: -67.77, distLy: 9.99e9,
+    l: 297.99, b: -67.77, distLy: 9.99e9, z: 0.87,
     desc: { en: "One of the biggest, heaviest galaxy clusters seen in the young universe. Its name means 'The Fat One' in Spanish.",
       zh: '在年轻宇宙中见过的最大、最重的星系团之一，它的西班牙语名字El Gordo意思是“胖子”。' },
     funFact: { en: 'It is really two clusters smashing into each other at millions of kilometres per hour.',
       zh: '它其实是两个星系团，正以每小时几百万千米的速度相撞。' },
     wiki: 'El Gordo (galaxy cluster)' },
   { key: 'dp_giant_arc', scale: 'universe', kind: 'wall', name: { en: 'Giant Arc', zh: '巨弧' }, emoji: '🌙',
-    l: 71.49, b: 72.48, distLy: 9.36e9, sizeLy: 3.3e9,
+    l: 71.49, b: 72.48, distLy: 9.36e9, sizeLy: 3.3e9, z: 0.8,
     desc: { en: 'A giant crescent-shaped chain of galaxies about 3.3 billion light-years long, discovered in 2021 by a student.',
       zh: '一条巨大的新月形星系链，长约33亿光年，2021年由一名博士生发现。' },
     funFact: { en: 'If we could see it, it would stretch across the sky as wide as 20 full Moons.',
       zh: '如果我们能看见它，它在天空中横跨的宽度相当于20个满月。' },
     wiki: 'Giant Arc' },
   { key: 'dp_hercules_corona_borealis_wall', scale: 'universe', kind: 'wall', name: { en: 'Hercules–Corona Borealis Great Wall', zh: '武仙-北冕长城' }, emoji: '🧱',
-    l: 49.03, b: 35.48, distLy: 16.6e9, sizeLy: 10e9, rank: 2,
+    l: 49.03, b: 35.48, distLy: 16.6e9, sizeLy: 10e9, z: 2.0, rank: 2,
     desc: { en: 'Possibly the largest structure ever found: a gigantic wall of galaxies about 10 billion light-years long, spotted using gamma-ray bursts.',
       zh: '可能是迄今发现的最大结构：一堵长约100亿光年的巨型星系墙，是借助伽马射线暴发现的。' },
     funFact: { en: 'It is so big that some scientists wonder whether it is really one single structure.',
       zh: '它大得惊人，一些科学家甚至怀疑它是不是真的是一个整体。' },
     wiki: 'Hercules–Corona Borealis Great Wall' },
   { key: 'dp_ton_618', scale: 'universe', kind: 'quasar', name: { en: 'TON 618', zh: 'TON 618' }, emoji: '💡',
-    l: 170.64, b: 83.36, distLy: 18.3e9,
+    l: 170.64, b: 83.36, distLy: 18.3e9, z: 2.219,
     desc: { en: 'A super-bright quasar powered by one of the heaviest black holes known, about 40 billion times the mass of the Sun.',
       zh: '一个超级明亮的类星体，由已知最重的黑洞之一驱动，约为太阳质量的400亿倍。' },
     funFact: { en: 'Its black hole is so big that our whole Solar System could fit inside it many times over.',
@@ -793,21 +797,21 @@ const UNIVERSE: DeepObject[] = [
       zh: '这块天空只有你伸直手臂捏着的一粒沙子那么大。' },
     wiki: 'Hubble Ultra-Deep Field' },
   { key: 'dp_gn_z11', scale: 'universe', kind: 'galaxy', name: { en: 'GN-z11', zh: 'GN-z11' }, emoji: '👶',
-    l: 125.96, b: 54.8, distLy: 31.9e9, morph: 'irregular',
+    l: 125.96, b: 54.8, distLy: 31.9e9, z: 10.6, morph: 'irregular',
     desc: { en: 'A baby galaxy seen as it was only about 400 million years after the Big Bang, with a growing black hole at its heart.',
       zh: '一个婴儿星系，我们看到的是它在宇宙大爆炸后约4亿年时的样子，中心还有一个正在长大的黑洞。' },
     funFact: { en: 'Hubble found it in 2016, and it held the record as the farthest known galaxy for years.',
       zh: '哈勃望远镜在2016年发现了它，它保持“已知最远星系”的纪录好几年。' },
     wiki: 'GN-z11' },
   { key: 'dp_jades_gs_z14_0', scale: 'universe', kind: 'galaxy', name: { en: 'JADES-GS-z14-0', zh: 'JADES-GS-z14-0' }, emoji: '👶',
-    l: 223.65, b: -54.47, distLy: 33.9e9, morph: 'irregular', rank: 2,
+    l: 223.65, b: -54.47, distLy: 33.9e9, z: 14.32, morph: 'irregular', rank: 2,
     desc: { en: 'One of the most distant galaxies ever found, by the James Webb Space Telescope, seen just 290 million years after the Big Bang.',
       zh: '詹姆斯·韦布空间望远镜发现的最遥远星系之一，我们看到的是它在大爆炸后仅2.9亿年时的样子。' },
     funFact: { en: 'Its light travelled for more than 13.5 billion years to reach us.',
       zh: '它的光走了135亿年以上才到达我们这里。' },
     wiki: 'JADES-GS-z14-0' },
   { key: 'dp_cmb', scale: 'universe', kind: 'cmb', name: { en: 'Cosmic Microwave Background', zh: '宇宙微波背景' }, emoji: '📡',
-    l: 0, b: 90, distLy: 46.5e9, rank: 3,
+    l: 0, b: 90, distLy: 46.5e9, z: 1089, rank: 3,
     desc: { en: 'The oldest light in the universe: the afterglow of the Big Bang, coming from every direction. It marks the edge of what we can see.',
       zh: '宇宙中最古老的光，是大爆炸的余晖，从四面八方传来，标志着我们能看到的宇宙的边缘。' },
     funFact: { en: "A little of the 'snow' on old TV sets came from this ancient light!",
@@ -848,4 +852,47 @@ export function hubbleFlowKms(distLy: number): number | null {
   if (!Number.isFinite(distLy) || distLy < 1e7 || distLy > 3e9) return null;
   const mpc = distLy / 3_261_563.78;
   return Math.round((mpc * 70) / 10) * 10;
+}
+
+/** Flat-ΛCDM comoving distance in light-years for redshift `z` (`H0 = 67.7 km/s/Mpc`, `Ωm = 0.31`, `ΩΛ = 0.69`). */
+function comovingLyFromZ(z: number): number {
+  const n = 20, dz = z / n;
+  let sum = 0;
+  for (let i = 0; i < n; i++) {
+    const zp = 1 + (i + 0.5) * dz;
+    sum += 1 / Math.sqrt(0.31 * zp * zp * zp + 0.69);
+  }
+  const mpc = (299_792.458 / 67.7) * sum * dz;
+  return mpc * 3_261_563.78;
+}
+
+/**
+ * Cosmological redshift `z` for extragalactic structures beyond the Local Group (`distLy >= 10 Mly`),
+ * using exact spectroscopic `o.z` when curated and inverting flat-ΛCDM comoving distance otherwise.
+ */
+export function cosmicRedshiftZ(o: Pick<DeepObject, 'distLy' | 'z' | 'kind'>): number | null {
+  if (o.z !== undefined && o.z > 0) return o.z;
+  if (!Number.isFinite(o.distLy) || o.distLy < 1e7 || o.kind === 'deepfield') return null;
+  let lo = 0.0005, hi = 30;
+  for (let k = 0; k < 28; k++) {
+    const mid = (lo + hi) * 0.5;
+    if (comovingLyFromZ(mid) < o.distLy) lo = mid; else hi = mid;
+  }
+  const z = (lo + hi) * 0.5;
+  return z >= 1 ? +z.toFixed(2) : z >= 0.1 ? +z.toFixed(3) : +z.toFixed(4);
+}
+
+/**
+ * Apparent angular span on Earth's sky (arcminutes) for a deep-space object with physical diameter `sizeLy`,
+ * accounting for angular-diameter distance `D_A = D_C / (1 + z)` at cosmological redshifts.
+ */
+export function deepAngularArcmin(o: Pick<DeepObject, 'distLy' | 'sizeLy' | 'z' | 'kind'>): number | null {
+  if (!o.sizeLy || !(o.sizeLy > 0) || !(o.distLy > 0)) return null;
+  if (o.kind === 'cmb' || o.kind === 'arm' || o.kind === 'bar' || o.kind === 'void') return null;
+  const z = cosmicRedshiftZ(o) ?? 0;
+  const daLy = o.distLy / (1 + z);
+  if (o.sizeLy >= daLy * 1.6) return null;
+  const rad = 2 * Math.atan2(o.sizeLy * 0.5, daLy);
+  const arcmin = (rad * 180 / Math.PI) * 60;
+  return arcmin >= 10 ? +arcmin.toFixed(0) : arcmin >= 1 ? +arcmin.toFixed(1) : +arcmin.toFixed(2);
 }

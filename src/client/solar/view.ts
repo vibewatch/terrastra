@@ -108,6 +108,7 @@ interface Tween {
   fromAz: number; fromEl: number;
   /** Direction (in the focus body's spin frame) to end up looking from, or null to keep the current angles. */
   toLocal: THREE.Vector3 | null;
+  toAz?: number;
   toEl?: number;
 }
 
@@ -633,8 +634,9 @@ export class SolarView {
         const toAz = Math.atan2(dir.x, dir.z), toEl = Math.asin(Math.max(-1, Math.min(1, dir.y)));
         this.az = tw.fromAz + wrapPi(toAz - tw.fromAz) * e;
         this.el = tw.fromEl + (toEl - tw.fromEl) * e;
-      } else if (tw.toEl !== undefined) {
-        this.el = tw.fromEl + (tw.toEl - tw.fromEl) * e;
+      } else {
+        if (tw.toAz !== undefined) this.az = tw.fromAz + wrapPi(tw.toAz - tw.fromAz) * e;
+        if (tw.toEl !== undefined) this.el = tw.fromEl + (tw.toEl - tw.fromEl) * e;
       }
       if (tw.t >= 1) this.tween = null;
     } else if (Math.abs(this.vAz) + Math.abs(this.vEl) > 1e-5) {
@@ -786,6 +788,25 @@ export class SolarView {
     this.sites.sel = null;
     this.focus(f.body, rt.R * 2.1, undefined, new THREE.Vector3(...latLonToVec(f.lat, f.lon)));
     if (emit) this.ev.onSelect?.({ kind: 'feature', f });
+  }
+
+  /** Turns the overview camera toward a 3D constellation figure on the sky sphere. */
+  selectConstellation(c: Constellation, emit = true): void {
+    this.selFeature = null;
+    this.sites.sel = null;
+    this.cst.visible = true;
+    const dir = this.cst.dirOf(c.id);
+    if (dir) {
+      const off = dir.negate();
+      const toAz = Math.atan2(off.x, off.z);
+      const toEl = Math.max(-1.42, Math.min(1.42, Math.asin(Math.max(-1, Math.min(1, off.y)))));
+      const prev = this.rts.get(this.focusId)!;
+      const fromPos = this.tween ? this.camera.position.clone().sub(this.offset()) : prev.pos.clone();
+      this.tween = { t: 0, dur: 1250, fromPos, fromDist: this.dist, toDist: OVERVIEW_DIST * 0.48, fromAz: this.az, fromEl: this.el, toLocal: null, toAz, toEl };
+      this.focusId = 'sun';
+      this.vAz = this.vEl = 0;
+    }
+    if (emit) this.ev.onSelect?.({ kind: 'cst', c });
   }
 
   private focus(id: BodyId, dist?: number, el?: number, toLocal: THREE.Vector3 | null = null): void {

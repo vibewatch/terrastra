@@ -158,6 +158,11 @@ export class ConstellationLayer {
     this.lastKey = '';
   }
 
+  /** Unit vector toward constellation `id` in the Solar scene frame (`null` if unknown). */
+  dirOf(id: string): THREE.Vector3 | null {
+    return this.figs.find(f => f.c.id === id)?.dir.clone() ?? null;
+  }
+
   relabel(): void {
     const l = lang();
     for (const f of this.figs) f.el.textContent = tr(f.c.name, l);

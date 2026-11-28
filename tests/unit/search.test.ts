@@ -320,5 +320,12 @@ describe('search', () => {
     expect(bjCoord?.fact?.zh).toContain('东八区');
     expect(bjCoord?.fact?.en).toContain('Middle Latitudes');
     expect(bjCoord?.fact?.en).toContain('UTC+8');
+
+    // #160: Messier catalogue M1–M110 aliases, 88 IAU constellations & spacecraft agency search
+    expect(searchAll('M45', 'en', space).some(h => h.kind === 'space' && h.hit.key === 'dp_pleiades')).toBe(true);
+    expect(searchAll('M1', 'en', space).some(h => h.kind === 'space' && h.hit.key === 'dp_crab_nebula')).toBe(true);
+    expect(searchAll('猎户座', 'zh', space).some(h => h.kind === 'space' && h.hit.key === 'cst_ori' && h.hit.hash === 'solar/cst_ori')).toBe(true);
+    expect(searchAll('Ursa Major', 'en', space).some(h => h.kind === 'space' && h.hit.key === 'cst_uma')).toBe(true);
+    expect(searchAll('CNSA', 'en', space, 'space').length).toBeGreaterThanOrEqual(3);
   });
 });

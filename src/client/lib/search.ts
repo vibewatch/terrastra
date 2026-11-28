@@ -430,9 +430,12 @@ export function searchAll(
   }
   if (space && (filter === 'space' || (filter === 'all' && q))) {
     for (const hit of space) {
-      const aliases = ALIASES[hit.key];
+      const baseAliases = ALIASES[hit.key];
+      const aliases = hit.aliases
+        ? (baseAliases ? [...baseAliases, ...hit.aliases] : hit.aliases)
+        : baseAliases;
       const names = [hit.name.en, hit.name.zh ?? ''];
-      const score = q ? scoreTerms(q, { names, aliases }, tokens) : 1;
+      const score = q ? scoreTerms(q, { names, aliases, other: hit.other }, tokens) : 1;
       if (score > 0) out.push({ kind: 'space', hit, score, alias: q ? matchedAlias(q, names, aliases, tokens) : undefined });
     }
   }

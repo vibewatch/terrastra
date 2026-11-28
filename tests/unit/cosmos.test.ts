@@ -125,6 +125,40 @@ describe('deep-space content', () => {
     expect(umiN).toBe(90);
     expect(umiS).toBeGreaterThanOrEqual(0);
   });
+
+  it('computes stellar luminosity, habitable zones, exoplanet counts, cosmic redshift & angular span', async () => {
+    const { starLuminositySun, habitableZoneAu } = await import('../../src/shared/data/nearby-stars.ts');
+    const { cosmicRedshiftZ, deepAngularArcmin } = await import('../../src/shared/data/cosmos.ts');
+
+    // Sun-twin G2V has ~1 L☉ and ~0.95–1.67 AU Kopparapu conservative habitable zone
+    expect(starLuminositySun('G2V')).toBeCloseTo(1.0, 1);
+    expect(habitableZoneAu('G2V')).toEqual([0.95, 1.67]);
+    // Sirius A1V is ~20–25 L☉; TRAPPIST-1 M8V is ultra-dim (<0.001 L☉) with a tight <0.05 AU HZ
+    expect(starLuminositySun('A1V')!).toBeGreaterThan(15);
+    expect(starLuminositySun('M8V')!).toBeLessThan(0.001);
+    expect(habitableZoneAu('M8V')![1]).toBeLessThan(0.05);
+    expect(habitableZoneAu('DA2')).toBeNull();
+
+    // Confirmed nearby exoplanet counts
+    expect(DEEP_OBJECTS.find(o => o.key === 'dp_trappist_1')?.planets).toBe(7);
+    expect(DEEP_OBJECTS.find(o => o.key === 'dp_proxima_centauri')?.planets).toBe(2);
+    expect(DEEP_OBJECTS.find(o => o.key === 'dp_tau_ceti')?.planets).toBe(4);
+
+    // Cosmological redshift z & angular diameter
+    const m31 = DEEP_OBJECTS.find(o => o.key === 'dp_m31')!;
+    expect(cosmicRedshiftZ(m31)).toBeNull(); // gravitationally bound
+    // M31 spans ~3.4° (~206 arcmin, >6 Full Moons across!)
+    expect(deepAngularArcmin(m31)!).toBeGreaterThan(180);
+    expect(deepAngularArcmin(m31)!).toBeLessThan(240);
+
+    const virgo = DEEP_OBJECTS.find(o => o.key === 'dp_virgo_cluster')!;
+    expect(cosmicRedshiftZ(virgo)!).toBeCloseTo(0.0038, 3);
+    const jades = DEEP_OBJECTS.find(o => o.key === 'dp_jades_gs_z14_0')!;
+    expect(cosmicRedshiftZ(jades)).toBe(14.32);
+    const cmb = DEEP_OBJECTS.find(o => o.key === 'dp_cmb')!;
+    expect(cosmicRedshiftZ(cmb)).toBe(1089);
+    expect(deepAngularArcmin(cmb)).toBeNull();
+  });
 });
 
 describe('explorer sites', () => {
