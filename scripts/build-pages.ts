@@ -5,9 +5,10 @@ import { fileURLToPath } from 'node:url';
 import { BY_TYPE, CATALOGUE } from '../src/shared/data/catalogue.ts';
 import { GAZETTEER, relatedLessonsForPlace, type GeoKind } from '../src/shared/data/gazetteer.ts';
 import { ALIASES } from '../src/shared/data/aliases.ts';
-import { CONTINENT_NAMES } from '../src/shared/data/iso.ts';
+import { CONTINENT_NAMES, type Continent } from '../src/shared/data/iso.ts';
 import { WIKI } from '../src/shared/data/wiki.ts';
 import { isFreeLesson } from '../src/shared/lib/entitlements.ts';
+import { buildLlmsTxt, foldEncyclopediaText, geoSchemaType, itemSchemaType } from '../src/shared/lib/encyclopedia.ts';
 import { haversineKm } from '../src/shared/lib/geo.ts';
 import { TYPE_META, TYPE_ORDER } from '../src/shared/data/typemeta.ts';
 import type { CatalogueItem } from '../src/shared/data/types.ts';
@@ -155,7 +156,11 @@ h2::before{content:counter(sec,decimal-leading-zero);color:var(--sig)}h2::after{
 .search{margin:28px 0 20px;display:flex;align-items:center;gap:10px;max-width:440px;padding:0 14px;color:var(--dim);--bgc:var(--slab)}
 .search input{flex:1;background:none;border:0;outline:0;color:var(--hi);font:500 .9rem var(--mono);letter-spacing:.04em;padding:12px 0}.search input::placeholder{color:var(--dim);opacity:.7}.search:focus-within{--e:var(--edge-hi);border-color:var(--edge)}
 .search-n{font:500 .72rem var(--mono);color:var(--dim);white-space:nowrap}
+.fchips{display:flex;flex-wrap:wrap;gap:6px;margin:-8px 0 20px}
+.fchip{background:var(--slab);border:1px solid var(--line);color:var(--dim);font:500 .72rem var(--mono);letter-spacing:.04em;padding:5px 11px;cursor:pointer;transition:color .15s,border-color .15s,background-color .15s}
+.fchip:hover{color:var(--hi);border-color:var(--edge)}.fchip[aria-pressed=true]{color:var(--sig);border-color:var(--sig-line);background:var(--sig-fill)}
 .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px;padding:0;margin:0;list-style:none}
+#hub-results{margin-bottom:28px}[hidden]{display:none!important}
 .card{position:relative;display:flex;gap:14px;align-items:center;padding:14px 16px;text-decoration:none;height:100%;transition:background-color .18s,border-color .18s,transform .18s var(--ease)}
 .card:hover{--bgc:var(--slab-hi);--e:var(--edge-hi);border-color:var(--edge);transform:translateY(-1px)}
 .card:hover .tile{color:var(--hi);border-color:var(--edge);box-shadow:0 0 14px rgba(125,211,252,.22) inset}
@@ -177,7 +182,7 @@ h2::before{content:counter(sec,decimal-leading-zero);color:var(--sig)}h2::after{
 .glyph{color:var(--hi);filter:drop-shadow(0 0 12px rgba(125,211,252,.55));transition:opacity .25s,transform .25s}.glyph svg{stroke-width:1.1}
 .hero.has-3d .glyph{opacity:0;transform:scale(.82);pointer-events:none}
 .hero.has-3d .reticle{opacity:.42;transition:opacity .25s;pointer-events:none}
-.hero-canvas{position:absolute;left:50%;top:calc(50% - 6px);transform:translate(-50%,-50%);z-index:2;cursor:grab;touch-action:none}.hero-canvas:active{cursor:grabbing}
+.hero-canvas{position:absolute;left:50%;top:calc(50% - 6px);transform:translate(-50%,-50%);z-index:2;cursor:grab;touch-action:none}.hero-canvas:active{cursor:grabbing}.hero-canvas:focus-visible{outline:2px solid var(--sig);outline-offset:2px}
 .hc{position:absolute;z-index:3;font:500 .66rem var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}.hc b{color:var(--sig);font-weight:500}
 .hc.tl{top:16px;left:22px}.hc.tr{top:16px;right:22px}.hc.bl{bottom:16px;left:22px;color:var(--hi)}.hc.br{bottom:16px;right:22px}
 .hc.bc{bottom:10px;left:50%;transform:translateX(-50%);padding:2px 10px;background:rgba(2,8,16,.84);border:1px solid rgba(255,181,71,.38);border-radius:999px;opacity:0;transition:opacity .25s;pointer-events:none;color:var(--sig);white-space:nowrap}.hero.has-3d .hc.bc{opacity:.92}
@@ -218,15 +223,20 @@ footer nav{display:flex;gap:4px}footer nav a{display:inline-flex;align-items:cen
 @media (max-width:900px){.item{grid-template-columns:1fr;gap:28px}.side{position:static}.hero{height:230px}main{padding-top:28px}
 .top .wrap{flex-wrap:wrap;gap:10px 14px;padding-top:10px}.top nav{order:3;flex-basis:100%;margin:0 -10px}.lang{margin-left:auto}}
 @media (max-width:560px){.wrap{padding:0 16px}.top .btn{display:none}.brand{font-size:.9rem;letter-spacing:.1em}.reticle{transform:scale(.8)}.hc.tr,.hc.br{display:none}.pager{grid-template-columns:1fr}footer nav{flex-wrap:wrap}}
-@media print{html{color-scheme:light}body{background:#fff!important;color:#111!important}body::before,body::after,.top,.skip,.hero,.search,.pager,footer,.panel .btn{display:none!important}.item{grid-template-columns:1fr;gap:20px}main{padding:0!important}h1,h2,.stats dd,.card b{color:#000!important;text-shadow:none!important}.lead,.prose p,.stats dt,.fun,.near a{color:#222!important}.slab,.card,.panel,.stats,.fun,.rules li,.credit{clip-path:none!important;background:#fff!important;border:1px solid #cbd5e1!important}}`;
+@media print{html{color-scheme:light}body{background:#fff!important;color:#111!important}body::before,body::after,.top,.skip,.hero,.search,.fchips,.pager,footer,.panel .btn{display:none!important}.item{grid-template-columns:1fr;gap:20px}main{padding:0!important}h1,h2,.stats dd,.card b{color:#000!important;text-shadow:none!important}.lead,.prose p,.stats dt,.fun,.near a{color:#222!important}.slab,.card,.panel,.stats,.fun,.rules li,.credit{clip-path:none!important;background:#fff!important;border:1px solid #cbd5e1!important}}`;
 
 const LANG_JS = `(function(){var d=document.documentElement,k='pp.lang',l,s=function(v){d.dataset.l=v;d.lang=v==='zh'?'zh-CN':'en';var bs=document.querySelectorAll('[data-set]');for(var i=0;i<bs.length;i++)bs[i].setAttribute('aria-pressed',bs[i].dataset.set===v?'true':'false')};try{l=JSON.parse(localStorage.getItem(k))}catch(e){}if(l!=='en'&&l!=='zh')l=(navigator.language||'').slice(0,2)==='zh'?'zh':'en';s(l);
 document.addEventListener('DOMContentLoaded',function(){s(d.dataset.l||'en')});
 document.addEventListener('click',function(e){var b=e.target.closest&&e.target.closest('[data-set]');if(!b)return;s(b.dataset.set);try{localStorage.setItem(k,JSON.stringify(b.dataset.set))}catch(e){}});})();`;
-const FILTER_JS = `(function(){var q=document.getElementById('q');if(!q)return;var cs=[].slice.call(document.querySelectorAll('[data-q]')),em=document.querySelector('.empty'),qn=document.getElementById('qn'),tot=cs.length;
-var upd=function(){var v=q.value.trim().toLowerCase(),n=0;cs.forEach(function(c){var on=!v||c.dataset.q.indexOf(v)>=0;c.hidden=!on;n+=on?1:0});if(em)em.style.display=n?'none':'block';if(qn)qn.textContent=v?(n+' / '+tot):String(tot)};
-q.addEventListener('input',upd);q.addEventListener('keydown',function(e){if(e.key==='Escape'&&q.value){e.preventDefault();q.value='';upd()}});
-document.addEventListener('keydown',function(e){if(e.key==='/'&&document.activeElement!==q&&!e.metaKey&&!e.ctrlKey&&!e.altKey){e.preventDefault();q.focus()}});upd()})();`;
+const FILTER_JS = `(function(){var q=document.getElementById('q');if(!q)return;var cs=[].slice.call(document.querySelectorAll('[data-q]')),fs=[].slice.call(document.querySelectorAll('.fchip[data-f]')),em=document.querySelector('.empty'),qn=document.getElementById('qn'),tot=cs.length,ft='';
+var fold=function(s){var r=(s||'').toLowerCase();if(r.normalize)r=r.normalize('NFD').replace(/[\\u0300-\\u036f]/g,'');return r.replace(/\\s+/g,' ').trim()};
+try{var iq=new URLSearchParams(location.search).get('q');if(iq)q.value=iq}catch(e){}
+var syncUrl=function(v){try{var u=new URL(location.href);if(v)u.searchParams.set('q',v);else u.searchParams.delete('q');history.replaceState(null,'',u.pathname+u.search+u.hash)}catch(e){}};
+var upd=function(push){var raw=q.value.trim(),v=fold(raw),ts=v?v.split(' '):[],n=0;cs.forEach(function(c){var ok=(!ft||c.dataset.tag===ft)&&(!ts.length||ts.every(function(t){return c.dataset.q.indexOf(t)>=0}));c.hidden=!ok;n+=ok?1:0});if(em)em.style.display=n?'none':'block';if(qn)qn.textContent=(v||ft)?(n+' / '+tot):String(tot);if(push)syncUrl(raw)};
+fs.forEach(function(b){b.addEventListener('click',function(){ft=b.dataset.f||'';fs.forEach(function(x){x.setAttribute('aria-pressed',x===b?'true':'false')});upd(true)})});
+q.addEventListener('input',function(){upd(true)});q.addEventListener('keydown',function(e){if(e.key==='Escape'&&(q.value||ft)){e.preventDefault();q.value='';ft='';fs.forEach(function(x){x.setAttribute('aria-pressed',x.dataset.f===''?'true':'false')});upd(true)}});
+document.addEventListener('keydown',function(e){if(e.key==='/'&&document.activeElement!==q&&!e.metaKey&&!e.ctrlKey&&!e.altKey){e.preventDefault();q.focus()}});upd(false)})();`;
+const DETAIL_JS = `(function(){document.addEventListener('keydown',function(e){if(e.metaKey||e.ctrlKey||e.altKey||e.defaultPrevented)return;var t=e.target;if(t&&(t.tagName==='INPUT'||t.tagName==='TEXTAREA'||t.tagName==='CANVAS'))return;var k=e.key==='['?'prev':e.key===']'?'next':'';if(!k)return;var a=document.querySelector('[data-nav="'+k+'"]');if(a){e.preventDefault();location.href=a.href}})})();`;
 
 const MARK = '<span class="mark" aria-hidden="true"></span>';
 const BRAND = T('Terrastra', '寰星');
@@ -262,9 +272,12 @@ function page(
 ): void {
   const cur = (k: string) => (opts.current === k ? ' aria-current="page"' : '');
   const ld = buildJsonLd(opts.jsonld, opts.crumbs);
+  const seoLinks = opts.noindex
+    ? '<meta name="robots" content="noindex">'
+    : `<link rel="canonical" href="${SITE}${path}"><link rel="alternate" hreflang="en" href="${SITE}${path}"><link rel="alternate" hreflang="zh-Hans" href="${SITE}${path}"><link rel="alternate" hreflang="x-default" href="${SITE}${path}">`;
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${esc(title)}</title><meta name="description" content="${esc(desc)}">${opts.noindex ? '<meta name="robots" content="noindex">' : `<link rel="canonical" href="${SITE}${path}">`}<meta name="theme-color" content="#02060c">
-<meta property="og:type" content="website"><meta property="og:site_name" content="Terrastra"><meta property="og:url" content="${SITE}${path}">
+<title>${esc(title)}</title><meta name="description" content="${esc(desc)}">${seoLinks}<meta name="theme-color" content="#02060c">
+<meta property="og:type" content="website"><meta property="og:site_name" content="Terrastra"><meta property="og:locale" content="en_US"><meta property="og:locale:alternate" content="zh_CN"><meta property="og:url" content="${SITE}${path}">
 <meta property="og:title" content="${esc(title)}"><meta property="og:description" content="${esc(desc)}"><meta name="twitter:card" content="summary"><link rel="icon" href="/favicon.svg">
 <link rel="preload" href="/fonts/chakra-petch-600.woff2" as="font" type="font/woff2" crossorigin><link rel="preload" href="/fonts/geist-mono.woff2" as="font" type="font/woff2" crossorigin><script>${LANG_JS}</script>
 <style>${CSS}</style>${ld ? `<script type="application/ld+json">${JSON.stringify(ld).replace(/</g, '\\u003c')}</script>` : ''}</head>
@@ -304,21 +317,63 @@ function stats(it: CatalogueItem): string {
   return row.length ? `<dl class="stats">${row.map(([k, v]) => `<div><dt>${bi(k)}</dt><dd>${bi(v)}</dd></div>`).join('')}</dl>` : '';
 }
 
-const searchKey = (it: CatalogueItem) => esc([it.name.en, it.name.zh, where(it).en, where(it).zh, ...(ALIASES[it.key] ?? [])].filter(Boolean).join(' ').toLowerCase());
-const card = (it: CatalogueItem, dir: string, ic: IconName, i: number) => `<li data-q="${searchKey(it)}"><a class="card" href="/${dir}/${it.slug}/">
+const searchKey = (it: CatalogueItem) => esc(foldEncyclopediaText([it.name.en, it.name.zh, where(it).en, where(it).zh, ...(ALIASES[it.key] ?? [])].filter(Boolean).join(' ')));
+const card = (it: CatalogueItem, dir: string, ic: IconName, i: number) => `<li data-q="${searchKey(it)}" data-tag="${esc(it.continent)}"><a class="card" href="/${dir}/${it.slug}/">
 <span class="tile" aria-hidden="true">${icon(ic, 22)}</span><span><b>${bi(it.name)}</b><small>${bi(where(it))}</small></span><i class="idx">${pad(i + 1, 3)}</i></a></li>`;
+
+const geoSlug = (key: string) => key.replace(/^geo:/, '');
+const geoSearchRaw = (g: (typeof GAZETTEER)[number]) =>
+  foldEncyclopediaText([g.name.en, g.name.zh, GEO_KIND_LABEL[g.kind].en, GEO_KIND_LABEL[g.kind].zh, g.region.en, g.region.zh, ...(g.aliases ?? [])].filter(Boolean).join(' '));
+const geoSearchKey = (g: (typeof GAZETTEER)[number]) => esc(geoSearchRaw(g));
 
 const urls: string[] = ['/', '/encyclopedia/', '/about/', '/privacy/'];
 const total = SECTIONS.reduce((n, s) => n + s.items.length, 0);
 const allTotal = total + GAZETTEER.length;
+const hubIndex = [
+  ...SECTIONS.flatMap(s => s.items.map(it => {
+    const wh = where(it);
+    return [
+      `${BASE}${s.dir}/${it.slug}/`,
+      it.emoji,
+      it.name.en,
+      it.name.zh ?? '',
+      [s.one.en, wh.en].filter(Boolean).join(' · '),
+      [s.one.zh ?? s.one.en, wh.zh || wh.en].filter(Boolean).join(' · '),
+      foldEncyclopediaText([it.name.en, it.name.zh, s.title.en, s.title.zh, wh.en, wh.zh, ...(ALIASES[it.key] ?? [])].filter(Boolean).join(' ')),
+    ] as const;
+  })),
+  ...GAZETTEER.map(g => [
+    `${BASE}${GEO_DIR}/${geoSlug(g.key)}/`,
+    g.emoji,
+    g.name.en,
+    g.name.zh,
+    `${GEO_KIND_LABEL[g.kind].en} · ${g.region.en}`,
+    `${GEO_KIND_LABEL[g.kind].zh ?? GEO_KIND_LABEL[g.kind].en} · ${g.region.zh}`,
+    geoSearchRaw(g),
+  ] as const),
+];
+const HUB_JS = `(function(){var q=document.getElementById('q'),ul=document.getElementById('hub-results'),em=document.querySelector('.empty'),qn=document.getElementById('qn');if(!q||!ul)return;var D=${JSON.stringify(hubIndex).replace(/</g, '\\u003c')},tot=D.length;
+var fold=function(s){var r=(s||'').toLowerCase();if(r.normalize)r=r.normalize('NFD').replace(/[\\u0300-\\u036f]/g,'');return r.replace(/\\s+/g,' ').trim()};
+var mkBi=function(tag,en,zh){var f=document.createDocumentFragment(),a=document.createElement(tag);a.className='en';a.textContent=en;f.appendChild(a);if(zh){var b=document.createElement(tag);b.className='zh';b.lang='zh-CN';b.textContent=zh;f.appendChild(b)}return f};
+try{var iq=new URLSearchParams(location.search).get('q');if(iq)q.value=iq}catch(e){}
+var upd=function(push){var raw=q.value.trim(),v=fold(raw),ts=v?v.split(' '):[];while(ul.firstChild)ul.removeChild(ul.firstChild);if(push){try{var u=new URL(location.href);if(raw)u.searchParams.set('q',raw);else u.searchParams.delete('q');history.replaceState(null,'',u.pathname+u.search+u.hash)}catch(e){}}
+if(!ts.length){ul.hidden=true;if(em)em.style.display='none';if(qn)qn.textContent=String(tot);return}
+var n=0,frag=document.createDocumentFragment();for(var i=0;i<D.length;i++){var r=D[i];if(!ts.every(function(t){return r[6].indexOf(t)>=0}))continue;n++;if(n<=60){var li=document.createElement('li'),a=document.createElement('a');a.className='card';a.href=r[0];var ti=document.createElement('span');ti.className='tile';ti.setAttribute('aria-hidden','true');ti.textContent=r[1];var sp=document.createElement('span'),bb=document.createElement('b'),sm=document.createElement('small');bb.appendChild(mkBi('span',r[2],r[3]));sm.appendChild(mkBi('span',r[4],r[5]));sp.appendChild(bb);sp.appendChild(sm);a.appendChild(ti);a.appendChild(sp);li.appendChild(a);frag.appendChild(li)}}
+ul.appendChild(frag);ul.hidden=n===0;if(em)em.style.display=n?'none':'block';if(qn)qn.textContent=n+' / '+tot};
+q.addEventListener('input',function(){upd(true)});q.addEventListener('keydown',function(e){if(e.key==='Escape'&&q.value){e.preventDefault();q.value='';upd(true)}});
+document.addEventListener('keydown',function(e){if(e.key==='/'&&document.activeElement!==q&&!e.metaKey&&!e.ctrlKey&&!e.altKey){e.preventDefault();q.focus()}});upd(false)})();`;
+
 page('/encyclopedia/', 'Encyclopedia — Terrastra', `Explore ${allTotal} places, natural geography features, animals and wonders on a friendly 3D globe for kids.`,
   `<p class="eyebrow">${bi(T('Encyclopedia', '百科'))}</p><h1>${bi(T('Explore the planet', '探索地球'))}</h1>
 <p class="sub">${bi(T(`${total} 3D wonders plus ${GAZETTEER.length} physical-geography features waiting on the globe.`, `${total} 个 3D 奇观模型与 ${GAZETTEER.length} 个自然地理单元，都在地球上等你发现。`))}</p>
+<label class="search">${icon('search', 16)}<input id="q" data-testid="hub-search" type="search" placeholder="Search all entries · 搜索全部词条 (/)" aria-label="Search"><span id="qn" class="search-n" aria-live="polite">${allTotal}</span></label>
+<ul id="hub-results" class="cards" data-testid="hub-results" hidden></ul><p class="empty">${bi(T('Nothing found', '没有找到'))}</p>
 <h2>${bi(T('Sections', '分类'))}</h2><ul class="cards hub">${SECTIONS.map((s, i) => `<li><a class="card" href="/${s.dir}/"><span class="tile" aria-hidden="true">${icon(s.icon, 22)}</span>
 <span><b>${bi(s.title)}</b><small>${bi(s.hint)}</small><small class="count"><strong>${s.items.length}</strong>${bi(T('entries', '个条目'))}</small></span><i class="idx">${pad(i + 1)}</i></a></li>`).join('')}<li><a class="card" href="/${GEO_DIR}/"><span class="tile" aria-hidden="true">${icon('compass', 22)}</span>
 <span><b>${bi(GEO_TITLE)}</b><small>${bi(GEO_HINT)}</small><small class="count"><strong>${GAZETTEER.length}</strong>${bi(T('entries', '个条目'))}</small></span><i class="idx">${pad(SECTIONS.length + 1)}</i></a></li></ul>`,
   {
     current: 'hub',
+    script: HUB_JS,
     jsonld: {
       '@context': 'https://schema.org',
       '@type': 'CollectionPage',
@@ -331,11 +386,17 @@ page('/encyclopedia/', 'Encyclopedia — Terrastra', `Explore ${allTotal} places
     },
   });
 
+const CONT_ORDER: (Continent | 'ocean')[] = ['asia', 'europe', 'africa', 'north-america', 'south-america', 'oceania', 'antarctica', 'ocean'];
+
 for (const [si, s] of SECTIONS.entries()) {
+  const secContinents = CONT_ORDER.filter(c => s.items.some(it => it.continent === c));
+  const secChips = secContinents.length >= 2
+    ? `<div class="fchips" role="group" aria-label="Continent"><button type="button" class="fchip" data-f="" aria-pressed="true">${bi(T('All', '全部'))}</button>${secContinents.map(c => `<button type="button" class="fchip" data-f="${c}" aria-pressed="false">${bi(CONTINENT_NAMES[c])}</button>`).join('')}</div>`
+    : '';
   page(`/${s.dir}/`, `${s.title.en} — Terrastra`, `Explore ${s.items.length} ${s.title.en.toLowerCase()} on a friendly 3D globe for kids.`,
     `<nav class="crumbs"><a href="/encyclopedia/">${bi(T('Encyclopedia', '百科'))}</a><span>/</span>${pad(si + 1)}</nav>
 <p class="eyebrow">${s.items.length} ${bi(T('entries', '个条目'))}</p><h1>${bi(s.title)}</h1><p class="sub">${bi(s.hint)}</p>
-<label class="search">${icon('search', 16)}<input id="q" type="search" placeholder="Search · 搜索 (/)" aria-label="Search"><span id="qn" class="search-n" aria-live="polite">${s.items.length}</span></label>
+<label class="search">${icon('search', 16)}<input id="q" type="search" placeholder="Search · 搜索 (/)" aria-label="Search"><span id="qn" class="search-n" aria-live="polite">${s.items.length}</span></label>${secChips}
 <ul class="cards">${s.items.map((it, i) => card(it, s.dir, s.icon, i)).join('')}</ul><p class="empty">${bi(T('Nothing found', '没有找到'))}</p>`,
     {
       current: s.dir,
@@ -366,16 +427,16 @@ for (const [si, s] of SECTIONS.entries()) {
     page(path, `${it.name.en} — Terrastra`, it.desc.en,
       `<nav class="crumbs"><a href="/encyclopedia/">${bi(T('Encyclopedia', '百科'))}</a><span>/</span><a href="/${s.dir}/">${bi(s.title)}</a><span>/</span>${code}</nav>
 <div class="item"><article>
-<div class="hero" aria-hidden="true" data-model="${esc(JSON.stringify(it.model))}"><div class="reticle"><span class="ring r3"></span><span class="ring r4"></span><span class="ring"></span><span class="ring r2"></span><span class="glyph">${icon(s.icon, 72)}</span></div>
-<span class="hc tl"><b>●</b> ${bi(T('Target', '目标'))} ${code}</span><span class="hc tr">${bi(s.one)}</span>
-<span class="hc bl">${it.route ? bi(T('Route', '航线')) : coord(it.lat, it.lon)}</span><span class="hc bc">${bi(T('3D · Drag to rotate', '3D · 拖动旋转'))}</span><span class="hc br">${wh.en ? bi(wh) : ''}</span></div>
+<div class="hero" data-model="${esc(JSON.stringify(it.model))}" data-label="${esc(it.name.en)}"><div class="reticle" aria-hidden="true"><span class="ring r3"></span><span class="ring r4"></span><span class="ring"></span><span class="ring r2"></span><span class="glyph">${icon(s.icon, 72)}</span></div>
+<span class="hc tl" aria-hidden="true"><b>●</b> ${bi(T('Target', '目标'))} ${code}</span><span class="hc tr" aria-hidden="true">${bi(s.one)}</span>
+<span class="hc bl" aria-hidden="true">${it.route ? bi(T('Route', '航线')) : coord(it.lat, it.lon)}</span><span class="hc bc" aria-hidden="true">${bi(T('3D · Drag / Arrows · +/− Zoom', '3D · 拖动/方向键 · +/−缩放'))}</span><span class="hc br" aria-hidden="true">${wh.en ? bi(wh) : ''}</span></div>
 <p class="meta"><span class="chip">${bi(s.one)}</span>${wh.en ? bi(wh) : ''}</p>
 <h1>${bi(it.name)}</h1><p class="alt"><span class="zh">${esc(it.name.en)}</span>${it.name.zh ? `<span class="en" lang="zh-CN">${esc(it.name.zh)}</span>` : ''}</p>
 ${bi(it.desc, 'p', 'lead')}${stats(it)}
 ${it.funFact ? `<div class="fun"><b>${bi(T('Fun fact', '趣味知识'))}</b>${bi(it.funFact, 'span')}</div>` : ''}
 ${w ? `<h2>${bi(T('Read more', '延伸阅读'))}</h2><div class="links"><a class="card" href="${wikiUrl('en', w[0])}" rel="noopener"><span class="tile" aria-hidden="true">W</span><span><b>Wikipedia</b><small>${esc(w[0])}</small></span></a>
 ${w[1] ? `<a class="card" href="${wikiUrl('zh', w[1])}" rel="noopener" lang="zh-CN"><span class="tile" aria-hidden="true">维</span><span><b>维基百科</b><small>${esc(w[1])}</small></span></a>` : ''}</div>` : ''}
-<nav class="pager"><a class="card" href="/${s.dir}/${prev.slug}/"><small>← ${bi(T('Previous', '上一个'))}</small>${bi(prev.name)}</a><a class="card" href="/${s.dir}/${next.slug}/"><small>${bi(T('Next', '下一个'))} →</small>${bi(next.name)}</a></nav>
+<nav class="pager"><a class="card" data-nav="prev" href="/${s.dir}/${prev.slug}/"><small>← ${bi(T('Previous', '上一个'))}</small>${bi(prev.name)}</a><a class="card" data-nav="next" href="/${s.dir}/${next.slug}/"><small>${bi(T('Next', '下一个'))} →</small>${bi(next.name)}</a></nav>
 </article><aside class="side">
 <div class="panel"><a class="btn sig" href="/#${it.key}">${icon('globe', 16)}${bi(T('See it on the 3D globe', '在 3D 地球上查看'))}</a></div>
 ${itemLessons.length ? `<div class="panel" data-testid="item-page-lessons"><h3>${bi(T('Interactive Geography Class', '关联互动地理课'))}</h3><ul class="near">${itemLessons.map(ls => `<li><a href="/#lesson/${esc(ls.id)}">${icon('book', 16)}${bi(ls.title)}<i>${bi(itemLessonTag(ls.id))}</i></a></li>`).join('')}</ul></div>` : ''}
@@ -384,11 +445,12 @@ ${near.length ? `<div class="panel"><h3>${bi(T('Nearby', '附近'))}</h3><ul cla
 </aside></div>`,
       {
         current: s.dir,
+        script: DETAIL_JS,
         moduleScript: MODEL_SCRIPT ? `/assets/${MODEL_SCRIPT}` : undefined,
         crumbs: [['Encyclopedia', '/encyclopedia/'], [s.title.en, `/${s.dir}/`], [it.name.en, path]],
         jsonld: {
           '@context': 'https://schema.org',
-          '@type': it.type === 'landmark' ? 'LandmarksOrHistoricalBuildings' : isPlaceType ? 'Place' : 'Thing',
+          '@type': itemSchemaType(it.type, Boolean(it.route)),
           name: it.name.en,
           alternateName: it.name.zh,
           description: it.desc.en,
@@ -402,14 +464,13 @@ ${near.length ? `<div class="panel"><h3>${bi(T('Nearby', '附近'))}</h3><ul cla
 
 // Physical Geography section (GAZETTEER)
 const geoSecIdx = SECTIONS.length + 1;
-const geoSlug = (key: string) => key.replace(/^geo:/, '');
-const geoSearchKey = (g: (typeof GAZETTEER)[number]) =>
-  esc([g.name.en, g.name.zh, GEO_KIND_LABEL[g.kind].en, GEO_KIND_LABEL[g.kind].zh, g.region.en, g.region.zh, ...(g.aliases ?? [])].filter(Boolean).join(' ').toLowerCase());
+const geoPresentKinds = (Object.keys(GEO_KIND_LABEL) as GeoKind[]).filter(k => GAZETTEER.some(g => g.kind === k));
+const geoChips = `<div class="fchips" data-testid="geo-kind-chips" role="group" aria-label="Feature type"><button type="button" class="fchip" data-f="" aria-pressed="true">${bi(T('All', '全部'))}</button>${geoPresentKinds.map(k => `<button type="button" class="fchip" data-f="${k}" aria-pressed="false">${bi(GEO_KIND_LABEL[k])}</button>`).join('')}</div>`;
 page(`/${GEO_DIR}/`, `${GEO_TITLE.en} — Terrastra`, `Explore ${GAZETTEER.length} seas, trenches, mountain ranges, plateaus, plains, basins, straits and rivers on Terrastra's interactive 3D globe.`,
   `<nav class="crumbs"><a href="/encyclopedia/">${bi(T('Encyclopedia', '百科'))}</a><span>/</span>${pad(geoSecIdx)}</nav>
 <p class="eyebrow">${GAZETTEER.length} ${bi(T('entries', '个条目'))}</p><h1>${bi(GEO_TITLE)}</h1><p class="sub">${bi(GEO_HINT)}</p>
-<label class="search">${icon('search', 16)}<input id="q" type="search" placeholder="Search · 搜索 (/)" aria-label="Search"><span id="qn" class="search-n" aria-live="polite">${GAZETTEER.length}</span></label>
-<ul class="cards">${GAZETTEER.map((g, i) => `<li data-q="${geoSearchKey(g)}"><a class="card" href="/${GEO_DIR}/${geoSlug(g.key)}/"><span class="tile" aria-hidden="true">${esc(g.emoji)}</span><span><b>${bi(g.name)}</b><small>${bi(GEO_KIND_LABEL[g.kind])} · ${bi(g.region)}</small></span><i class="idx">${pad(i + 1, 3)}</i></a></li>`).join('')}</ul><p class="empty">${bi(T('Nothing found', '没有找到'))}</p>`,
+<label class="search">${icon('search', 16)}<input id="q" type="search" placeholder="Search · 搜索 (/)" aria-label="Search"><span id="qn" class="search-n" aria-live="polite">${GAZETTEER.length}</span></label>${geoChips}
+<ul class="cards">${GAZETTEER.map((g, i) => `<li data-q="${geoSearchKey(g)}" data-tag="${esc(g.kind)}"><a class="card" href="/${GEO_DIR}/${geoSlug(g.key)}/"><span class="tile" aria-hidden="true">${esc(g.emoji)}</span><span><b>${bi(g.name)}</b><small>${bi(GEO_KIND_LABEL[g.kind])} · ${bi(g.region)}</small></span><i class="idx">${pad(i + 1, 3)}</i></a></li>`).join('')}</ul><p class="empty">${bi(T('Nothing found', '没有找到'))}</p>`,
   {
     current: GEO_DIR,
     script: FILTER_JS,
@@ -454,7 +515,7 @@ ${bi(g.desc, 'p', 'lead')}
 ${g.fact ? `<div class="fun"><b>${bi(T('Textbook highlight', '地理考点精要'))}</b>${bi(g.fact, 'span')}</div>` : ''}
 <h2>${bi(T('Read more', '延伸阅读'))}</h2><div class="links"><a class="card" href="${wikiUrl('en', w[0])}" rel="noopener"><span class="tile" aria-hidden="true">W</span><span><b>Wikipedia</b><small>${esc(w[0])}</small></span></a>
 <a class="card" href="${wikiUrl('zh', w[1])}" rel="noopener" lang="zh-CN"><span class="tile" aria-hidden="true">维</span><span><b>维基百科</b><small>${esc(w[1])}</small></span></a></div>
-<nav class="pager"><a class="card" href="/${GEO_DIR}/${geoSlug(prev.key)}/"><small>← ${bi(T('Previous', '上一个'))}</small>${bi(prev.name)}</a><a class="card" href="/${GEO_DIR}/${geoSlug(next.key)}/"><small>${bi(T('Next', '下一个'))} →</small>${bi(next.name)}</a></nav>
+<nav class="pager"><a class="card" data-nav="prev" href="/${GEO_DIR}/${geoSlug(prev.key)}/"><small>← ${bi(T('Previous', '上一个'))}</small>${bi(prev.name)}</a><a class="card" data-nav="next" href="/${GEO_DIR}/${geoSlug(next.key)}/"><small>${bi(T('Next', '下一个'))} →</small>${bi(next.name)}</a></nav>
 </article><aside class="side">
 <div class="panel"><a class="btn sig" href="/#${g.key}">${icon('globe', 16)}${bi(T('See it on the 3D globe', '在 3D 地球上查看'))}</a></div>
 ${lessons.length ? `<div class="panel" data-testid="geo-page-lessons"><h3>${bi(T('Interactive Geography Class', '关联互动地理课'))}</h3><ul class="near">${lessons.map(ls => `<li><a href="/#lesson/${esc(ls.id)}">${icon('book', 16)}${bi(ls.title)}<i>${bi(lessonTag(ls.id))}</i></a></li>`).join('')}</ul></div>` : ''}
@@ -463,10 +524,11 @@ ${near.length ? `<div class="panel"><h3>${bi(T('Nearby 3D wonders', '周边 3D �
 </aside></div>`,
     {
       current: GEO_DIR,
+      script: DETAIL_JS,
       crumbs: [['Encyclopedia', '/encyclopedia/'], [GEO_TITLE.en, `/${GEO_DIR}/`], [g.name.en, path]],
       jsonld: {
         '@context': 'https://schema.org',
-        '@type': 'Place',
+        '@type': geoSchemaType(g.kind),
         name: g.name.en,
         alternateName: g.name.zh,
         description: g.desc.en,
@@ -527,4 +589,20 @@ writeFileSync(join(out, '404.html'), readFileSync(join(out, '404', 'index.html')
 
 writeFileSync(join(out, 'sitemap.xml'), `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.map(u => `  <url><loc>${SITE}${u}</loc></url>`).join('\n')}\n</urlset>\n`);
 writeFileSync(join(out, 'robots.txt'), `User-agent: *\nAllow: /\nDisallow: /404/\n${STATIC ? '' : 'Disallow: /api/\n'}Sitemap: ${SITE}/sitemap.xml\n`);
-console.log(`build-pages: wrote ${urls.length} URLs to ${out}`);
+type RawLessonMeta = { id: string; title: [string, string] };
+const lessonCatalogMeta = JSON.parse(readFileSync(join(root, 'src/client/lessons/catalog-meta.json'), 'utf8')) as {
+  geo: RawLessonMeta[];
+  astro: RawLessonMeta[];
+};
+const llmsLessons = [
+  ...lessonCatalogMeta.geo.map(ls => ({ id: ls.id, kind: 'geo' as const, titleEn: ls.title[0], titleZh: ls.title[1], free: !STRIP_PUBLIC_PRO || isFreeLesson(ls.id) })),
+  ...lessonCatalogMeta.astro.map(ls => ({ id: ls.id, kind: 'astro' as const, titleEn: ls.title[0], titleZh: ls.title[1], free: !STRIP_PUBLIC_PRO || isFreeLesson(ls.id) })),
+];
+writeFileSync(join(out, 'llms.txt'), buildLlmsTxt({
+  site: SITE,
+  totalItems: total,
+  geoCount: GAZETTEER.length,
+  sections: SECTIONS.map(s => ({ dir: s.dir, titleEn: s.title.en, titleZh: s.title.zh, hintEn: s.hint.en, count: s.items.length })),
+  lessons: llmsLessons,
+}));
+console.log(`build-pages: wrote ${urls.length} URLs + llms.txt to ${out}`);

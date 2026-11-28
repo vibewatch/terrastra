@@ -1067,7 +1067,7 @@ export class SolarView {
     this.raf = requestAnimationFrame(() => this.loop());
     if (!this.shadersReady) return;
     const now = performance.now();
-    const busy = this.tween || this.xf || this.deep.busy || now - this.interacting < 400 || Math.abs(this.vAz) + Math.abs(this.vEl) > 1e-5;
+    const busy = Boolean(this.shot) || this.tween || this.xf || this.deep.busy || now - this.interacting < 400 || Math.abs(this.vAz) + Math.abs(this.vEl) > 1e-5;
     if (!busy && this.quality.idleFps && now - this.last < 1000 / this.quality.idleFps - 4) return;
     const dt = Math.min(100, now - this.last);
     const frameMs = now - this.last;

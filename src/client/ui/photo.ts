@@ -121,7 +121,7 @@ export function openPhotoMode(shot: Shot): void {
     setTimeout(() => frame.classList.remove('flash'), 300);
     try {
       const c = await shot.caption();
-      const url = await postcard(await within(shot.capture(), 3000), c);
+      const url = await postcard(await within(shot.capture(), 8000), c);
       await photos.add({ at: Date.now(), url, place: c.title || c.level });
       toast('📸 ' + t('photoSaved'));
     } catch { toast('⚠️ ' + t('photoSaveFail'), 4000); }

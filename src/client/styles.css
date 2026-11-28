@@ -110,6 +110,13 @@ a:hover { text-decoration: underline; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .hidden { display: none !important; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.skip-app {
+  position: fixed; left: 14px; top: 10px; z-index: 90; padding: 7px 13px;
+  background: #040b14; border: 1px solid var(--sig, #ffb547); color: var(--sig, #ffb547);
+  font-family: var(--font-mono); font-size: .78rem; font-weight: 600; border-radius: 6px;
+  transform: translateY(-200%); transition: transform .15s;
+}
+.skip-app:focus-visible { transform: translateY(0); outline: 2px solid var(--sig, #ffb547); outline-offset: 2px; }
 .ico { display: block; flex: none; }
 .muted { color: var(--muted); }
 .small { font-size: .85em; }
@@ -556,6 +563,7 @@ a:hover { text-decoration: underline; }
 }
 .model-preview-canvas { display: block; cursor: grab; touch-action: none; }
 .model-preview-canvas:active { cursor: grabbing; }
+.model-preview-canvas:focus-visible { outline: 2px solid var(--sig, #ffb547); outline-offset: -2px; }
 .model-stage-badge { display: none; }
 .model-stage-hint {
   position: absolute;
@@ -1055,7 +1063,7 @@ body.solar #globe { visibility: hidden; }
 /* One chrome for every level: global parts stay put; `earth-only` / `space-only` parts swap in place. */
 body.solar .earth-only, body.solar #info, body.solar .coord-readout, body.solar .zoom-readout, body.solar .time-bar, body.solar .ride-bar, body.solar .globe-tip, body:not(.solar) .space-only { display: none !important; }
 /* A card on the left covers the help corner; it comes back when the card closes. */
-body:has(.info:not(.hidden)) .bl { display: none; }
+body:not(.solar):has(#info:not(.hidden)) .bl, body.solar:has(.solar-info:not(.hidden)) .bl { display: none; }
 .solar-stage { position: absolute; inset: 0; background: #020306; }
 .solar-stage.hidden, .solar-ui.hidden { display: none; }
 .solar-canvas { display: block; width: 100%; height: 100%; touch-action: none; outline: none; cursor: grab; }
@@ -1181,7 +1189,7 @@ body:has(.info:not(.hidden)) .bl { display: none; }
   .info-hero .model-preview-canvas { aspect-ratio: 360 / 170; }
   .menu { top: 60px; right: 8px; }
   .br { right: 10px; bottom: 10px; } .bl { left: 10px; bottom: 10px; }
-  body:has(.info:not(.hidden)) .br, body:has(.info:not(.hidden)) .bl { display: none; }
+  body:not(.solar):has(#info:not(.hidden)) :is(.br, .bl), body.solar:has(.solar-info:not(.hidden)) :is(.br, .bl) { display: none; }
   .diff-grid { grid-template-columns: 1fr; }
   .hud-main { flex-wrap: wrap; }
 }
@@ -1399,7 +1407,7 @@ body.radio-on .coord-readout { display: none; }
   .radio-vol, .radio-rand { display: none; }
   .radio-btn { width: 34px; }
   body.radio-on .bl { display: none; }
-  body:has(.info:not(.hidden)) .radio-bar { display: none; }
+  body:not(.solar):has(#info:not(.hidden)) .radio-bar { display: none; }
 }
 .radio-cc { font-weight: 600; color: var(--hud-hi); border: 1px solid var(--hud-line); padding: 0 4px; margin-right: 6px; }
 

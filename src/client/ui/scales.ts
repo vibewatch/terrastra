@@ -23,22 +23,27 @@ export class ScaleRail {
   private cur: RailLevel = 'earth';
   private btn: HTMLButtonElement;
   private list: HTMLElement;
+  private liveEl: HTMLElement;
   private items = new Map<RailLevel, HTMLButtonElement>();
 
   constructor(go: (l: RailLevel) => void) {
-    this.btn = h('button', { class: 'lv-cur', 'data-testid': 'level-switch', 'aria-haspopup': 'true', 'aria-expanded': 'false', onclick: () => { sfx.tap(); this.toggle(); } }) as HTMLButtonElement;
-    this.list = h('div', { class: 'lv-list hidden', role: 'menu', 'data-testid': 'level-list' });
+    this.btn = h('button', { class: 'lv-cur', 'data-testid': 'level-switch', 'aria-haspopup': 'menu', 'aria-expanded': 'false', 'aria-controls': 'level-list', onclick: () => { sfx.tap(); this.toggle(); } }) as HTMLButtonElement;
+    this.list = h('div', { id: 'level-list', class: 'lv-list hidden', role: 'menu', 'data-testid': 'level-list' });
+    this.liveEl = h('span', { class: 'sr-only', 'aria-live': 'polite', 'data-testid': 'scale-live' });
     for (const l of RAIL) {
       const b = h('button', { class: 'lv-item sr-' + l, role: 'menuitemradio', 'data-testid': 'rail-' + l,
         onclick: () => { this.toggle(false); if (l !== this.cur || l !== 'earth') { sfx.tap(); go(l); } } }) as HTMLButtonElement;
       this.items.set(l, b);
       this.list.append(b);
     }
-    this.el = h('nav', { class: 'level-switch', 'data-occludes': true, 'data-testid': 'scale-rail' }, this.btn, this.list);
+    this.el = h('nav', { class: 'level-switch', 'data-occludes': true, 'data-testid': 'scale-rail' }, this.btn, this.list, this.liveEl);
     this.list.addEventListener('keydown', e => {
+      const all = [...this.items.values()];
+      if (e.key === 'Home') { e.preventDefault(); all[0]?.focus(); return; }
+      if (e.key === 'End') { e.preventDefault(); all.at(-1)?.focus(); return; }
       if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
       e.preventDefault();
-      const all = [...this.items.values()], i = all.indexOf(document.activeElement as HTMLButtonElement);
+      const i = all.indexOf(document.activeElement as HTMLButtonElement);
       all[(i + (e.key === 'ArrowDown' ? 1 : all.length - 1)) % all.length].focus();
     });
     document.addEventListener('keydown', e => {
@@ -59,8 +64,10 @@ export class ScaleRail {
   }
 
   set(l: RailLevel): void {
+    const changed = l !== this.cur;
     this.cur = l;
     this.render();
+    if (changed) this.liveEl.textContent = t('scaleAnnounce', { s: `${t('sc_' + l)} (${SPAN[l][lang()]})` });
   }
 
   private render(): void {

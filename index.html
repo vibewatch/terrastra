@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Terrastra</title>
   <meta name="description" content="Terrastra is a free 3D toy globe for curious kids: spin the Earth, find landmarks and animals, play map games and collect stickers." />
+  <meta name="color-scheme" content="dark" />
   <meta name="theme-color" content="#09090b" />
   <link rel="manifest" href="%BASE_URL%manifest.webmanifest" />
   <link rel="preload" href="%BASE_URL%fonts/geist.woff2" as="font" type="font/woff2" crossorigin />
@@ -12,9 +13,11 @@
   <link rel="preload" href="%BASE_URL%fonts/chakra-petch-500.woff2" as="font" type="font/woff2" crossorigin />
   <link rel="icon" href="%BASE_URL%favicon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="%BASE_URL%icon-192.png" />
+  <meta property="og:site_name" content="Terrastra" />
   <meta property="og:title" content="Terrastra" />
   <meta property="og:description" content="Spin a friendly 3D globe, discover landmarks and animals, and play map games." />
   <meta property="og:type" content="website" />
+  <meta name="twitter:card" content="summary" />
 </head>
 <body>
   <div id="app"></div>
@@ -45,11 +48,13 @@
       if (l !== 'en' && l !== 'zh') l = (navigator.language || '').slice(0, 2) === 'zh' ? 'zh' : 'en';
       document.getElementById('intro-sub').textContent = l === 'zh' ? '寰星 · 探索无垠宇宙' : 'A tiny world in an endless sky';
       document.getElementById('intro-msg').textContent = l === 'zh' ? '正在唤醒星球…' : 'Waking up the planet…';
-      var small = Math.min(innerWidth, innerHeight) < 700, layers = el.querySelectorAll('.intro-l'), R = Math.random;
+      var reduce = (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches) || /[?&]lowfx=(?:1|true)\b/i.test(location.search);
+      var small = reduce || Math.min(innerWidth, innerHeight) < 700, layers = el.querySelectorAll('.intro-l'), R = Math.random;
       var tint = function (a) { var w = R(); return w < .12 ? 'rgba(255,214,170,' + a + ')' : w < .3 ? 'rgba(170,200,255,' + a + ')' : 'rgba(235,244,255,' + a + ')'; };
-      for (var k = 0; k < layers.length; k++) {
+      var layerLimit = reduce ? Math.min(1, layers.length) : layers.length;
+      for (var k = 0; k < layerLimit; k++) {
         var c = document.createElement('canvas'), S = small ? 512 : 768; c.width = c.height = S;
-        var g = c.getContext('2d'), n = small ? 170 : 300;
+        var g = c.getContext('2d'), n = reduce ? 110 : small ? 170 : 300;
         for (var i = 0; i < n; i++) {
           var r = Math.pow(R(), 4) * 1.1 + 0.28, a = 0.3 + R() * 0.7, x = R() * S, y = R() * S;
           g.fillStyle = tint(a); g.beginPath(); g.arc(x, y, r, 0, 6.2832); g.fill();
@@ -59,6 +64,7 @@
         layers[k].style.backgroundImage = 'url(' + c.toDataURL() + ')';
         layers[k].style.animationDelay = (-k * 2.5) + 's';
       }
+      if (reduce) return;
       // Milky Way: a soft diagonal band of dust and thousands of faint stars, painted once.
       var mw = document.createElement('canvas'), M = small ? 640 : 1024; mw.width = mw.height = M;
       var q = mw.getContext('2d'), gauss = function () { return (R() + R() + R() + R() - 2) / 2; };

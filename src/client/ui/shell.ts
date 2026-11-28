@@ -30,6 +30,7 @@ import { isRecentSearchEntry, pushRecentSearch, type RecentSearchEntry } from '.
 import { groupOf } from '../lib/compare.ts';
 import { narrate, narrationSupported, splitSentences, stopNarration, type Narration } from '../lib/narrate.ts';
 import { diagnosticsReport, errorCount } from '../lib/diagnostics.ts';
+import { openShortcutsModal } from './shortcuts.ts';
 import { classroom, setClassroom, setStill, motion, onClassroom } from '../lib/classroom.ts';
 import { renderHub, hubTab, type HubTab } from './hub.ts';
 import { fetchLocalWeather, solarStatusAt, type LocalWeather } from '../lib/weather.ts';
@@ -112,9 +113,10 @@ export class Shell {
   }
 
   mount(): void {
-    const tool = (id: string, ico: IconName, key: string, fn: () => void, cls = '') =>
-      h('button', { class: 'tool' + (cls ? ' ' + cls : ''), id, 'data-testid': id, title: t(key), 'data-i18n-title': key, html: icon(ico, 19), onclick: () => { sfx.tap(); fn(); } },
+    const tool = (id: string, ico: IconName, key: string, fn: () => void, cls = '', extra: Record<string, string> = {}) =>
+      h('button', { class: 'tool' + (cls ? ' ' + cls : ''), id, 'data-testid': id, title: t(key), 'data-i18n-title': key, ...extra, html: icon(ico, 19), onclick: () => { sfx.tap(); fn(); } },
         h('span', { class: 'sr-only', 'data-i18n': key }, t(key)));
+    const skipBtn = h('button', { class: 'skip-app', 'data-testid': 'skip-search', 'data-i18n': 'skipToSearch', onclick: () => this.openSearch() }, t('skipToSearch'));
     const top = h('header', { class: 'topbar' },
       h('div', { class: 'top-left' },
         h('div', { class: 'brand', 'data-occludes': true },
@@ -128,14 +130,14 @@ export class Shell {
         tool('btn-photo', 'camera', 'photo', this.hooks.openPhoto),
         this.meterBtn = tool('btn-measure', 'ruler', 'meter', () => this.hooks.toggleMeter?.(), 'space-only'),
         h('span', { class: 'tools-sep', 'aria-hidden': 'true' }),
-        tool('btn-hub', 'collection', 'hub', () => this.toggleHub(), 'tool-hub'),
+        tool('btn-hub', 'collection', 'hub', () => this.toggleHub(), 'tool-hub', { 'aria-expanded': 'false', 'aria-controls': 'hub' }),
         this.langBtn = h('button', { class: 'tool tool-lang', id: 'btn-language', 'data-testid': 'btn-language', onclick: () => { sfx.tap(); setLang(lang() === 'en' ? 'zh' : 'en'); } },
           h('span', { lang: 'zh', 'data-lang': 'zh' }, '中'), h('span', { 'aria-hidden': 'true' }, '/'), h('span', { lang: 'en', 'data-lang': 'en' }, 'EN')),
-        tool('btn-menu', 'sliders', 'settings', () => this.toggleMenu())));
+        tool('btn-menu', 'sliders', 'settings', () => this.toggleMenu(), '', { 'aria-expanded': 'false', 'aria-controls': 'menu' })));
     this.setMeterOpen(false);
     this.relabelLanguage();
     const bottomLeft = h('div', { class: 'bl', 'data-occludes': true }, this.hints,
-      h('button', { class: 'round-btn help', id: 'btn-help', 'aria-label': t('help'), 'data-i18n-aria': 'help', 'aria-expanded': 'false', html: icon('help', 19), onclick: () => this.toggleHints() }));
+      h('button', { class: 'round-btn help', id: 'btn-help', 'aria-label': t('help'), 'data-i18n-aria': 'help', 'aria-expanded': 'false', 'aria-controls': 'hints', html: icon('help', 19), onclick: () => this.toggleHints() }));
     const zoom = (inward: boolean) => { if (!this.hooks.zoom?.(inward)) this.globe.zoomBy(inward ? 1.6 : 1 / 1.6); };
     const bottomRight = h('div', { class: 'br', 'data-occludes': true },
       h('button', { class: 'round-btn', 'aria-label': t('fullscreen'), title: t('fullscreen'), 'data-i18n-aria': 'fullscreen', 'data-i18n-title': 'fullscreen', html: icon('expand', 17), onclick: () => this.fullscreen() }),
@@ -147,7 +149,7 @@ export class Shell {
         this.zoomEl,
         h('button', { id: 'btn-zoom-out', 'aria-label': t('zoomOut'), 'data-i18n-aria': 'zoomOut', html: icon('minus', 17), onclick: () => zoom(false) })));
     foldable(this.info);
-    this.root.append(top, bottomLeft, bottomRight, this.coordEl, this.info, this.hub, this.menu, this.rideBar, this.time.el, this.tipEl, this.immersiveExit);
+    this.root.append(skipBtn, top, bottomLeft, bottomRight, this.coordEl, this.info, this.hub, this.menu, this.rideBar, this.time.el, this.tipEl, this.immersiveExit);
     this.renderHints();
     this.renderMenu();
     const refresh = () => { if (!this.menu.classList.contains('hidden')) this.renderMenu(); if (!this.hub.classList.contains('hidden')) this.renderHub(); };
@@ -163,6 +165,14 @@ export class Shell {
         return;
       }
       const typing = (e.target as Element | null)?.closest?.('input, textarea, .xsel, [contenteditable]');
+      if (!typing && !e.metaKey && !e.ctrlKey && !e.altKey && e.key === '?' && !this.globe.gameMode && !document.querySelector('.sky')) {
+        const openDlg = document.querySelector('.modal:not(.hidden)');
+        if (!openDlg || openDlg.id === 'shortcuts') {
+          e.preventDefault();
+          openShortcutsModal();
+          return;
+        }
+      }
       if (!typing && !e.metaKey && !e.ctrlKey && !e.altKey && e.key === '/' && !document.querySelector('.sky, .modal:not(.hidden)')) { e.preventDefault(); this.openSearch(); return; }
       if (!typing && !e.metaKey && !e.ctrlKey && !e.altKey && e.key.toLowerCase() === 'h' && !document.querySelector('.sky, .modal:not(.hidden)')) { this.setImmersive(!this.immersive); return; }
       if (!typing && !e.metaKey && !e.ctrlKey && !e.altKey && e.key.toLowerCase() === 'm' && !this.space && !document.querySelector('.sky, .modal:not(.hidden)')) { this.hooks.toggleMap?.(); return; }
@@ -171,6 +181,7 @@ export class Shell {
       if (this.immersive) { this.setImmersive(false); return; }
       if (!this.menu.classList.contains('hidden')) { this.toggleMenu(false); return; }
       if (!this.hub.classList.contains('hidden')) { this.toggleHub(false); return; }
+      if (!this.hints.classList.contains('hidden')) { this.toggleHints(false); return; }
       if (this.globe.ride) { this.exitRide(); return; }
       if (this.readerOpen) { this.toggleReader(false); return; }
       if (this.current || this.currentPlace) { this.showItem(null); return; }
@@ -182,6 +193,7 @@ export class Shell {
       if (this.langBtn?.contains(tgt)) return;
       if (!this.menu.classList.contains('hidden') && !this.menu.contains(tgt) && !$('#btn-menu').contains(tgt)) this.toggleMenu(false);
       if (!this.hub.classList.contains('hidden') && !this.hub.contains(tgt) && !$('#btn-hub').contains(tgt)) this.toggleHub(false);
+      if (!this.hints.classList.contains('hidden') && !this.hints.contains(tgt) && !$('#btn-help').contains(tgt)) this.toggleHints(false);
     });
   }
 
@@ -525,7 +537,8 @@ export class Shell {
     this.hints.replaceChildren(
       ...keys.map(k => h('p', { html: t(k) })),
       h('div', { class: 'row' },
-        h('button', { class: 'chip', id: 'btn-tutorial', onclick: () => { this.toggleHints(false); this.hooks.openTutorial(); } }, t('tutorialAgain'))));
+        h('button', { class: 'chip', id: 'btn-tutorial', onclick: () => { this.toggleHints(false); this.hooks.openTutorial(); } }, t('tutorialAgain')),
+        h('button', { class: 'chip', id: 'btn-shortcuts', 'data-testid': 'btn-shortcuts', onclick: () => { this.toggleHints(false); openShortcutsModal(); } }, t('shortcutsBtn'))));
   }
   toggleHints(force?: boolean): void {
     const show = force ?? this.hints.classList.contains('hidden');
@@ -636,8 +649,8 @@ export class Shell {
       h('div', { class: 'menu-line' }, h('span', { class: 'sw-emoji', html: icon('eye', 15) }), h('span', { class: 'grow' }, t('hideUi') + ' · H'),
         small('menu-immersive', 'eye', t('hideUiGo'), () => { this.toggleMenu(false); this.setImmersive(true); })),
       h('footer', { class: 'menu-links' },
-        ...([['about/', 'about', 'bulb'], ['privacy/', 'privacy', 'eye']] as const).map(([href, key, ic]) =>
-          h('a', { href: url(href), 'data-testid': 'menu-link-' + key }, h('span', { class: 'ml-ico', html: icon(ic, 15) }), h('span', {}, t(key))))));
+        ...([['encyclopedia/', 'encyclopedia', 'book'], ['about/', 'about', 'bulb'], ['privacy/', 'privacy', 'eye']] as const).map(([href, key, ic]) =>
+          h('a', { href: url(href), 'data-testid': key === 'encyclopedia' ? 'settings-link-encyclopedia' : 'menu-link-' + key }, h('span', { class: 'ml-ico', html: icon(ic, 15) }), h('span', {}, t(key))))));
   }
 
   applySettings(s: Settings): void {

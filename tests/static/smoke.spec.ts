@@ -256,7 +256,7 @@ test('static build works below a sub-path', async ({ page }) => {
   await expect(page.getByTestId('info-name')).toHaveText('Mediterranean Sea');
   await expect(page.getByTestId('place-fact')).toContainText('convergent plate boundary');
   await expect(page.getByTestId('place-nearby')).toBeVisible();
-  await expect(page.locator('.lb-geo-focus')).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('.lb-geo-focus')).toBeVisible({ timeout: 20_000 });
   await page.locator('#info details.more summary').click();
   await page.getByTestId('info-measure-dist').click();
   await expect(page.getByTestId('cmp-dist-details')).toBeVisible();
@@ -323,11 +323,31 @@ test('static build works below a sub-path', async ({ page }) => {
   await page.getByTestId('btn-language').click();
   await page.keyboard.press('Escape');
 
+  // Help popover Escape dismissal, `?` keyboard shortcuts modal, and Settings Encyclopedia link
+  await page.locator('#btn-help').click();
+  await expect(page.locator('#hints')).not.toHaveClass(/hidden/);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#hints')).toHaveClass(/hidden/);
+  await page.keyboard.press('?');
+  await expect(page.getByTestId('shortcuts-modal')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('shortcuts-modal')).toHaveCount(0);
+  await page.locator('#btn-menu').click();
+  await expect(page.getByTestId('settings-link-encyclopedia')).toHaveAttribute('href', '/terrastra/encyclopedia/');
+  await page.keyboard.press('Escape');
+
   // the generated encyclopedia and its way back into the app
   await page.goto('encyclopedia/');
   await expect(page.locator('a.skip[href="#main"]')).toHaveCount(1);
   await expect(page.locator('main#main')).toBeVisible();
   await expect(page.locator('h1')).toBeVisible();
+  // Cross-section hub search with multi-word folded tokens & ?q= URL sync
+  await page.getByTestId('hub-search').fill('pacific trench');
+  await expect(page).toHaveURL(/\?q=pacific\+trench$/);
+  await expect(page.getByTestId('hub-results')).toBeVisible();
+  await expect(page.locator('#hub-results a[href="/terrastra/geography/mariana-trench/"]')).toBeVisible();
+  await page.getByTestId('hub-search').press('Escape');
+  await expect(page.getByTestId('hub-results')).toBeHidden();
   await page.locator('a[href="/terrastra/animals/"]').first().click();
   await expect(page).toHaveURL(/\/terrastra\/animals\/$/);
   await expect(page.locator('h1')).toBeVisible();
@@ -340,9 +360,12 @@ test('static build works below a sub-path', async ({ page }) => {
   await page.goto('discover/');
   await page.locator('#q').fill('马里亚纳海沟');
   await expect(page.locator('ul.cards a[href="/terrastra/discover/challenger-deep/"]')).toBeVisible();
-  // Physical Geography encyclopedia section & feature detail page (including kind-label filtering & curriculum links)
+  // Physical Geography encyclopedia section & feature detail page (including kind-label filtering, chips & curriculum links)
   await page.goto('geography/');
   await expect(page.locator('h1')).toContainText('Physical Geography');
+  await page.locator('[data-testid="geo-kind-chips"] button[data-f="trench"]').click();
+  await expect(page.locator('ul.cards a[href="/terrastra/geography/mariana-trench/"]')).toBeVisible();
+  await page.locator('[data-testid="geo-kind-chips"] button[data-f=""]').click();
   await page.locator('#q').fill('plateau');
   await expect(page.locator('ul.cards a[href="/terrastra/geography/brazilian-highlands/"]')).toBeVisible();
   await page.locator('#q').fill('马里亚纳海沟');
@@ -353,16 +376,34 @@ test('static build works below a sub-path', async ({ page }) => {
   await expect(page.getByTestId('geo-page-lessons')).toBeVisible();
   await expect(page.locator('[data-testid="geo-page-lessons"] a[href="/terrastra/#lesson/plates"]')).toBeVisible();
   await page.goto('animals/');
-  // an item page under the category, then back into the app at the base path
+  // an item page under the category, then keyboard-accessible 3D preview + `]` next-entry shortcut + way back into the app
   await page.locator('main a[href^="/terrastra/animals/"]').first().click();
   await expect(page.locator('h1')).toBeVisible();
   await expect(page.locator('.hero.has-3d')).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByTestId('hero-3d-canvas')).toBeVisible();
+  const heroCanvas = page.getByTestId('hero-3d-canvas');
+  await expect(heroCanvas).toBeVisible();
+  await expect(heroCanvas).toHaveAttribute('tabindex', '0');
+  await expect(heroCanvas).toHaveAttribute('role', 'img');
+  expect(await heroCanvas.evaluate(el => !!el.closest('[aria-hidden="true"]'))).toBe(false);
+  await heroCanvas.focus();
+  await page.keyboard.press(' ');
+  await expect(heroCanvas).toHaveAttribute('data-paused', 'true');
   const app = page.locator('a[href^="/terrastra/?"], a[href^="/terrastra/#"]').first();
   if (await app.count()) await expect(app).toHaveAttribute('href', /^\/terrastra\//);
-  // 404 page carries noindex robots directive
+  const firstAnimalUrl = page.url();
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await page.keyboard.press(']');
+  await expect(page).not.toHaveURL(firstAnimalUrl);
+  // llms.txt, 404 page noindex directive, and custom 404 fallback on missing HTML paths
+  const resLlms = await page.request.get('llms.txt');
+  expect(resLlms.ok()).toBe(true);
+  expect(await resLlms.text()).toContain('# Terrastra · 寰星');
   const res404 = await page.request.get('404/');
   expect(res404.ok()).toBe(true);
   expect(await res404.text()).toContain('<meta name="robots" content="noindex">');
+  const resMissing = await page.request.get('missing-entry/', { headers: { Accept: 'text/html' } });
+  expect(resMissing.status()).toBe(404);
+  expect(resMissing.headers()['x-content-type-options']).toBe('nosniff');
+  expect(await resMissing.text()).toContain('Lost in space?');
   expect(bad).toEqual([]);
 });

@@ -17,8 +17,18 @@ interface ActivePreview {
   group: THREE.Group;
   yaw: number;
   pitch: number;
+  zoom: number;
+  paused: boolean;
   dragging: boolean;
   clock: number;
+}
+
+export const PREVIEW_MIN_ZOOM = 0.68;
+export const PREVIEW_MAX_ZOOM = 1.75;
+
+export function clampPreviewZoom(z: number): number {
+  if (!Number.isFinite(z)) return 1;
+  return Math.max(PREVIEW_MIN_ZOOM, Math.min(PREVIEW_MAX_ZOOM, z));
 }
 
 let sharedRenderer: THREE.WebGLRenderer | null = null;
@@ -170,7 +180,8 @@ function renderOne(p: ActivePreview): boolean {
     // Fit the turntable's bounding cylinder to the frame for any aspect ratio
     const H = p.group.userData.fitH as number, W = p.group.userData.fitW as number;
     const tv = Math.tan(THREE.MathUtils.degToRad(sharedCamera.fov / 2)), elev = 0.32;
-    const dist = Math.max((H * 0.5 + 0.08) / tv, (W * 0.5 + 0.04) / (tv * sharedCamera.aspect), 1.1) + W * 0.25;
+    const baseDist = Math.max((H * 0.5 + 0.08) / tv, (W * 0.5 + 0.04) / (tv * sharedCamera.aspect), 1.1) + W * 0.25;
+    const dist = baseDist / clampPreviewZoom(p.zoom);
     const cy = H * 0.46;
     sharedCamera.position.set(0, cy + Math.sin(elev) * dist, Math.cos(elev) * dist);
     sharedCamera.lookAt(0, cy, 0);
@@ -204,14 +215,16 @@ function tick(): void {
     }
     if (!p.canvas.getClientRects().length) continue;
     visible = true;
-    p.clock += dt;
-    if (!p.dragging) {
-      p.yaw += dt * 0.00085;
+    if (!p.paused) {
+      p.clock += dt;
+      if (!p.dragging) {
+        p.yaw += dt * 0.00085;
+      }
+      p.group.traverse(o => {
+        if (o.name === 'spin') o.rotation.z += dt * 0.0025;
+        if (o.name === 'flap') o.rotation.z = Math.sin(p.clock * 0.005) * 0.22;
+      });
     }
-    p.group.traverse(o => {
-      if (o.name === 'spin') o.rotation.z += dt * 0.0025;
-      if (o.name === 'flap') o.rotation.z = Math.sin(p.clock * 0.005) * 0.22;
-    });
     renderOne(p);
   }
 
@@ -222,13 +235,21 @@ function tick(): void {
 }
 
 function bindPreviewControls(canvas: HTMLCanvasElement, preview: ActivePreview, alwaysRenderOnMove = false): void {
+  canvas.tabIndex = 0;
   let lastX = 0;
   let lastY = 0;
+  const resetView = () => {
+    preview.yaw = 0.45;
+    preview.pitch = 0.08;
+    preview.zoom = 1;
+    preview.paused = false;
+    canvas.dataset.paused = 'false';
+    renderOne(preview);
+  };
   canvas.addEventListener('pointerdown', e => {
     preview.dragging = true;
     lastX = e.clientX;
     lastY = e.clientY;
-    canvas.tabIndex = -1;
     canvas.focus({ preventScroll: true });
     canvas.setPointerCapture(e.pointerId);
   });
@@ -240,22 +261,33 @@ function bindPreviewControls(canvas: HTMLCanvasElement, preview: ActivePreview, 
     lastY = e.clientY;
     preview.yaw += dx * 0.014;
     preview.pitch = Math.max(-0.25, Math.min(0.45, preview.pitch + dy * 0.008));
-    if (alwaysRenderOnMove || isLowFx() || isStill()) renderOne(preview);
+    if (alwaysRenderOnMove || preview.paused || isLowFx() || isStill()) renderOne(preview);
   });
   const stopDrag = () => { preview.dragging = false; };
   canvas.addEventListener('pointerup', stopDrag);
   canvas.addEventListener('pointercancel', stopDrag);
-  canvas.addEventListener('dblclick', () => {
-    preview.yaw = 0.45;
-    preview.pitch = 0.08;
+  canvas.addEventListener('dblclick', resetView);
+  canvas.addEventListener('wheel', e => {
+    if (!e.ctrlKey && !e.metaKey && document.activeElement !== canvas) return;
+    e.preventDefault();
+    const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
+    preview.zoom = clampPreviewZoom(preview.zoom * factor);
     renderOne(preview);
-  });
+  }, { passive: false });
   canvas.addEventListener('keydown', e => {
     if (e.key === 'ArrowLeft') { e.preventDefault(); preview.yaw -= 0.18; renderOne(preview); }
     else if (e.key === 'ArrowRight') { e.preventDefault(); preview.yaw += 0.18; renderOne(preview); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); preview.pitch = Math.min(0.45, preview.pitch + 0.08); renderOne(preview); }
     else if (e.key === 'ArrowDown') { e.preventDefault(); preview.pitch = Math.max(-0.25, preview.pitch - 0.08); renderOne(preview); }
-    else if (e.key === '0' || e.key === 'Home') { e.preventDefault(); preview.yaw = 0.45; preview.pitch = 0.08; renderOne(preview); }
+    else if (e.key === '+' || e.key === '=') { e.preventDefault(); preview.zoom = clampPreviewZoom(preview.zoom * 1.14); renderOne(preview); }
+    else if (e.key === '-' || e.key === '_') { e.preventDefault(); preview.zoom = clampPreviewZoom(preview.zoom / 1.14); renderOne(preview); }
+    else if (e.key === ' ') {
+      e.preventDefault();
+      preview.paused = !preview.paused;
+      canvas.dataset.paused = String(preview.paused);
+      renderOne(preview);
+    }
+    else if (e.key === '0' || e.key === 'Home') { e.preventDefault(); resetView(); }
   });
 }
 
@@ -281,6 +313,8 @@ export function createModelPreview(item: PreviewableItem, opts: { width?: number
     group: modelReady(item.model) ? buildPreviewScene(item.model) : placeholderGroup(),
     yaw: 0.45,
     pitch: 0.08,
+    zoom: 1,
+    paused: false,
     dragging: false,
     clock: 0,
   };
@@ -311,17 +345,22 @@ export function createModelPreview(item: PreviewableItem, opts: { width?: number
 
 /** Mounts a 3D turntable canvas inside an encyclopedia item page `.hero` container. */
 export function mountHeroPreview(hero: HTMLElement, recipe: ModelRecipe): void {
-  const w = Math.min(400, Math.max(240, (hero.clientWidth || 380) - 32));
-  const hPx = Math.min(244, Math.max(188, (hero.clientHeight || 260) - 32));
-  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const sizeHero = () => ({
+    w: Math.min(400, Math.max(240, (hero.clientWidth || 380) - 32)),
+    hPx: Math.min(244, Math.max(188, (hero.clientHeight || 260) - 32)),
+    dpr: Math.min(2, window.devicePixelRatio || 1),
+  });
+  const initial = sizeHero();
   const canvas = document.createElement('canvas');
   canvas.className = 'hero-canvas';
   canvas.dataset.testid = 'hero-3d-canvas';
-  canvas.setAttribute('aria-hidden', 'true');
-  canvas.width = Math.round(w * dpr);
-  canvas.height = Math.round(hPx * dpr);
-  canvas.style.width = `${w}px`;
-  canvas.style.height = `${hPx}px`;
+  canvas.setAttribute('role', 'img');
+  const label = hero.dataset.label?.trim();
+  canvas.setAttribute('aria-label', label ? `${label} — interactive 3D model` : 'Interactive 3D model');
+  canvas.width = Math.round(initial.w * initial.dpr);
+  canvas.height = Math.round(initial.hPx * initial.dpr);
+  canvas.style.width = `${initial.w}px`;
+  canvas.style.height = `${initial.hPx}px`;
 
   const ctx = canvas.getContext('2d');
   const preview: ActivePreview = {
@@ -330,10 +369,28 @@ export function mountHeroPreview(hero: HTMLElement, recipe: ModelRecipe): void {
     group: placeholderGroup(),
     yaw: 0.45,
     pitch: 0.08,
+    zoom: 1,
+    paused: false,
     dragging: false,
     clock: 0,
   };
   bindPreviewControls(canvas, preview, true);
+
+  if (typeof ResizeObserver !== 'undefined') {
+    const ro = new ResizeObserver(() => {
+      if (!canvas.isConnected) return;
+      const next = sizeHero();
+      const nw = Math.round(next.w * next.dpr);
+      const nh = Math.round(next.hPx * next.dpr);
+      if (canvas.width === nw && canvas.height === nh) return;
+      canvas.width = nw;
+      canvas.height = nh;
+      canvas.style.width = `${next.w}px`;
+      canvas.style.height = `${next.hPx}px`;
+      renderOne(preview);
+    });
+    ro.observe(hero);
+  }
 
   const activate = () => {
     preview.group = buildPreviewScene(recipe);

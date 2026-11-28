@@ -451,16 +451,16 @@ body.touring .solar-hint { display: none; }
 /* on the globe it keeps to the lower left, off the planet itself (the help button sits below it) */
 body:not(.solar) .tour-card { left: 20px; transform: none; bottom: 84px; width: min(380px, calc(100vw - 40px)); }
 body.solar .tour-card { bottom: calc(var(--space-dock, 96px) + 28px); }
-body:has(.info:not(.hidden)) .tour-card { left: calc(400px + (100vw - 400px) / 2); transform: translateX(-50%); bottom: 64px; width: min(380px, calc(100vw - 424px)); }
-body.solar:has(.info:not(.hidden)) .tour-card { bottom: calc(var(--space-dock, 96px) + 28px); }
+body:not(.solar):has(#info:not(.hidden)) .tour-card, body.solar:has(.solar-info:not(.hidden)) .tour-card { left: calc(400px + (100vw - 400px) / 2); transform: translateX(-50%); bottom: 64px; width: min(380px, calc(100vw - 424px)); }
+body.solar:has(.solar-info:not(.hidden)) .tour-card { bottom: calc(var(--space-dock, 96px) + 28px); }
 /* over the sky theatre: top left under its header, clear of the telemetry (right), narration and timeline (bottom) */
 body:has(.sky) .tour .tour-card.tour-card { left: 22px; right: auto; top: 112px; bottom: auto; transform: none; width: min(380px, calc(100vw - 44px)); }
 @media (min-width: 761px) and (max-width: 1000px) {
-  body:has(.info:not(.hidden)) .tour-card { left: 392px; right: 12px; width: auto; transform: none; }
+  body:not(.solar):has(#info:not(.hidden)) .tour-card, body.solar:has(.solar-info:not(.hidden)) .tour-card { left: 392px; right: 12px; width: auto; transform: none; }
 
 }
 @media (max-width: 760px) {
-  .tour-card, body:not(.solar) .tour-card, body.solar .tour-card, body:has(.info:not(.hidden)) .tour-card, body:has(.sky) .tour .tour-card.tour-card { top: 62px; bottom: auto; left: 8px; right: 52px; width: auto; transform: none; padding: 10px 12px; }
+  .tour-card, body:not(.solar) .tour-card, body.solar .tour-card, body:not(.solar):has(#info:not(.hidden)) .tour-card, body.solar:has(.solar-info:not(.hidden)) .tour-card, body:has(.sky) .tour .tour-card.tour-card { top: 62px; bottom: auto; left: 8px; right: 52px; width: auto; transform: none; padding: 10px 12px; }
   .tour-body { max-height: 24vh; font-size: .92rem; }
   .tour-card .dots { display: none; }
 }
@@ -493,7 +493,7 @@ body:has(.sky) .tour .tour-card.tour-card { left: 22px; right: auto; top: 112px;
   body.lessoning .br, body.lessoning .bl, body.lessoning .coord-readout { display: none; }
   /* settings and the hub open over the lesson rather than tangling with it */
   body.lessoning:has(#menu:not(.hidden)) .tour.lesson, body.lessoning:has(#hub:not(.hidden)) .tour.lesson,
-  body.lessoning:has(.info:not(.hidden)) .tour.lesson { display: none; }
+  body.lessoning:not(.solar):has(#info:not(.hidden)) .tour.lesson, body.lessoning.solar:has(.solar-info:not(.hidden)) .tour.lesson { display: none; }
   body.lessoning .menu { max-height: calc(100dvh - 84px); }
 }
 
@@ -814,8 +814,8 @@ body:has(.sky) .modal { z-index: var(--z-alert); }
   .solar-map { aspect-ratio: 5 / 2; }
   .info.mini .info-body { padding-top: 12px; }
   /* a folded sheet hands the bottom controls back, just above it */
-  body:has(.info.mini:not(.hidden)):not(.solar) :is(.br, .bl):not(.viewfinder *) { display: flex; bottom: calc(var(--card-mini-h) + 18px); }
-  body:has(.solar-info.mini:not(.hidden)) .solar-bottom { display: flex; bottom: calc(var(--card-mini-h) + 16px); }
+  body:not(.solar):has(#info.mini:not(.hidden)) :is(.br, .bl):not(.viewfinder *) { display: flex; bottom: calc(var(--card-mini-h) + 18px); }
+  body.solar:has(.solar-info.mini:not(.hidden)) .solar-bottom { display: flex; bottom: calc(var(--card-mini-h) + 16px); }
 }
 
 /* ---- short screens (phones held sideways): slimmer top bar, card down the left edge, no hint over the dock ---- */
@@ -1281,6 +1281,23 @@ html.classroom .lv-text b { font-size: .95rem; }
 }
 .passport-route-hint { margin: 2px 0 0; }
 .placeit-setup-wrap { display: flex; flex-direction: column; gap: 10px; }
+.shortcuts-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px;
+}
+.shortcuts-sec {
+  padding: 12px 14px; border: 1px solid var(--hud-line); background: var(--hud-fill);
+}
+.shortcuts-h3 {
+  margin: 0 0 10px; font: 600 .74rem var(--font-mono); letter-spacing: .12em; text-transform: uppercase; color: var(--sig);
+}
+.shortcuts-list { margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.shortcuts-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.shortcuts-keys { display: inline-flex; flex-wrap: wrap; gap: 4px; flex: none; }
+.shortcuts-desc { margin: 0; font-size: .84rem; color: var(--text); text-align: right; }
+.kbd-chip {
+  display: inline-block; padding: 2px 6px; font: 600 .72rem var(--font-mono);
+  color: var(--hud-hi); background: rgba(2, 8, 18, 0.85); border: 1px solid var(--hud-line); border-radius: 4px;
+}
 
 
 

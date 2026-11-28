@@ -432,7 +432,7 @@ export class Globe {
 
   lat = 25; lon = 40; h = DEFAULT_H;
   private vLat = 0; private vLon = 0;
-  private fly: { from: [number, number, number]; to: [number, number, number]; t: number; dur: number } | null = null;
+  private fly: { from: [number, number, number]; to: [number, number, number]; t: number; dur: number; start: number } | null = null;
   ride: { key: string; yaw: number; dist: number; first: boolean; fwd: THREE.Vector3 | null } | null = null;
   settings: Settings = { ...DEFAULT_SETTINGS };
   lang: Lang = 'en';
@@ -1161,8 +1161,18 @@ export class Globe {
   }
 
   flyTo(lat: number, lon: number, h = this.h, dur = 1200): void {
-    let dl = ((lon - this.lon + 540) % 360) - 180;
-    this.fly = { from: [this.lat, this.lon, this.h], to: [lat, this.lon + dl, this.clampH(h)], t: 0, dur };
+    const dl = ((lon - this.lon + 540) % 360) - 180;
+    const effDur = this.lowfx ? Math.min(dur, 120) : dur;
+    if (effDur <= 0) {
+      this.fly = null;
+      this.lat = lat;
+      this.lon = ((this.lon + dl + 540) % 360) - 180;
+      this.h = this.clampH(h);
+      this.vLat = this.vLon = 0;
+      this.dirty = true;
+      return;
+    }
+    this.fly = { from: [this.lat, this.lon, this.h], to: [lat, this.lon + dl, this.clampH(h)], t: 0, dur: effDur, start: performance.now() };
     this.vLat = this.vLon = 0;
     this.dirty = true;
   }
@@ -1471,13 +1481,14 @@ export class Globe {
 
   private updateCamera(dt: number): void {
     if (this.fly) {
-      this.fly.t = Math.min(1, this.fly.t + dt / this.fly.dur);
+      const wallT = this.fly.dur > 0 ? Math.max(0, performance.now() - this.fly.start) / this.fly.dur : 1;
+      this.fly.t = Math.min(1, Math.max(this.fly.t + dt / this.fly.dur, wallT));
       const e = this.fly.t < 0.5 ? 2 * this.fly.t ** 2 : 1 - (-2 * this.fly.t + 2) ** 2 / 2;
       const [a, b] = [this.fly.from, this.fly.to];
       this.lat = a[0] + (b[0] - a[0]) * e;
       this.lon = a[1] + (b[1] - a[1]) * e;
-      // Zoom out a little mid-flight for long hops.
-      const hop = Math.min(1.2, Math.hypot(b[0] - a[0], b[1] - a[1]) / 120);
+      // Zoom out a little mid-flight for long hops (skipped in reduced-motion lowfx mode).
+      const hop = this.lowfx ? 0 : Math.min(1.2, Math.hypot(b[0] - a[0], b[1] - a[1]) / 120);
       this.h = Math.exp(Math.log(a[2]) + (Math.log(b[2]) - Math.log(a[2])) * e) + Math.sin(Math.PI * e) * hop;
       if (this.fly.t >= 1) this.fly = null;
       this.dirty = true;

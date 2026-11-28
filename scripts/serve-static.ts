@@ -20,13 +20,39 @@ createServer(async (req, res) => {
   let path: string;
   try { path = decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname); } catch { res.writeHead(400).end('bad path'); return; }
   if (!path.startsWith(BASE)) { res.writeHead(404).end('outside base'); return; }
-  let file = normalize(join(ROOT, path.slice(BASE.length)));
-  if (file !== ROOT && !file.startsWith(ROOT + sep)) { res.writeHead(403).end(); return; }
+  const rel = path.slice(BASE.length);
+  let file = normalize(join(ROOT, rel));
+  if (file !== ROOT && !file.startsWith(ROOT + sep)) { res.writeHead(403, { 'x-content-type-options': 'nosniff' }).end(); return; }
   try {
     let st = await stat(file);
     if (st.isDirectory()) { file = join(file, 'index.html'); st = await stat(file); }
-    const headers = { 'content-type': TYPES[extname(file)] ?? 'application/octet-stream', 'content-length': st.size };
+    const ext = extname(file);
+    const cache = rel.startsWith('assets/') ? 'public, max-age=31536000, immutable' : ext === '.html' ? 'no-cache' : 'public, max-age=3600';
+    const headers = {
+      'content-type': TYPES[ext] ?? 'application/octet-stream',
+      'content-length': st.size,
+      'cache-control': cache,
+      'x-content-type-options': 'nosniff',
+    };
     if (req.method === 'HEAD') { res.writeHead(200, headers).end(); return; }
     res.writeHead(200, headers).end(await readFile(file));
-  } catch { res.writeHead(404).end('not found'); }
+  } catch {
+    const wantsHtml = (req.headers.accept ?? '').includes('text/html') || !extname(rel) || extname(rel) === '.html';
+    if (wantsHtml) {
+      try {
+        const errPage = join(ROOT, '404.html');
+        const st404 = await stat(errPage);
+        const h404 = {
+          'content-type': 'text/html; charset=utf-8',
+          'content-length': st404.size,
+          'cache-control': 'no-cache',
+          'x-content-type-options': 'nosniff',
+        };
+        if (req.method === 'HEAD') { res.writeHead(404, h404).end(); return; }
+        res.writeHead(404, h404).end(await readFile(errPage));
+        return;
+      } catch { /* fall through to plain 404 */ }
+    }
+    res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8', 'x-content-type-options': 'nosniff' }).end('not found');
+  }
 }).listen(PORT, () => console.log(`static ${BASE} on :${PORT}`));

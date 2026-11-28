@@ -98,7 +98,13 @@
   .intro-mark { width: 112px; height: 112px; }
   .intro-mark b { inset: 34px; }
 }
-@media (prefers-reduced-motion: reduce) { .intro-mw { animation: none; } .intro-l { animation: none; opacity: .8; transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) {
+  .intro-neb, .intro-mw, .intro-frame, .intro-mark, .intro-mark b, .intro-mark .r1, .intro-mark .r2, .intro-mark .r3, .intro-title, .intro-sub, .intro-bar, .intro-bar i, .intro-msg, .intro-msg::after {
+    animation: none;
+  }
+  .intro-bar i { transform: scaleX(.65); }
+  .intro-l { animation: none; opacity: .8; transform: scale(1); }
+}
 
 /* Astrolabe identity marks: an amber satellite on the outer orbit, an amber signal tick on the bar,
    and the frame cut at the top-left / bottom-right corners like the HUD slabs. */
