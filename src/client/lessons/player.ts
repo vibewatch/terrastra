@@ -14,7 +14,7 @@ import { HAS_API } from '../lib/env.ts';
 import { load, save } from '../lib/storage.ts';
 import { canUsePro, effectivePlan, getLastBillingSyncAt, isPaywallEnabled, scheduleSync, setBilling, store } from '../store.ts';
 import { classroomLink } from '../lib/classroom.ts';
-import { narrate, narrationSupported, splitSentences, type Narration } from '../lib/narrate.ts';
+import { cycleNarrationRate, getNarrationRate, narrate, narrationSupported, splitSentences, type Narration } from '../lib/narrate.ts';
 import { ssbsLink } from '../lib/ssbs.ts';
 import { countryAt } from '../globe/borders.ts';
 import { haversineKm } from '../../shared/lib/geo.ts';
@@ -43,6 +43,7 @@ import {
   clearMasteredMistakes,
   computeJournalMastery,
   formatMistakeSheetMarkdown,
+  listDueMistakes,
   listMistakes,
   mistakeKey,
   pickContinueLesson,
@@ -51,6 +52,8 @@ import {
   recordMistake,
   recordMistakeReview,
   removeMistake,
+  sanitizeSnapshot,
+  summarizeRightAnswer,
   type LessonJournal,
   type MistakeBook,
   type MistakeEntry,
@@ -113,7 +116,67 @@ export function nextForJournal(id: string): string {
   return nx?.id ?? id;
 }
 
-/** Formats a clean bilingual Markdown study sheet for a lesson (steps, key takeaways, and optional quiz score). */
+export interface ExamSectionScore {
+  name: Pair;
+  s: number;
+  n: number;
+}
+
+export interface ExamBreakdown {
+  score: number;
+  total: number;
+  pct: number;
+  tier: 'A+' | 'A' | 'B' | 'C' | 'D';
+  sections: ExamSectionScore[];
+  missedTopics: Pair[];
+}
+
+/** Computes partial-credit exam score (1 pt per matching pair, 1 pt per other question), grade tier, section breakdown, and missed topics. */
+export function computeExamBreakdown(
+  quiz: readonly Quiz[],
+  answers: readonly (boolean | null)[],
+  keptPairs?: readonly (ReadonlyMap<number, number> | undefined)[],
+): ExamBreakdown {
+  const secs = new Map<string, ExamSectionScore>();
+  const missedTopics: Pair[] = [];
+  const seenMissed = new Set<string>();
+  const pushMissed = (p: Pair) => {
+    const key = `${p[0]}|${p[1]}`;
+    if (!seenMissed.has(key)) {
+      seenMissed.add(key);
+      missedTopics.push(p);
+    }
+  };
+  let score = 0;
+  let total = 0;
+  quiz.forEach((q, k) => {
+    let got = 0;
+    let of = 1;
+    if (q.match) {
+      const pairs = keptPairs?.[k];
+      of = q.match.length;
+      q.match.forEach((p, j) => {
+        if (pairs?.get(j) === j) got += 1;
+        else pushMissed(p[0]);
+      });
+    } else {
+      got = answers[k] ? 1 : 0;
+      if (!got) pushMissed(q.tag ?? q.q);
+    }
+    score += got;
+    total += of;
+    const key = q.sec ? q.sec[0] : '';
+    const sec = secs.get(key) ?? { name: q.sec ?? ['Other', '其他'], s: 0, n: 0 };
+    sec.s += got;
+    sec.n += of;
+    secs.set(key, sec);
+  });
+  const pct = total > 0 ? Math.round((score / total) * 100) : 100;
+  const tier: ExamBreakdown['tier'] = pct >= 95 ? 'A+' : pct >= 85 ? 'A' : pct >= 70 ? 'B' : pct >= 60 ? 'C' : 'D';
+  return { score, total, pct, tier, sections: [...secs.values()], missedTopics };
+}
+
+/** Formats a clean bilingual Markdown study sheet for a lesson (steps, key takeaways, self-check quiz & answer key). */
 export function formatLessonStudyGuideMarkdown(
   lesson: Lesson,
   l: 'en' | 'zh',
@@ -137,6 +200,21 @@ export function formatLessonStudyGuideMarkdown(
   if (lesson.keys.length > 0) {
     lines.push(`## ${l === 'zh' ? '核心要点' : 'Key Takeaways'}`);
     for (const k of lesson.keys) lines.push(`- ${trPair(k)}`);
+    lines.push('');
+  }
+  if (lesson.quiz.length > 0) {
+    lines.push(`## ${l === 'zh' ? '随堂自测与解析' : 'Self-Check Quiz'}`);
+    lesson.quiz.forEach((q, idx) => {
+      const right = trPair(summarizeRightAnswer(sanitizeSnapshot(q)));
+      lines.push(`${idx + 1}. **${trPair(q.q)}**`);
+      if (q.options && q.options.length > 0) {
+        q.options.forEach((opt, oi) => {
+          lines.push(`   - ${String.fromCharCode(65 + oi)}. ${trPair(opt)}`);
+        });
+      }
+      if (right) lines.push(`   - *${l === 'zh' ? '参考答案' : 'Answer'}:* ${right}`);
+      lines.push(`   - *${l === 'zh' ? '解析' : 'Why'}:* ${trPair(q.why)}`);
+    });
     lines.push('');
   }
   lines.push(`_${l === 'zh' ? '导出自 Terrastra 寰星互动课堂' : 'Exported from Terrastra Interactive Lessons'}_`);
@@ -383,10 +461,31 @@ function run(lesson: Lesson, host: LessonHost, resume = false, reviewKeys?: stri
       html: icon(lessonSpeech ? 'pause' : 'sound', 15),
       onclick: (ev: Event) => toggleSpeech(ev.currentTarget as HTMLButtonElement),
     }) as HTMLButtonElement : null;
+    const rateVal = getNarrationRate();
+    const rateBtn = narrationSupported() ? h('button', {
+      type: 'button',
+      class: 'narrate-rate-pill',
+      'aria-label': t('listenRate', { r: rateVal }),
+      title: t('listenRate', { r: rateVal }),
+      'data-testid': 'lesson-rate',
+      onclick: (ev: Event) => {
+        const nextR = cycleNarrationRate();
+        const rb = ev.currentTarget as HTMLButtonElement;
+        rb.textContent = `${nextR}×`;
+        const lbl = t('listenRate', { r: nextR });
+        rb.setAttribute('aria-label', lbl);
+        rb.title = lbl;
+        if (lessonSpeech && speakBtn) {
+          toggleSpeech(speakBtn);
+          toggleSpeech(speakBtn);
+        }
+      },
+    }, `${rateVal}×`) as HTMLButtonElement : null;
     return h('header', { class: 'tour-head' },
       h('span', { class: 'tour-kicker', html: icon(lesson.icon, 14) }, h('span', { class: 'kick-t', title: L(lesson.title) }, L(lesson.title))),
       h('span', { class: 'lesson-step', 'data-testid': 'lesson-step' }, sub),
       speakBtn,
+      rateBtn,
       h('button', { class: 'icon-btn tour-x', 'aria-label': t('lessonExit'), 'data-testid': 'lesson-exit', html: icon('close', 16), onclick: () => stop() }),
       h('i', { class: 'lesson-prog', 'aria-hidden': 'true', style: `--p:${Math.min(1, done).toFixed(3)}` }));
   };
@@ -511,8 +610,25 @@ function run(lesson: Lesson, host: LessonHost, resume = false, reviewKeys?: stri
     }
     const why = ans === null ? '' : h('div', { class: 'lesson-why ' + (ans ? 'ok' : 'no'), 'aria-live': 'polite', 'data-testid': 'lesson-why' },
       h('p', {}, h('strong', {}, t(ans ? 'lessonRight' : 'lessonWrong') + ' '), tap && q.a2 ? (ans ? '' : tap.a2 && tap.a2 !== q.a2 ? t('lessonTapped', { c: L(regionName(tap.a2)) }) + ' ' : '') : tap ? t('lessonKm', { km: Math.round(tap.km).toLocaleString() }) + ' ' : '', L(q.why)), reveal);
+    const frontierIdx = answers.findIndex(a => a === null);
+    const maxReachable = frontierIdx < 0 ? quiz.length - 1 : frontierIdx;
+    const qStrip = quiz.length >= 2 ? h('div', { class: 'lesson-q-strip', 'data-testid': 'lesson-q-strip', role: 'navigation', 'aria-label': t('lessonQuiz') },
+      ...quiz.map((_, j) => {
+        const qa = answers[j];
+        const canJump = qa !== null || j <= maxReachable;
+        return h('button', {
+          type: 'button',
+          class: 'lesson-q-dot' + (j === k ? ' cur' : '') + (qa === true ? ' right' : qa === false ? ' wrong' : ''),
+          'aria-label': t('lessonJumpQ', { n: j + 1 }),
+          'aria-current': j === k ? 'step' : undefined,
+          'data-testid': 'lesson-q-dot-' + j,
+          disabled: !canJump,
+          onclick: () => go(steps.length + j),
+        }, String(j + 1));
+      })) : '';
     card.replaceChildren(
       head(t('lessonQ', { i: k + 1, n: quiz.length })),
+      qStrip,
       h('h2', { id: 'lesson-title' }, L(q.q)),
       figure(q.fig),
       q.astro ? clockRow() : '',
@@ -522,29 +638,13 @@ function run(lesson: Lesson, host: LessonHost, resume = false, reviewKeys?: stri
 
   /** A practice test's score: a point per matching pair, the parts added up, and what to review. */
   const examScore = () => {
-    const secs = new Map<string, { name: Pair; s: number; n: number }>();
-    const miss: string[] = [];
-    let s = 0, n = 0;
-    quiz.forEach((q, k) => {
-      let got: number, of: number;
-      if (q.match) {
-        const pairs = kept[k]?.work.pairs;
-        of = q.match.length;
-        got = q.match.filter((p, j) => { const ok = pairs?.get(j) === j; if (!ok) miss.push(L(p[0])); return ok; }).length;
-      } else {
-        of = 1; got = answers[k] ? 1 : 0;
-        if (!got && q.tag) miss.push(L(q.tag));
-      }
-      s += got; n += of;
-      const key = q.sec ? q.sec[0] : '';
-      const sec = secs.get(key) ?? { name: q.sec ?? ['Other', '其他'], s: 0, n: 0 };
-      sec.s += got; sec.n += of;
-      secs.set(key, sec);
-    });
-    const review = [...new Set(miss)];
+    const eb = computeExamBreakdown(quiz, answers, kept.map(entry => entry?.work.pairs));
+    const review = eb.missedTopics.map(L);
     return [
-      h('h2', { id: 'lesson-title', 'data-testid': 'lesson-score' }, t('examScore', { s, n })),
-      h('ul', { class: 'lesson-keys exam-secs', 'data-testid': 'exam-secs' }, ...[...secs.values()].map(x => h('li', {}, h('strong', {}, L(x.name)), ` ${x.s} / ${x.n}`))),
+      h('h2', { id: 'lesson-title', 'data-testid': 'lesson-score' },
+        t('examScorePct', { s: eb.score, n: eb.total, pct: eb.pct, tier: eb.tier })),
+      h('ul', { class: 'lesson-keys exam-secs', 'data-testid': 'exam-secs' },
+        ...eb.sections.map(x => h('li', {}, h('strong', {}, L(x.name)), ` ${x.s} / ${x.n}`))),
       h('p', { class: 'lesson-keys-h' }, t(review.length ? 'examReview' : 'examPerfect')),
       review.length ? h('p', { class: 'muted small exam-review', 'data-testid': 'exam-review' }, review.join(lang() === 'zh' ? '、' : ', ')) : '',
     ];
@@ -552,6 +652,8 @@ function run(lesson: Lesson, host: LessonHost, resume = false, reviewKeys?: stri
 
   const renderScore = () => {
     const s = answers.filter(Boolean).length;
+    const examSummary = lesson.exam ? computeExamBreakdown(quiz, answers, kept.map(entry => entry?.work.pairs)) : null;
+    const guideScore = examSummary ? { got: examSummary.score, total: examSummary.total } : { got: s, total: quiz.length };
     const missedIdx = quiz.map((_, idx) => idx).filter(idx => answers[idx] === false);
     const v = view(sub), nx = isMistakeSession ? undefined : (nextLessonMeta(lesson.id, v) ?? (v === 'all' ? undefined : nextLessonMeta(lesson.id, 'all')));
     const again = () => {
@@ -581,7 +683,7 @@ function run(lesson: Lesson, host: LessonHost, resume = false, reviewKeys?: stri
           class: 'pill',
           'data-testid': 'lesson-copy-notes',
           onclick: () => void copyText(
-            formatLessonStudyGuideMarkdown({ ...lesson, steps, quiz }, lang(), { got: s, total: quiz.length }),
+            formatLessonStudyGuideMarkdown({ ...lesson, steps, quiz }, lang(), guideScore),
             t('lessonNotesCopied'),
             t('lessonCopyNotes'),
           ),
@@ -759,21 +861,18 @@ function run(lesson: Lesson, host: LessonHost, resume = false, reviewKeys?: stri
     }
     save('lessonsDone', [...done().add(lesson.id)]);
     scheduleSync();
+    if (lesson.exam) {
+      const eb = computeExamBreakdown(quiz, answers, kept.map(entry => entry?.work.pairs));
+      saveJournal(recordLessonFinish(journal(), lesson.id, eb.score, Math.max(1, eb.total), eb.missedTopics, steps.length + quiz.length));
+      if (eb.pct >= 85) confetti(40);
+      return;
+    }
     let score = 0, total = 0;
     const missed: (readonly [string, string])[] = [];
     quiz.forEach((q, k) => {
-      if (lesson.exam && q.match) {
-        const pairs = kept[k]?.work.pairs;
-        total += q.match.length;
-        q.match.forEach((p, j) => {
-          if (pairs?.get(j) === j) score += 1;
-          else missed.push(p[0]);
-        });
-      } else {
-        total += 1;
-        if (answers[k]) score += 1;
-        else missed.push(q.tag ?? q.q);
-      }
+      total += 1;
+      if (answers[k]) score += 1;
+      else missed.push(q.tag ?? q.q);
     });
     saveJournal(recordLessonFinish(journal(), lesson.id, score, Math.max(1, total), missed, steps.length + quiz.length));
     if (answers.filter(Boolean).length >= quiz.length - 1) confetti(40);
@@ -790,6 +889,10 @@ function run(lesson: Lesson, host: LessonHost, resume = false, reviewKeys?: stri
       return;
     }
     const onCanvas = tgt?.tagName === 'CANVAS';
+    if (!onCanvas && (e.key === 's' || e.key === 'S')) {
+      const speakBtn = card.querySelector<HTMLButtonElement>('[data-testid="lesson-speak"]');
+      if (speakBtn) { e.preventDefault(); speakBtn.click(); return; }
+    }
     if (!onCanvas && e.key === 'ArrowLeft') {
       const backBtn = card.querySelector<HTMLButtonElement>('[data-testid="lesson-back"]:not([disabled])');
       if (backBtn) { e.preventDefault(); backBtn.click(); }
@@ -888,25 +991,46 @@ export function openLessons(host: LessonHost, sub: Subject = 'geo', initialQuery
   const filterWrap = h('div', { class: 'lesson-filter-bar', 'data-testid': 'lesson-filter-bar' });
   const note = h('p', { class: 'muted small' });
   let notebookOpen = false;
-  let mistakeFilter: 'all' | 'todo' | 'mastered' = 'all';
+  let mistakeFilter: 'all' | 'todo' | 'due' | 'mastered' = 'all';
   let mistakeQuery = '';
   let curView = view(sub);
   let searchQuery = initialQuery.trim();
-  let filterMode: 'all' | 'free' | 'todo' | 'done' | 'exam' = 'all';
+  let filterMode: 'all' | 'free' | 'todo' | 'review' | 'done' | 'exam' = 'all';
+  const mistakeCountByLesson = new Map<string, number>();
+
+  const syncMistakeCounts = () => {
+    mistakeCountByLesson.clear();
+    for (const e of listMistakes(mistakes(), { status: 'active', filterFn: id => subjectOf(id) === sub })) {
+      mistakeCountByLesson.set(e.lessonId, (mistakeCountByLesson.get(e.lessonId) ?? 0) + 1);
+    }
+  };
+  const lessonNeedsReview = (id: string): boolean => {
+    if ((mistakeCountByLesson.get(id) ?? 0) > 0) return true;
+    const je = jMap[id];
+    return !!(je && je.bestScore !== null && je.quizTotal > 0 && je.bestScore < je.quizTotal);
+  };
 
   const subjectTitle = () => t(sub === 'astro' ? 'astroLessons' : sub === 'ssbs' ? 'ssbsLessons' : 'lessons');
 
   const renderMistakes = () => {
-    const all = listMistakes(mistakes(), { status: 'all', filterFn: id => subjectOf(id) === sub });
+    syncMistakeCounts();
+    const bookNow = mistakes();
+    const nowTs = Date.now();
+    const all = listMistakes(bookNow, { status: 'all', filterFn: id => subjectOf(id) === sub });
     const todo = all.filter(e => !e.mastered);
     const mastered = all.filter(e => e.mastered);
+    const dueEntries = listDueMistakes(bookNow, nowTs, { filterFn: id => subjectOf(id) === sub });
+    const dueSet = new Set(dueEntries.map(e => e.key));
+    const dueMasteredCount = mastered.filter(e => dueSet.has(e.key)).length;
     if (mistakeFilter === 'todo' && todo.length === 0) mistakeFilter = 'all';
+    if (mistakeFilter === 'due' && dueMasteredCount === 0) mistakeFilter = 'all';
     if (mistakeFilter === 'mastered' && mastered.length === 0) mistakeFilter = 'all';
     const mq = mistakeQuery.trim().toLowerCase();
     const visibleWithIdx = all
       .map((e, origIdx) => ({ e, origIdx }))
       .filter(({ e }) => {
         if (mistakeFilter === 'todo' && e.mastered) return false;
+        if (mistakeFilter === 'due' && !dueSet.has(e.key)) return false;
         if (mistakeFilter === 'mastered' && !e.mastered) return false;
         if (!mq) return true;
         const src = lessonMetaById(e.lessonId);
@@ -949,6 +1073,14 @@ export function openLessons(host: LessonHost, sub: Subject = 'geo', initialQuery
                 startMistakeReview(host, sub, todo.length > 0 ? todo : all);
               },
             }, todo.length > 0 ? t('mistake.practiceBtn', { n: todo.length }) : t('mistake.practiceAllBtn', { n: all.length })),
+            dueMasteredCount > 0 ? h('button', {
+              class: 'pill pill-sm',
+              'data-testid': 'mistake-practice-due-btn',
+              onclick: () => {
+                closeModal('lessons');
+                startMistakeReview(host, sub, dueEntries);
+              },
+            }, t('mistake.practiceDueBtn', { n: dueEntries.length })) : null,
             !canUsePro() && (todo.length > 0 ? todo : all).length > FREE_MISTAKE_LIMIT ? h('button', {
               class: 'pill pill-sm',
               'data-testid': 'mistake-practice-free-btn',
@@ -984,6 +1116,7 @@ export function openLessons(host: LessonHost, sub: Subject = 'geo', initialQuery
             ...([
               { id: 'all' as const, label: t('mistake.filterAll', { n: all.length }) },
               { id: 'todo' as const, label: t('mistake.filterTodo', { n: todo.length }), hide: todo.length === 0 },
+              { id: 'due' as const, label: t('mistake.filterDue', { n: dueEntries.length }), hide: dueMasteredCount === 0 },
               { id: 'mastered' as const, label: t('mistake.filterMastered', { n: mastered.length }), hide: mastered.length === 0 },
             ]).filter(x => !x.hide).map(opt => h('button', {
               type: 'button',
@@ -1039,15 +1172,22 @@ export function openLessons(host: LessonHost, sub: Subject = 'geo', initialQuery
                     onclick: () => {
                       saveMistakes(removeMistake(mistakes(), e.key));
                       renderMistakes();
+                      renderChips();
+                      renderList();
                     },
                   }, t('mistake.remove'))));
             }
             const ansSummary = L(e.rightText);
+            const isDueMastered = e.mastered && dueSet.has(e.key);
             return h('article', { class: 'mistake-card' + (e.mastered ? ' mastered' : ''), 'data-testid': 'mistake-item' },
               h('div', { class: 'mistake-card-top' },
                 h('span', { class: 'mistake-lesson-tag' }, lessonName + (e.tag ? ' · ' + L(e.tag) : '')),
-                h('span', { class: 'mistake-status-badge' + (e.mastered ? ' ok' : '') },
-                  e.mastered ? t('mistake.badgeMastered', { n: e.wrongCount }) : t('mistake.badgeTodo', { n: e.wrongCount }))),
+                h('span', { class: 'mistake-status-badge' + (isDueMastered ? ' due' : e.mastered ? ' ok' : '') },
+                  isDueMastered
+                    ? t('mistake.badgeDue', { s: e.reviewStreak })
+                    : e.mastered
+                      ? t('mistake.badgeMastered', { n: e.wrongCount })
+                      : t('mistake.badgeTodo', { n: e.wrongCount }))),
               h('p', { class: 'mistake-q' }, L(e.q)),
               ansSummary ? h('p', { class: 'mistake-ans', 'data-testid': 'mistake-right-ans' }, t('mistake.rightAnswer', { a: ansSummary })) : null,
               h('p', { class: 'mistake-why' }, t('mistake.explanation', { w: L(e.why) })),
@@ -1074,6 +1214,8 @@ export function openLessons(host: LessonHost, sub: Subject = 'geo', initialQuery
                   onclick: () => {
                     saveMistakes(removeMistake(mistakes(), e.key));
                     renderMistakes();
+                    renderChips();
+                    renderList();
                   },
                 }, t('mistake.remove'))));
           }))) : null));
@@ -1161,15 +1303,25 @@ export function openLessons(host: LessonHost, sub: Subject = 'geo', initialQuery
 
   const renderChips = () => {
     const lockedUi = isPaywallEnabled() && !canUsePro();
-    const hasExams = cat.course('all').some(g => g.lessons.some(x => x.exam));
+    const allGroups = cat.course('all');
+    const hasExams = allGroups.some(g => g.lessons.some(x => x.exam));
     const hasDone = [...seen].some(id => subjectOf(id) === sub);
+    const reviewIds = new Set<string>();
+    for (const gr of allGroups) {
+      for (const x of gr.lessons) {
+        if (lessonNeedsReview(x.id)) reviewIds.add(x.id);
+      }
+    }
+    const reviewCount = reviewIds.size;
     if (filterMode === 'free' && !lockedUi) filterMode = 'all';
     if (filterMode === 'exam' && !hasExams) filterMode = 'all';
     if (filterMode === 'done' && !hasDone) filterMode = 'all';
-    const opts: { id: 'all' | 'free' | 'todo' | 'done' | 'exam'; label: string }[] = [
+    if (filterMode === 'review' && reviewCount === 0) filterMode = 'all';
+    const opts: { id: 'all' | 'free' | 'todo' | 'review' | 'done' | 'exam'; label: string }[] = [
       { id: 'all', label: t('lessonFilterAll') },
       ...(lockedUi ? [{ id: 'free' as const, label: t('lessonFilterFree') }] : []),
       { id: 'todo', label: t('lessonFilterTodo') },
+      ...(reviewCount > 0 ? [{ id: 'review' as const, label: t('lessonFilterReview', { n: reviewCount }) }] : []),
       ...(hasDone ? [{ id: 'done' as const, label: t('lessonFilterDone') }] : []),
       ...(hasExams ? [{ id: 'exam' as const, label: t('lessonFilterExam') }] : []),
     ];
@@ -1192,6 +1344,7 @@ export function openLessons(host: LessonHost, sub: Subject = 'geo', initialQuery
     const matchesLesson = (x: import('./catalog.ts').LessonMeta) => {
       if (filterMode === 'free' && !isFreeLesson(x.id)) return false;
       if (filterMode === 'todo' && seen.has(x.id)) return false;
+      if (filterMode === 'review' && !lessonNeedsReview(x.id)) return false;
       if (filterMode === 'done' && !seen.has(x.id)) return false;
       if (filterMode === 'exam' && !x.exam) return false;
       if (!q) return true;
@@ -1235,6 +1388,7 @@ export function openLessons(host: LessonHost, sub: Subject = 'geo', initialQuery
         h('small', {}, q || filterMode !== 'all' ? `${gr.lessons.length}` : `${gr.doneCount}/${gr.total}`)),
       ...gr.lessons.map(x => {
         const je = jMap[x.id];
+        const mc = mistakeCountByLesson.get(x.id) ?? 0;
         const scoreTag = je && je.bestScore !== null && je.quizTotal > 0 ? `★ ${je.bestScore}/${je.quizTotal} · ` : '';
         const progTag = !seen.has(x.id) && je && je.stepIndex > 0 && je.stepIndex < je.totalSteps
           ? `${t('lessonInProg', { i: je.stepIndex + 1, n: je.totalSteps })} · `
@@ -1244,7 +1398,10 @@ export function openLessons(host: LessonHost, sub: Subject = 'geo', initialQuery
           h('button', { class: 'tour-pick', 'data-testid': 'lesson-' + x.id, onclick: () => { closeModal('lessons'); startLesson(x.id, host); } },
             h('span', { class: 'tile', html: icon(x.icon, 18) }),
             h('span', { class: 'grow' },
-              h('strong', {}, locked ? h('span', { class: 'pro-badge' }, t('planBadgePro')) : null, L(x.title)),
+              h('strong', {},
+                locked ? h('span', { class: 'pro-badge' }, t('planBadgePro')) : null,
+                L(x.title),
+                mc > 0 ? h('span', { class: 'lesson-review-pill', 'data-testid': 'lesson-mistake-badge' }, t('lessonMistakeCount', { n: mc })) : null),
               h('span', { class: 'muted small' }, `${L(x.unit)} · ${L(x.blurb)}`)),
             h('span', { class: 'meta' }, (seen.has(x.id) ? '✓ ' : '') + scoreTag + progTag + t('minutesN', { n: x.minutes }))),
           h('button', { class: 'icon-btn tour-link', 'aria-label': t('classLink'), title: t('classLink'), html: icon('share', 14),

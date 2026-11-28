@@ -18,11 +18,19 @@ export function setNarrationRate(rate: number): number {
   return clean;
 }
 
+/** Advances through preset narration rates (`0.8×` → `1×` → `1.25×` → `0.8×`) and persists the choice. */
+export function cycleNarrationRate(cur = getNarrationRate()): NarrationRate {
+  const idx = NARRATION_RATES.findIndex(r => Math.abs(r - cur) < 0.05);
+  const next = NARRATION_RATES[(idx + 1) % NARRATION_RATES.length];
+  setNarrationRate(next);
+  return next;
+}
+
 export function narrationSupported(): boolean {
   return typeof speechSynthesis !== 'undefined' && typeof SpeechSynthesisUtterance !== 'undefined';
 }
 
-const ABBREV_DOT_RE = /\b(?:Dr|Mr|Mrs|Ms|Prof|Mt|St|Jr|Sr|vs|etc|approx|ca|No|Fig|Vol|Ch|km|mi|ft|hr|min|sec|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec|e\.g|i\.e|U\.S|U\.K)\./gi;
+const ABBREV_DOT_RE = /\b(?:Dr|Mr|Mrs|Ms|Prof|Mt|St|Jr|Sr|vs|etc|approx|ca|al|sp|spp|elev|lat|lon|max|avg|est|dept|ed|eds|pp|No|Fig|Vol|Ch|km|mi|ft|hr|min|sec|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec|e\.g|i\.e|U\.S|U\.K|B\.C|A\.D|B\.C\.E|C\.E|Ph\.D)\./gi;
 const INITIAL_DOT_RE = /(?:^|[\s(])([A-Z])\.(?=\s+[A-Z])/g;
 const DOT_TOKEN = '\uE000';
 

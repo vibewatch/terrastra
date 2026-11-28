@@ -6,8 +6,8 @@ import { h, toast } from './dom.ts';
 import { icon } from './icons.ts';
 import { t, lang, fmtNum } from '../lib/i18n.ts';
 import { url } from '../lib/env.ts';
-import { narrate, narrationSupported, splitSentences, type Narration } from '../lib/narrate.ts';
-import { articleUrl, fetchArticle, type WikiArticle, type WikiSection } from '../lib/wikipedia.ts';
+import { cycleNarrationRate, getNarrationRate, narrate, narrationSupported, splitSentences, type Narration } from '../lib/narrate.ts';
+import { articleUrl, fetchArticle, formatWikiStudyMarkdown, type WikiArticle, type WikiSection } from '../lib/wikipedia.ts';
 import { WIKI } from '../../shared/data/wiki.ts';
 import { CATALOGUE } from '../../shared/data/catalogue.ts';
 import { TYPE_META } from '../../shared/data/typemeta.ts';
@@ -39,24 +39,60 @@ export class Reader {
     html: icon('sound', 16),
     onclick: () => this.toggleAudio(),
   }) as HTMLButtonElement;
+  private rateBtn = h('button', {
+    class: 'narrate-rate-pill',
+    type: 'button',
+    'aria-label': t('listenRate', { r: getNarrationRate() }),
+    title: t('listenRate', { r: getNarrationRate() }),
+    'data-testid': 'reader-rate',
+    onclick: () => this.bumpRate(),
+  }, `${getNarrationRate()}×`) as HTMLButtonElement;
   private ext = h('a', { class: 'icon-btn', target: '_blank', rel: 'noopener', 'aria-label': t('readerOpenWiki'), 'data-testid': 'reader-wiki-link', html: icon('external', 16) });
   private item: Readable | null = null;
   private currentArt: WikiArticle | null = null;
   private leadBox: HTMLElement | null = null;
   private audio: Narration | null = null;
+  private activeSecBtn: HTMLButtonElement | null = null;
+  private restartAudio: (() => void) | null = null;
   private readLang: Lang = lang();
   private shown = '';
   private seq = 0;
 
   constructor(private hooks: ReaderHooks) {
+    this.scroller.addEventListener('scroll', () => this.syncScrollProgress(), { passive: true });
     this.el = h('section', { class: 'reader', 'data-testid': 'reader', 'aria-label': 'Wikipedia' },
       h('header', { class: 'reader-bar' },
         h('button', { class: 'icon-btn reader-back', 'aria-label': t('readerClose'), 'data-testid': 'reader-close', html: icon('collapse', 16), onclick: () => { this.hide(); this.hooks.close(); } }),
         h('span', { class: 'reader-src' }, h('b', { class: 'wiki-w', 'aria-hidden': 'true' }, 'W'), h('span', {}, 'Wikipedia')),
         this.seg,
         narrationSupported() ? this.listenBtn : null,
+        narrationSupported() ? this.rateBtn : null,
         this.ext),
       this.scroller);
+  }
+
+  private syncScrollProgress(): void {
+    const max = this.scroller.scrollHeight - this.scroller.clientHeight;
+    const p = max > 4 ? Math.min(1, Math.max(0, this.scroller.scrollTop / max)) : 0;
+    this.el.style.setProperty('--read-p', p.toFixed(3));
+  }
+
+  private syncRateBtn(): void {
+    const r = getNarrationRate();
+    this.rateBtn.textContent = `${r}×`;
+    const lbl = t('listenRate', { r });
+    this.rateBtn.setAttribute('aria-label', lbl);
+    this.rateBtn.title = lbl;
+  }
+
+  private bumpRate(): void {
+    cycleNarrationRate();
+    this.syncRateBtn();
+    const resume = this.audio ? this.restartAudio : null;
+    if (resume) {
+      this.stopAudio();
+      resume();
+    }
   }
 
   /** Stops any active reader speech when the drawer folds closed. */
@@ -70,7 +106,21 @@ export class Reader {
       this.audio = null;
       a.stop();
     }
+    this.restartAudio = null;
+    if (this.activeSecBtn) {
+      this.syncSecBtn(this.activeSecBtn, false);
+      this.activeSecBtn = null;
+    }
+    this.scroller.querySelectorAll('.say.now').forEach(el => el.classList.remove('now'));
     this.syncListenBtn(false);
+  }
+
+  private syncSecBtn(btn: HTMLButtonElement, playing: boolean, secTitle?: string): void {
+    btn.setAttribute('aria-pressed', String(playing));
+    const lbl = playing ? t('listenStop') : (secTitle ? t('readerListenSec', { s: secTitle }) : btn.dataset.secLabel ?? t('listen'));
+    btn.setAttribute('aria-label', lbl);
+    btn.title = lbl;
+    btn.innerHTML = icon(playing ? 'pause' : 'sound', 14);
   }
 
   private syncListenBtn(playing: boolean): void {
@@ -80,13 +130,15 @@ export class Reader {
     this.listenBtn.setAttribute('aria-label', lbl);
     this.listenBtn.setAttribute('title', lbl);
     this.listenBtn.innerHTML = icon(playing ? 'pause' : 'sound', 16);
+    this.syncRateBtn();
   }
 
   private toggleAudio(): void {
-    if (this.audio) {
+    if (this.audio && !this.activeSecBtn) {
       this.stopAudio();
       return;
     }
+    this.stopAudio();
     const a = this.currentArt;
     if (!a || !this.leadBox) return;
     const l = a.lang;
@@ -97,6 +149,7 @@ export class Reader {
       return h('p', {}, ...parts);
     }));
     const headerLine = a.title + (a.description ? ` — ${a.description}` : '') + (l === 'zh' ? '。' : '.');
+    this.restartAudio = () => this.toggleAudio();
     this.audio = narrate([headerLine, ...spans.map(x => x.textContent!.trim())], l, {
       sentence: idx => spans.forEach((sp, j) => {
         sp.classList.toggle('now', j === idx - 1);
@@ -104,12 +157,16 @@ export class Reader {
       }),
       end: () => {
         this.audio = null;
+        this.restartAudio = null;
         spans.forEach(sp => sp.classList.remove('now'));
         this.syncListenBtn(false);
       },
     });
     if (this.audio) this.syncListenBtn(true);
-    else toast(t('noSpeech'));
+    else {
+      this.restartAudio = null;
+      toast(t('noSpeech'));
+    }
   }
 
   /** Shows `it` in `l` (defaults to the reading language); no-op if already shown. */
@@ -151,6 +208,7 @@ export class Reader {
     this.ext.setAttribute('aria-label', t('readerOpenWiki'));
     this.scroller.replaceChildren(this.skeleton(it));
     this.scroller.scrollTop = 0;
+    this.el.style.setProperty('--read-p', '0');
     let art: WikiArticle | null = null;
     let failed = false;
     try { art = await fetchArticle(l, title); } catch { failed = true; }
@@ -159,6 +217,7 @@ export class Reader {
     if (art) this.ext.setAttribute('href', art.url);
     this.scroller.replaceChildren(art ? this.article(it, art, want !== l) : this.fallback(it, failed));
     this.syncListenBtn(false);
+    this.syncScrollProgress();
   }
 
   private skeleton(it: Readable): HTMLElement {
@@ -172,8 +231,14 @@ export class Reader {
     const mins = Math.max(1, Math.round(a.words / (a.lang === 'zh' ? 300 : 220)));
     const top = a.sections.filter(s => s.level === 2);
     const body = h('div', { class: 'reader-body' });
+    const renderedSecs = new Map<number, { el: HTMLElement; parasBox: HTMLElement; sec: WikiSection }>();
     const renderSections = (from: number, to: number) => {
-      for (const s of a.sections.slice(from, to)) body.append(this.section(s, a.sections.indexOf(s)));
+      for (const s of a.sections.slice(from, to)) {
+        const idx = a.sections.indexOf(s);
+        const built = this.section(s, idx, a.lang);
+        renderedSecs.set(idx, { ...built, sec: s });
+        body.append(built.el);
+      }
     };
     const cut = a.sections.findIndex((s, i) => s.level === 2 && a.sections.slice(0, i).filter(x => x.level === 2).length === FIRST_SECTIONS);
     const firstEnd = cut < 0 ? a.sections.length : cut;
@@ -188,12 +253,61 @@ export class Reader {
     const pagePath = it.pagePath ?? (it.type && it.slug ? `${TYPE_META[it.type].section}/${it.slug}/` : undefined);
     const leadBox = h('div', { class: 'reader-lead' }, ...a.lead.map(p => h('p', {}, p)));
     this.leadBox = leadBox;
+
+    const showFind = a.sections.length >= 1 || a.words >= 160;
+    const findCount = h('span', { class: 'reader-find-count', 'data-testid': 'reader-find-count' });
+    const applyFind = (rawQ: string) => {
+      const needle = rawQ.trim().toLowerCase();
+      if (needle && more?.isConnected) more.click();
+      let totalHits = 0;
+      leadBox.replaceChildren(...a.lead.map(p => {
+        const res = highlightParagraph(p, needle);
+        totalHits += res.hits;
+        return res.el;
+      }));
+      for (const { el, parasBox, sec } of renderedSecs.values()) {
+        let secHits = needle && sec.title.toLowerCase().includes(needle) ? 1 : 0;
+        parasBox.replaceChildren(...sec.paras.map(p => {
+          const res = highlightParagraph(p, needle);
+          secHits += res.hits;
+          return res.el;
+        }));
+        totalHits += secHits;
+        el.hidden = !!needle && secHits === 0;
+      }
+      findCount.textContent = !needle ? '' : totalHits > 0 ? t('readerFindMatches', { n: totalHits }) : t('readerFindNone');
+      this.syncScrollProgress();
+    };
+    const findInput = showFind ? h('input', {
+      type: 'search',
+      class: 'reader-find-input',
+      placeholder: t('readerFindPlaceholder'),
+      'aria-label': t('readerFindPlaceholder'),
+      'data-testid': 'reader-find',
+      oninput: (ev: Event) => applyFind((ev.currentTarget as HTMLInputElement).value),
+      onkeydown: (ev: Event) => {
+        const ke = ev as KeyboardEvent;
+        const inp = ev.currentTarget as HTMLInputElement;
+        if (ke.key === 'Escape' && inp.value) {
+          ke.preventDefault();
+          ke.stopPropagation();
+          inp.value = '';
+          applyFind('');
+        }
+      },
+    }) as HTMLInputElement : null;
+
     const copyCite = async () => {
       const cite = a.lang === 'zh'
         ? `“${a.title}”，维基百科（CC BY-SA 4.0），${a.url}`
         : `“${a.title}” — Wikipedia (CC BY-SA 4.0), ${a.url}`;
       try { await navigator.clipboard.writeText(cite); toast(t('readerCiteCopied')); }
       catch { prompt(t('readerCopyCite'), cite); }
+    };
+    const copyMd = async () => {
+      const md = formatWikiStudyMarkdown(a, pagePath ? url(pagePath) : undefined);
+      try { await navigator.clipboard.writeText(md); toast(t('readerMdCopied')); }
+      catch { prompt(t('readerCopyMd'), md); }
     };
     return h('article', { class: 'reader-article', lang: HTML_LANG[a.lang], 'data-testid': 'reader-article' },
       a.image ? h('figure', { class: 'reader-figure' + (a.image.height > a.image.width * 0.75 ? ' tall' : ''), style: `--img:url("${a.image.src.replace(/"/g, "%22")}")` },
@@ -203,6 +317,7 @@ export class Reader {
       h('h1', { 'data-testid': 'reader-title' }, a.title),
       h('p', { class: 'reader-meta' }, t('readerMinutes', { n: mins }), a.sections.length ? ' · ' + t('readerSections', { n: top.length }) : ''),
       notInLang ? h('p', { class: 'reader-note' }, t('readerOnlyEn')) : null,
+      findInput ? h('div', { class: 'reader-find-row' }, findInput, findCount) : null,
       leadBox,
       top.length > 1 ? h('nav', { class: 'reader-toc', 'aria-label': t('readerContents') },
         h('span', { class: 'reader-label' }, t('readerContents')),
@@ -216,6 +331,8 @@ export class Reader {
         h('div', { class: 'reader-credit-actions' },
           h('button', { type: 'button', class: 'pill pill-sm', 'data-testid': 'reader-copy-cite', onclick: () => void copyCite() },
             h('span', { html: icon('copy', 13) }), ' ', t('readerCopyCite')),
+          h('button', { type: 'button', class: 'pill pill-sm', 'data-testid': 'reader-copy-md', onclick: () => void copyMd() },
+            h('span', { html: icon('copy', 13) }), ' ', t('readerCopyMd')),
           top.length > 1 ? h('button', {
             type: 'button',
             class: 'pill pill-sm',
@@ -225,10 +342,62 @@ export class Reader {
           pagePath ? h('a', { class: 'reader-page', href: url(pagePath) }, h('span', { html: icon('book', 14) }), t('readerPage')) : null)));
   }
 
-  private section(s: WikiSection, i: number): HTMLElement {
+  private section(s: WikiSection, i: number, artLang: Lang): { el: HTMLElement; parasBox: HTMLElement } {
     const tag = s.level <= 2 ? 'h2' : s.level === 3 ? 'h3' : 'h4';
-    return h('section', { class: 'reader-sec lv' + Math.min(s.level, 4), 'data-sec': i },
-      h(tag, {}, s.title), ...s.paras.map(p => h('p', {}, p)));
+    const parasBox = h('div', { class: 'reader-sec-paras' }, ...s.paras.map(p => h('p', {}, p)));
+    const secLabel = t('readerListenSec', { s: s.title });
+    const secBtn = narrationSupported() && s.paras.length > 0 ? h('button', {
+      type: 'button',
+      class: 'icon-btn reader-sec-listen',
+      'aria-pressed': 'false',
+      'aria-label': secLabel,
+      title: secLabel,
+      'data-sec-label': secLabel,
+      'data-testid': 'reader-sec-listen',
+      html: icon('sound', 14),
+      onclick: () => playSection(),
+    }) as HTMLButtonElement : null;
+
+    const playSection = () => {
+      if (!secBtn) return;
+      if (this.activeSecBtn === secBtn && this.audio) {
+        this.stopAudio();
+        return;
+      }
+      this.stopAudio();
+      const spans: HTMLElement[] = [];
+      parasBox.replaceChildren(...s.paras.map(para => {
+        const parts = splitSentences(para).map(seg => h('span', { class: 'say' }, seg + (artLang === 'zh' ? '' : ' ')));
+        spans.push(...parts);
+        return h('p', {}, ...parts);
+      }));
+      this.activeSecBtn = secBtn;
+      this.restartAudio = playSection;
+      this.audio = narrate([s.title + (artLang === 'zh' ? '。' : '.'), ...spans.map(x => x.textContent!.trim())], artLang, {
+        sentence: idx => spans.forEach((sp, j) => {
+          sp.classList.toggle('now', j === idx - 1);
+          if (j === idx - 1) sp.scrollIntoView({ block: 'nearest' });
+        }),
+        end: () => {
+          this.audio = null;
+          this.restartAudio = null;
+          if (this.activeSecBtn === secBtn) this.activeSecBtn = null;
+          spans.forEach(sp => sp.classList.remove('now'));
+          this.syncSecBtn(secBtn, false, s.title);
+        },
+      });
+      if (this.audio) this.syncSecBtn(secBtn, true, s.title);
+      else {
+        this.activeSecBtn = null;
+        this.restartAudio = null;
+        toast(t('noSpeech'));
+      }
+    };
+
+    const el = h('section', { class: 'reader-sec lv' + Math.min(s.level, 4), 'data-sec': i },
+      h('div', { class: 'reader-sec-head' }, h(tag, {}, s.title), secBtn),
+      parasBox);
+    return { el, parasBox };
   }
 
   private fallback(it: Readable, offline: boolean): HTMLElement {
@@ -259,3 +428,24 @@ export class Reader {
             h('small', {}, tr(TYPE_META[o.type].one, l), h('i', {}, ' · ' + fmtNum(Math.round(d)) + ' km')))))));
   }
 }
+
+function highlightParagraph(text: string, needleLower: string): { el: HTMLElement; hits: number } {
+  if (!needleLower) return { el: h('p', {}, text), hits: 0 };
+  const lower = text.toLowerCase();
+  const nLen = needleLower.length;
+  let pos = 0;
+  let idx = lower.indexOf(needleLower, pos);
+  if (idx < 0) return { el: h('p', {}, text), hits: 0 };
+  const children: (string | HTMLElement)[] = [];
+  let hits = 0;
+  while (idx >= 0) {
+    if (idx > pos) children.push(text.slice(pos, idx));
+    children.push(h('mark', { class: 'reader-hit' }, text.slice(idx, idx + nLen)));
+    hits += 1;
+    pos = idx + nLen;
+    idx = lower.indexOf(needleLower, pos);
+  }
+  if (pos < text.length) children.push(text.slice(pos));
+  return { el: h('p', {}, ...children), hits };
+}
+

@@ -256,10 +256,10 @@ export function openCompare(start?: string, opts?: CompareOptions): void {
         h('div', { class: 'cmp-antipode-text' },
           h('strong', {}, t('cmpDist.antipodeTitle', { a: nameA })),
           summary.distanceKm >= 10 ? h('p', { class: 'muted small', 'data-testid': 'cmp-course-turn' }, t('cmpDist.courseTurn', {
-            deg0: Math.round(summary.bearingDeg),
-            dir0: t('dir_' + summary.compassDir),
-            deg1: Math.round(summary.finalBearingDeg),
-            dir1: t('dir_' + summary.finalCompassDir),
+            start: Math.round(summary.bearingDeg),
+            sDir: t('dir_' + summary.compassDir),
+            end: Math.round(summary.finalBearingDeg),
+            eDir: t('dir_' + summary.finalCompassDir),
             turn: summary.courseTurnDeg.toFixed(1),
           })) : null,
           h('p', { class: 'muted small', 'data-testid': 'cmp-rhumb-line' }, rhumbLine),
@@ -267,7 +267,7 @@ export function openCompare(start?: string, opts?: CompareOptions): void {
           h('p', { class: 'muted small', 'data-testid': 'cmp-midpoint-line' },
             t('cmpDist.midpointInfo', { coord: formatCoordPair(summary.midpoint[0], summary.midpoint[1]), chord: chordRounded })),
           quarterWps.length ? h('div', { class: 'cmp-wp-row', 'data-testid': 'cmp-waypoints' },
-            h('span', { class: 'muted small' }, t('cmpDist.waypoints') + ':'),
+            h('span', { class: 'muted small' }, t('cmpDist.waypoints')),
             ...quarterWps.map(wp => {
               const coord = formatCoordPair(wp.lat, wp.lon);
               return h('button', {

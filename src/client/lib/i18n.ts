@@ -775,6 +775,20 @@ const en = {
   mapMeasureReadout: "{km} km · {deg}° {dir}{detour}",
   mapMeasureDetour: " (rhumb +{extra} km)",
   mapMeasureClear: "Clear",
+  examScorePct: "{s} / {n} points ({pct}% · {tier})",
+  "mistake.filterDue": "Due now ({n})",
+  "mistake.practiceDueBtn": "Spaced review ({n})",
+  "mistake.badgeDue": "Due for review · Streak {s}",
+  lessonFilterReview: "Needs review ({n})",
+  lessonMistakeCount: "⚠ {n} to review",
+  lessonJumpQ: "Question {n}",
+  listenRate: "Narration speed {r}× (click to change)",
+  readerFindPlaceholder: "Find in article…",
+  readerFindMatches: "{n} matches",
+  readerFindNone: "No matches",
+  readerCopyMd: "Copy summary (.md)",
+  readerMdCopied: "Article summary copied to clipboard",
+  readerListenSec: "Listen to {s}",
 } as const;
 
 export type I18nKey = keyof typeof en;
@@ -1551,6 +1565,20 @@ const zh: Record<I18nKey, string> = {
   mapMeasureReadout: "{km} 公里 · 方位 {deg}° {dir}{detour}",
   mapMeasureDetour: "（恒向线多绕 {extra} 公里）",
   mapMeasureClear: "清除",
+  examScorePct: "得分 {s} / {n}（{pct}% · {tier}）",
+  "mistake.filterDue": "到期复盘（{n}）",
+  "mistake.practiceDueBtn": "间隔复习（{n}）",
+  "mistake.badgeDue": "到期复盘 · 连对 {s} 次",
+  lessonFilterReview: "待巩固（{n}）",
+  lessonMistakeCount: "⚠ {n} 题待巩固",
+  lessonJumpQ: "第 {n} 题",
+  listenRate: "朗读语速 {r}×（点击切换）",
+  readerFindPlaceholder: "在词条正文中查找…",
+  readerFindMatches: "共 {n} 处",
+  readerFindNone: "无匹配",
+  readerCopyMd: "复制摘要 (.md)",
+  readerMdCopied: "词条学习摘要已复制到剪贴板",
+  readerListenSec: "朗读「{s}」",
 };
 
 const DICTS: Record<Lang, Dict> = { en, zh };

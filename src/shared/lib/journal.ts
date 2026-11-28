@@ -546,6 +546,39 @@ export function listMistakes(
     .sort((a, b) => Number(a.mastered) - Number(b.mastered) || b.wrongCount - a.wrongCount || b.lastMissedAt - a.lastMissedAt);
 }
 
+/** Leitner spaced-repetition intervals (in days) indexed by consecutive review streak (1, 2, 3, 4+). */
+export const LEITNER_INTERVAL_DAYS = [1, 3, 7, 21] as const;
+
+/** Timestamp (ms) when a mistake entry next becomes due for spaced-repetition review (`0` if currently unmastered). */
+export function nextReviewAtMs(entry: MistakeEntry): number {
+  if (!entry.mastered) return 0;
+  const idx = Math.min(LEITNER_INTERVAL_DAYS.length - 1, Math.max(0, entry.reviewStreak - 1));
+  return entry.updatedAt + LEITNER_INTERVAL_DAYS[idx] * 86_400_000;
+}
+
+export function isMistakeDue(entry: MistakeEntry, now = Date.now()): boolean {
+  return !entry.mastered || now >= nextReviewAtMs(entry);
+}
+
+/** Lists active mistakes plus mastered items whose Leitner spaced-repetition interval has elapsed at `now`. */
+export function listDueMistakes(
+  book: MistakeBook,
+  now = Date.now(),
+  opts?: {
+    filterFn?: (lessonId: string) => boolean;
+    lessonId?: string;
+  },
+): MistakeEntry[] {
+  return Object.values(book)
+    .filter(e => {
+      if (!isMistakeEntry(e)) return false;
+      if (opts?.lessonId && e.lessonId !== opts.lessonId) return false;
+      if (opts?.filterFn && !opts.filterFn(e.lessonId)) return false;
+      return isMistakeDue(e, now);
+    })
+    .sort((a, b) => Number(a.mastered) - Number(b.mastered) || b.wrongCount - a.wrongCount || nextReviewAtMs(a) - nextReviewAtMs(b));
+}
+
 function isBiPair(x: unknown, max = 500): x is BiPair {
   return Array.isArray(x) && x.length === 2 && typeof x[0] === 'string' && typeof x[1] === 'string' && x[0].length <= max && x[1].length <= max;
 }

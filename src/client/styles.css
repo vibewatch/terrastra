@@ -653,7 +653,8 @@ a:hover { text-decoration: underline; }
 /* ---- reader: Wikipedia article that slides out beside the info card ---- */
 .reader { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; border-left: 1px solid var(--line); background: rgba(9, 9, 11, 0.5); animation: reader-in .4s cubic-bezier(.2, .8, .2, 1); }
 @keyframes reader-in { from { opacity: 0; transform: translateX(-12px); } }
-.reader-bar { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.reader-bar { position: relative; display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.reader-bar::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; transform-origin: left; transform: scaleX(var(--read-p, 0)); background: var(--accent); pointer-events: none; transition: transform .08s linear; }
 .reader-src { flex: 1; display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: .8rem; font-weight: 500; }
 .wiki-w { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 6px; background: #fafafa; color: #09090b; font: 600 13px/1 Georgia, "Times New Roman", serif; }
 .reader-lang { display: inline-flex; padding: 2px; gap: 2px; background: var(--panel2); border: 1px solid var(--line); border-radius: 9px; }
@@ -681,9 +682,18 @@ a:hover { text-decoration: underline; }
 .reader-toc button { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 4px 10px; font-size: .78rem; color: var(--text-2); }
 .reader-toc button:hover { background: var(--hover); color: var(--text); }
 .reader-sec { scroll-margin-top: 12px; }
+.reader-sec-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .reader-sec h2 { margin: 32px 0 12px; font-size: 1.22rem; font-weight: 600; letter-spacing: -0.02em; }
 .reader-sec h3 { margin: 22px 0 8px; font-size: 1rem; font-weight: 600; color: var(--text); }
 .reader-sec h4 { margin: 18px 0 6px; font-size: .9rem; font-weight: 600; color: var(--muted); }
+.reader-sec-listen { opacity: .52; flex-shrink: 0; transform: translateY(2px); }
+.reader-sec:hover .reader-sec-listen, .reader-sec-listen[aria-pressed="true"] { opacity: 1; }
+.reader-sec-listen[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+.reader-find-row { display: flex; align-items: center; gap: 8px; margin: 0 0 18px; }
+.reader-find-input { flex: 1; min-width: 0; padding: 6px 11px; border-radius: 9px; border: 1px solid var(--line); background: var(--panel2); color: var(--text); font-size: .82rem; }
+.reader-find-input:focus { outline: none; border-color: var(--accent); }
+.reader-find-count { font-family: var(--font-mono); font-size: .72rem; color: var(--faint); white-space: nowrap; }
+mark.reader-hit { background: rgba(251, 191, 36, 0.28); color: #fef08a; border-radius: 3px; padding: 0 2px; }
 .reader-continue { display: flex; width: 100%; align-items: center; justify-content: space-between; margin: 12px 0; padding: 14px 16px; background: var(--panel2); border: 1px solid var(--line); border-radius: 12px; font-weight: 500; }
 .reader-continue:hover { background: var(--hover); }
 .reader-continue small { color: var(--faint); font-family: var(--font-mono); font-size: .72rem; }

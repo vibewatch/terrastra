@@ -10,14 +10,18 @@ import { checkQuiz, checkStep, okLL, okPair, versions } from './lesson-check.ts'
 import { optionOrder, shuffled } from '../../src/client/lessons/shuffle.ts';
 import {
   isMistakeBook,
+  isMistakeDue,
+  listDueMistakes,
   listMistakes,
   mergeMistakeBook,
   mistakeKey,
+  nextReviewAtMs,
   recordMistake,
   recordMistakeReview,
   removeMistake,
   type MistakeBook,
 } from '../../src/shared/lib/journal.ts';
+import { computeExamBreakdown, formatLessonStudyGuideMarkdown } from '../../src/client/lessons/player.ts';
 import { backupOf, readBackupFull } from '../../src/client/lib/backup-file.ts';
 import { emptyProgress } from '../../src/shared/lib/progress.ts';
 
@@ -266,5 +270,56 @@ describe('grade question banks and mistake notebook', () => {
     expect((await loadLessonById('usa'))?.id).toBe('usa');
     expect((await loadLessonById('a-planets'))?.id).toBe('a-planets');
   });
+
+  it('computes partial-credit exam breakdown, Leitner spaced-repetition due dates, and self-check study guides', () => {
+    const exam = lessonById('exam-g7a')!;
+    const drawn = exam.gen!();
+    const matchIdx = drawn.quiz.findIndex(q => !!q.match);
+    expect(matchIdx).toBeGreaterThanOrEqual(0);
+    const matchQ = drawn.quiz[matchIdx];
+    const pairLen = matchQ.match!.length;
+    // Match 3 of pairLen pairs right, and get all non-matching questions right
+    const partialPairs = new Map<number, number>();
+    for (let j = 0; j < pairLen; j++) partialPairs.set(j, j < 3 ? j : (j + 1) % pairLen);
+    const answers = drawn.quiz.map((_, k) => k !== matchIdx);
+    const keptPairs = drawn.quiz.map((q, k) => {
+      if (k === matchIdx) return partialPairs;
+      if (q.match) return new Map(q.match.map((_, j) => [j, j]));
+      return undefined;
+    });
+    const eb = computeExamBreakdown(drawn.quiz, answers, keptPairs);
+    const expectedTotal = drawn.quiz.reduce((acc, q) => acc + (q.match ? q.match.length : 1), 0);
+    expect(eb.total).toBe(expectedTotal);
+    expect(eb.score).toBe(expectedTotal - (pairLen - 3));
+    expect(eb.missedTopics.length).toBe(pairLen - 3);
+    expect(['A+', 'A', 'B', 'C', 'D']).toContain(eb.tier);
+
+    // Study guide includes self-check quiz & answer key
+    const sample = lessonById('se-asia')!;
+    const mdEn = formatLessonStudyGuideMarkdown(sample, 'en', { got: 3, total: sample.quiz.length });
+    const mdZh = formatLessonStudyGuideMarkdown(sample, 'zh', { got: 3, total: sample.quiz.length });
+    expect(mdEn).toContain('## Self-Check Quiz');
+    expect(mdEn).toContain('*Answer:*');
+    expect(mdZh).toContain('## 随堂自测与解析');
+    expect(mdZh).toContain('*参考答案:*');
+
+    // Leitner intervals: streak 1 -> +1d, streak 2 -> +3d
+    const dayMs = 86_400_000;
+    let book: MistakeBook = {};
+    book = recordMistake(book, sample.id, sample.quiz[0], 1_000);
+    const k = mistakeKey(sample.id, sample.quiz[0].q[0]);
+    expect(nextReviewAtMs(book[k])).toBe(0);
+    expect(isMistakeDue(book[k], 1_500)).toBe(true);
+
+    book = recordMistakeReview(book, k, true, 10_000);
+    expect(nextReviewAtMs(book[k])).toBe(10_000 + 1 * dayMs);
+    expect(listDueMistakes(book, 10_000 + 12 * 3_600_000)).toHaveLength(0);
+    expect(listDueMistakes(book, 10_000 + dayMs)).toHaveLength(1);
+
+    book = recordMistakeReview(book, k, true, 10_000 + dayMs);
+    expect(book[k].reviewStreak).toBe(2);
+    expect(nextReviewAtMs(book[k])).toBe(10_000 + dayMs + 3 * dayMs);
+  });
 });
+
 

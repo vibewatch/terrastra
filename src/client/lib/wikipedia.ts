@@ -30,15 +30,41 @@ export function articleUrl(l: Lang, title: string): string {
   return `https://${HOST[l]}/wiki/${encodeURIComponent(title.replace(/ /g, '_'))}${l === 'zh' ? '?variant=zh-cn' : ''}`;
 }
 
-/** Cleans empty pronunciation parentheses and LaTeX `\displaystyle` artifacts left by `explaintext=1`. */
+/** Cleans empty pronunciation parentheses, audio/citation remnants, and LaTeX `\displaystyle` artifacts left by `explaintext=1`. */
 export function cleanWikiText(raw: string): string {
   return raw
     .replace(/\{\\displaystyle\s*([^}]*)\}/g, '$1')
+    .replace(/\[\s*(?:citation needed|来源请求|來源請求|注\s*\d+|註\s*\d+)\s*\]/gi, '')
+    .replace(/\(\s*(?:listen|听|聽)\s*\)/gi, '')
     .replace(/\(\s*[;,·•\s]*\)/g, '')
-    .replace(/\(\s*;\s+/g, '(')
+    .replace(/\(\s*[,;:]\s+/g, '(')
+    .replace(/\s*[,;:]\s*\)/g, ')')
+    .replace(/\(\s+/g, '(')
+    .replace(/\s+\)/g, ')')
+    .replace(/\(\s*[;,·•\s]*\)/g, '')
     .replace(/\s+([,.;:!?])/g, '$1')
     .replace(/[ \t]{2,}/g, ' ')
     .trim();
+}
+
+/** Formats a concise Markdown study summary from a Wikipedia article extract with CC BY-SA 4.0 attribution. */
+export function formatWikiStudyMarkdown(a: WikiArticle, appUrl?: string): string {
+  const mins = Math.max(1, Math.round(a.words / (a.lang === 'zh' ? 300 : 220)));
+  const lines: string[] = [`# ${a.title}`];
+  if (a.description) lines.push(`> ${a.description}`);
+  lines.push(a.lang === 'zh' ? `> 预计阅读：约 ${mins} 分钟` : `> Reading time: ~${mins} min`, '');
+  for (const p of a.lead) lines.push(p, '');
+  const topSections = a.sections.filter(s => s.level === 2 && s.paras.length > 0).slice(0, 6);
+  for (const sec of topSections) {
+    lines.push(`## ${sec.title}`, '', sec.paras[0], '');
+  }
+  lines.push(
+    '---',
+    a.lang === 'zh'
+      ? `*来源：[${a.title} — 维基百科](${a.url})（CC BY-SA 4.0）${appUrl ? ` · [在寰星打开](${appUrl})` : ''}*`
+      : `*Source: [${a.title} — Wikipedia](${a.url}) (CC BY-SA 4.0)${appUrl ? ` · [Open in Terrastra](${appUrl})` : ''}*`,
+  );
+  return lines.join('\n').trim() + '\n';
 }
 
 /** Splits a `exsectionformat=wiki` plain-text extract into lead paragraphs and sections, dropping reference-style sections. */
