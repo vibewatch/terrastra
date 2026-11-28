@@ -58,6 +58,47 @@ function genres(tags: string[]): string[] {
   return out;
 }
 
+const foldRadioQuery = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+
+/** Pure station search helper matching station name, ISO code, localized country name, and EN/ZH genre tags. */
+export function filterRadioStations<T extends { name: string; cc: string; url: string; tags: string[] }>(
+  stations: readonly T[],
+  query: string,
+  countryOf: (cc: string) => string,
+  hiddenUrls: ReadonlySet<string> = new Set(),
+  limit = 40,
+): { station: T; index: number }[] {
+  const q = foldRadioQuery(query);
+  if (!q) {
+    const out: { station: T; index: number }[] = [];
+    for (let i = 0; i < stations.length && out.length < limit; i++) {
+      if (!hiddenUrls.has(stations[i].url) && musicOnly(stations[i].tags)) out.push({ station: stations[i], index: i });
+    }
+    return out;
+  }
+  const scored: { station: T; index: number; score: number }[] = [];
+  for (let i = 0; i < stations.length; i++) {
+    const s = stations[i];
+    if (hiddenUrls.has(s.url)) continue;
+    const nm = foldRadioQuery(s.name);
+    const cc = s.cc.toLowerCase();
+    const cName = foldRadioQuery(countryOf(s.cc));
+    let score = 0;
+    if (nm.startsWith(q) || cc === q) score = 4;
+    else if (nm.includes(q) || cName.includes(q)) score = 3;
+    else if (s.tags.some(tg => foldRadioQuery(tg).includes(q))) score = 2;
+    else {
+      for (const tg of s.tags) {
+        const zhG = GENRE_ZH.find(([re]) => re.test(tg))?.[1];
+        if (zhG && zhG.includes(q)) { score = 2; break; }
+      }
+    }
+    if (score > 0) scored.push({ station: s, index: i, score });
+  }
+  scored.sort((a, b) => b.score - a.score || a.index - b.index);
+  return scored.slice(0, limit).map(({ station, index }) => ({ station, index }));
+}
+
 interface Station { name: string; cc: string; lat: number; lon: number; url: string; hls: boolean; approx: boolean; codec: string; kbps: number; tags: string[] }
 type Row = [string, string, number, number, string, number, string, number, number[]];
 
@@ -81,6 +122,7 @@ export class Radio {
   private subEl = h('span', { class: 'radio-sub' });
   private eq = h('div', { class: 'radio-eq', 'aria-hidden': 'true' }, h('i'), h('i'), h('i'), h('i'));
   private playBtn: HTMLButtonElement;
+  private prevBtn: HTMLButtonElement;
   private favBtn: HTMLButtonElement;
   private dots: StationDots;
   private engine = new RadioEngine();
@@ -106,6 +148,7 @@ export class Radio {
     const btn = (cls: string, ico: Parameters<typeof icon>[0], key: string, fn: () => void, test?: string) =>
       h('button', { class: 'radio-btn ' + cls, 'aria-label': t(key), title: t(key), 'data-key': key, 'data-testid': test, html: icon(ico, 18), onclick: () => { fn(); } });
     this.playBtn = btn('radio-play', 'play', 'radioPlay', () => this.togglePlay(), 'radio-play');
+    this.prevBtn = btn('radio-prev', 'collapse', 'radioPrev', () => this.stepBack(), 'radio-prev');
     this.favBtn = btn('radio-fav', 'star', 'radioFav', () => this.toggleFav());
     const favListBtn = h('button', {
       class: 'radio-btn radio-favs',
@@ -115,19 +158,21 @@ export class Radio {
       html: icon('heart', 17),
       onclick: () => this.openFavourites(),
     });
+    const searchBtn = btn('radio-search', 'search', 'radioSearch', () => this.openSearchModal(), 'radio-search-btn');
     const vol = h('input', { type: 'range', class: 'radio-vol', min: '0', max: '1', step: '0.05', value: String(this.engine.volume), 'aria-label': t('radioVolume'), title: t('radioVolume') });
     vol.addEventListener('input', () => { this.engine.setVolume(Number(vol.value)); save(VOL_KEY, this.engine.volume); });
     this.el = h('div', { class: 'radio-bar hidden', 'data-testid': 'radio-bar', role: 'group', 'aria-label': t('radio') },
       this.eq,
       h('div', { class: 'radio-meta', 'aria-live': 'polite' }, this.nameEl, this.subEl),
       h('div', { class: 'radio-ctl' },
-        this.favBtn, favListBtn, this.playBtn,
+        this.favBtn, favListBtn, searchBtn, this.prevBtn, this.playBtn,
         btn('radio-next', 'skip', 'radioNext', () => this.step(), 'radio-next'),
         btn('radio-rand', 'shuffle', 'radioRandom', () => this.random()),
         btn('radio-hide', 'flag', 'radioHide', () => this.hideCurrent(), 'radio-hide'),
         vol,
         btn('radio-x', 'close', 'radioClose', () => this.toggle(false))));
     this.engine.onStatus = s => this.status(s);
+    this.bindMediaSession();
     const last = load<string>(LAST_KEY, '');
     this.cur = last ? st.findIndex(s => s.url === last) : -1;
     onLang(() => this.relabel());
@@ -216,6 +261,14 @@ export class Radio {
     void this.tune(i);
   }
 
+  private stepBack(): void {
+    if (this.history.length < 2) return;
+    sfx.tap();
+    const prevIdx = this.history[1];
+    this.fly(prevIdx, false);
+    void this.tune(prevIdx);
+  }
+
   private random(): void {
     sfx.tap();
     const pool = this.pool.filter(k => !this.hidden.has(this.st[k].url));
@@ -254,8 +307,19 @@ export class Radio {
     const wrap = h('div', { class: 'radio-fav-list', 'data-testid': 'radio-fav-modal' });
     const draw = () => {
       const starred = this.st.map((s, idx) => ({ s, idx })).filter(x => this.favs.has(x.s.url));
+      const restoreBtn = this.hidden.size > 0 ? h('button', {
+        type: 'button',
+        class: 'pill pill-sm',
+        'data-testid': 'radio-unhide-all',
+        onclick: () => {
+          this.hidden.clear();
+          save(HIDE_KEY, []);
+          toast(t('radioUnhidden'));
+          draw();
+        },
+      }, t('radioUnhideAll', { n: this.hidden.size })) : null;
       if (!starred.length) {
-        wrap.replaceChildren(h('p', { class: 'muted', 'data-testid': 'radio-fav-empty' }, t('radioFavEmpty')));
+        wrap.replaceChildren(h('p', { class: 'muted', 'data-testid': 'radio-fav-empty' }, t('radioFavEmpty')), ...(restoreBtn ? [restoreBtn] : []));
         return;
       }
       wrap.replaceChildren(...starred.map(({ s, idx }) => h('div', { class: 'radio-fav-row', 'data-testid': 'radio-fav-item' },
@@ -282,10 +346,52 @@ export class Radio {
               this.render();
               draw();
             },
-          })))));
+          })))), ...(restoreBtn ? [restoreBtn] : []));
     };
     draw();
     openModal('radio-favs', t('radioFavList', { n: this.favs.size }), wrap);
+  }
+
+  /** Searchable station finder across station names, countries, and genres. */
+  private openSearchModal(): void {
+    sfx.tap();
+    let q = '';
+    const input = h('input', {
+      type: 'search',
+      class: 'mistake-search-input',
+      style: 'max-width:none;width:100%',
+      placeholder: t('radioSearchPlaceholder'),
+      'aria-label': t('radioSearchPlaceholder'),
+      'data-testid': 'radio-search-input',
+      autocomplete: 'off',
+      oninput: (ev: Event) => {
+        q = (ev.currentTarget as HTMLInputElement).value;
+        draw();
+      },
+    }) as HTMLInputElement;
+    const countEl = h('small', { class: 'muted', 'data-testid': 'radio-search-count' });
+    const listEl = h('div', { class: 'radio-fav-list', 'data-testid': 'radio-search-list' });
+    const draw = () => {
+      const hits = filterRadioStations(this.st, q, cc => countryName(cc), this.hidden, 40);
+      countEl.textContent = hits.length ? t('radioSearchCount', { n: hits.length }) : '';
+      if (!hits.length) {
+        listEl.replaceChildren(h('p', { class: 'muted', 'data-testid': 'radio-search-empty' }, t('radioSearchEmpty')));
+        return;
+      }
+      listEl.replaceChildren(...hits.map(({ station: s, index: idx }) => h('div', { class: 'radio-fav-row', 'data-testid': 'radio-search-item' },
+        h('div', { class: 'grow' },
+          h('strong', {}, s.name),
+          h('div', { class: 'muted small' }, [countryName(s.cc), stationSolarBadge(s.lat, s.lon), ...genres(s.tags).slice(0, 2), s.kbps ? `${s.kbps} kbps` : ''].filter(Boolean).join(' · '))),
+        h('button', {
+          type: 'button',
+          class: 'cta pill-sm',
+          'data-testid': 'radio-search-tune',
+          onclick: () => { closeModal('radio-search'); this.fly(idx, true); void this.tune(idx); },
+        }, t('radioPlay')))));
+    };
+    draw();
+    openModal('radio-search', t('radioSearch'), h('div', { style: 'display:flex;flex-direction:column;gap:8px' }, input, countEl, listEl));
+    setTimeout(() => input.focus(), 50);
   }
 
   private fly(i: number, far: boolean): void {
@@ -337,8 +443,10 @@ export class Radio {
     this.playBtn.innerHTML = icon(busy ? 'pause' : 'play', 18);
     this.playBtn.setAttribute('aria-label', t(busy ? 'radioPause' : 'radioPlay'));
     this.playBtn.title = t(busy ? 'radioPause' : 'radioPlay');
+    this.prevBtn.disabled = this.history.length < 2;
     this.favBtn.disabled = !st;
     (this.el.querySelector('.radio-hide') as HTMLButtonElement).disabled = !st;
+    this.syncMediaSession(st, busy);
     const fav = !!st && this.favs.has(st.url);
     this.favBtn.classList.toggle('on', fav);
     this.favBtn.setAttribute('aria-pressed', String(fav));
@@ -362,6 +470,33 @@ export class Radio {
     if (st.kbps) bits.push(`${st.kbps} kbps`);
     if (st.approx) bits.push(t('radioApprox'));
     this.subEl.replaceChildren(s === 'playing' ? h('em', { class: 'radio-live' }, t('radioLive')) : '', h('b', { class: 'radio-cc' }, st.cc), bits.join(' · '));
+  }
+
+  private bindMediaSession(): void {
+    if (typeof navigator === 'undefined' || !('mediaSession' in navigator) || !navigator.mediaSession) return;
+    const ms = navigator.mediaSession;
+    const safeSet = (action: MediaSessionAction, fn: () => void) => {
+      try { ms.setActionHandler(action, fn); } catch { /* unsupported action */ }
+    };
+    safeSet('play', () => { if (!this.busy()) this.togglePlay(); });
+    safeSet('pause', () => { if (this.busy()) this.engine.stop(); });
+    safeSet('nexttrack', () => { if (this.on) this.step(); });
+    safeSet('previoustrack', () => { if (this.on) this.stepBack(); });
+  }
+
+  private syncMediaSession(st: Station | null, busy: boolean): void {
+    if (typeof navigator === 'undefined' || !('mediaSession' in navigator) || !navigator.mediaSession) return;
+    const ms = navigator.mediaSession;
+    try {
+      ms.playbackState = !this.on || !st ? 'none' : busy ? 'playing' : 'paused';
+      if (st && typeof MediaMetadata !== 'undefined') {
+        ms.metadata = new MediaMetadata({
+          title: st.name,
+          artist: [countryName(st.cc), ...genres(st.tags).slice(0, 1)].filter(Boolean).join(' · '),
+          album: 'Terrastra World Radio',
+        });
+      }
+    } catch { /* ignore restricted mediaSession environments */ }
   }
 
   private relabel(): void {

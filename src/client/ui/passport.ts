@@ -3,7 +3,7 @@ import { t, lang, fmtNum } from '../lib/i18n.ts';
 import { store } from '../store.ts';
 import { BY_KEY } from '../../shared/data/catalogue.ts';
 import { tr, type CatalogueItem } from '../../shared/data/types.ts';
-import { PASSPORTS, bookProgress, type PassportBook } from '../../shared/data/passports.ts';
+import { PASSPORTS, bookProgress, planPassportRoute, type PassportBook } from '../../shared/data/passports.ts';
 import { haversineKm } from '../../shared/lib/geo.ts';
 import { computeExplorerStats, formatFieldLogMarkdown } from '../../shared/lib/field-log.ts';
 import { formatCoordPair } from '../../shared/lib/geodesic.ts';
@@ -36,6 +36,7 @@ export function openPassport(hooks: PassportHooks): void {
   let cur = load<string>('passportBook', PASSPORTS[0].id);
   if (!PASSPORTS.some(b => b.id === cur)) cur = PASSPORTS[0].id;
   let stampFilter: 'all' | 'stamped' | 'unvisited' = 'all';
+  let stampSort: 'order' | 'nearest' | 'recent' = 'order';
   const summaryBar = h('div', { class: 'passport-summary', 'data-testid': 'passport-summary' });
   const tabs = h('div', { class: 'seg-row passport-tabs', role: 'tablist' });
   const page = h('div', { class: 'passport-page' });
@@ -96,19 +97,33 @@ export function openPassport(hooks: PassportHooks): void {
         onclick: () => { cur = x.id; save('passportBook', cur); render(); } }, h('span', { class: 'holo', 'aria-hidden': 'true' }, x.emoji), ' ' + tr(x.name, l), h('small', {}, ` ${done}/${x.keys.length}`));
     }));
     const got = bookProgress(b, seen);
-    const next = nextStop(b, seen, hooks.here());
+    const herePos = hooks.here();
+    const next = nextStop(b, seen, herePos);
+    const route = planPassportRoute(b, seen, herePos);
     const bookItems = b.keys.map(k => BY_KEY.get(k)).filter((x): x is CatalogueItem => !!x);
     if (stampFilter === 'stamped' && got === 0) stampFilter = 'all';
     if (stampFilter === 'unvisited' && got === bookItems.length) stampFilter = 'all';
+    if (stampSort === 'recent' && got === 0) stampSort = 'order';
     const filteredItems = bookItems.filter(it => {
       const has = Boolean(seen[it.key]);
       return stampFilter === 'all' ? true : stampFilter === 'stamped' ? has : !has;
     });
+    const sortedItems = stampSort === 'nearest'
+      ? filteredItems.slice().sort((a, z) => haversineKm(herePos[0], herePos[1], a.lat, a.lon) - haversineKm(herePos[0], herePos[1], z.lat, z.lon))
+      : stampSort === 'recent'
+        ? filteredItems.slice().sort((a, z) => (seen[z.key] ?? 0) - (seen[a.key] ?? 0))
+        : filteredItems;
     page.replaceChildren(
       h('div', { class: 'passport-head' },
         h('div', {},
           h('h3', {}, h('span', { class: 'holo', 'aria-hidden': 'true' }, b.emoji), ' ' + tr(b.name, l)),
-          h('p', { class: 'muted' }, t('stamps', { n: got, t: b.keys.length }))),
+          h('p', { class: 'muted' }, t('stamps', { n: got, t: b.keys.length })),
+          route.stops.length > 0 ? h('p', { class: 'muted small passport-route-hint', 'data-testid': 'passport-route' }, t('passport.routeHint', {
+            km: fmtNum(route.totalKm),
+            n: route.stops.length,
+            first: `${route.stops[0].item.emoji} ${tr(route.stops[0].item.name, l)}`,
+            leg: fmtNum(route.stops[0].legKm),
+          })) : null),
         next ? h('button', { class: 'cta cta-sm', 'data-testid': 'next-stop', html: icon('arrow', 15),
           onclick: () => { closeModal('passport'); closeModal('collection'); hooks.travel(next, hooks.here()); } }, h('span', {}, t('nextStop', { p: tr(next.name, l) })))
           : h('span', { class: 'ok' }, t('bookDone'))),
@@ -124,14 +139,27 @@ export function openPassport(hooks: PassportHooks): void {
           'aria-pressed': String(stampFilter === f.id),
           'data-testid': 'passport-filter-' + f.id,
           onclick: () => { stampFilter = f.id; render(); },
-        }, f.label))),
-      h('div', { class: 'stamp-grid' }, ...filteredItems.map((it, i) => {
+        }, f.label)),
+        h('span', { class: 'grow' }),
+        ...([
+          { id: 'order' as const, label: t('passport.sortOrder') },
+          { id: 'nearest' as const, label: t('passport.sortNearest') },
+          { id: 'recent' as const, label: t('passport.sortRecent'), hide: got === 0 },
+        ]).filter(x => !x.hide).map(s => h('button', {
+          type: 'button',
+          class: 'pill pill-sm' + (stampSort === s.id ? ' on' : ''),
+          'aria-pressed': String(stampSort === s.id),
+          'data-testid': 'passport-sort-' + s.id,
+          onclick: () => { stampSort = s.id; render(); },
+        }, s.label))),
+      h('div', { class: 'stamp-grid' }, ...sortedItems.map((it, i) => {
         const at = seen[it.key];
+        const distKm = Math.round(haversineKm(herePos[0], herePos[1], it.lat, it.lon));
         return h('button', { class: 'stamp' + (at ? ' have' : ''), 'data-testid': 'stamp-' + it.key, style: `--r:${((i * 37) % 13) - 6}deg`,
           onclick: () => { closeModal('passport'); closeModal('collection'); hooks.travel(it, hooks.here()); } },
           h('span', { class: 'stamp-emoji', 'aria-hidden': 'true' }, it.emoji),
           h('span', { class: 'stamp-name' }, tr(it.name, l)),
-          h('small', {}, at ? new Date(at).toLocaleDateString(l) : '—'));
+          h('small', {}, at ? new Date(at).toLocaleDateString(l) : t('passport.awayKm', { km: fmtNum(distKm) })));
       })));
   };
   render();

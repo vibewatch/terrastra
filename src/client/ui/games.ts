@@ -4,17 +4,18 @@ import { t, lang, countryName, fmtNum } from '../lib/i18n.ts';
 import { store, updateProgress } from '../store.ts';
 import { CATALOGUE, LANDMARKS } from '../../shared/data/catalogue.ts';
 import { CITIES, CITY_ZH, cityName } from '../../shared/data/cities.ts';
+import { GAZETTEER } from '../../shared/data/gazetteer.ts';
 import { CONTINENT_NAMES } from '../../shared/data/iso.ts';
 import { tr, type CatalogueItem } from '../../shared/data/types.ts';
 import { sfx } from '../lib/sfx.ts';
 import { load, save } from '../lib/storage.ts';
-import { formatKm, slerpLatLon } from '../../shared/lib/geo.ts';
+import { arrow8, bearingDeg, formatKm, slerpLatLon } from '../../shared/lib/geo.ts';
 import type { Globe } from '../globe/scene.ts';
 import { createModelPreview } from '../models/preview.ts';
 import { icon } from './icons.ts';
-import { DIFFS, ROUNDS, effectiveKm, scoreFor, summarizePlaceItRun, placeItShareText, verdict, pickRounds, updateRecord, type Difficulty } from '../../shared/games/placeit.ts';
-import { generateQuiz, applyAnswer, ranking, QUIZ_SETS, type QuizSet, type QuizLevel, type PlayerScore } from '../../shared/games/quiz.ts';
-import { buildPool, dayIndex, puzzleFor, evaluate, applyGuess, finishStats, hintsUnlocked, shareText, dailyWinRatePct, MAX_GUESSES, BAND_EMOJI, type DailyState } from '../../shared/games/daily.ts';
+import { DIFFS, PLACEIT_REGIONS, ROUNDS, effectiveKm, scoreFor, summarizePlaceItRun, placeItShareText, verdict, pickRounds, updateRecord, type Difficulty, type PlaceItRegion } from '../../shared/games/placeit.ts';
+import { generateQuiz, applyAnswer, ranking, quizShareText, QUIZ_SETS, type QuizSet, type QuizLevel, type PlayerScore } from '../../shared/games/quiz.ts';
+import { buildPool, dayIndex, puzzleFor, evaluate, proximityPct, applyGuess, finishStats, hintsUnlocked, shareText, dailyWinRatePct, MAX_GUESSES, BAND_EMOJI, type DailyState } from '../../shared/games/daily.ts';
 
 export interface GameHost { globe: Globe; setGameMode: (on: boolean, names?: boolean) => void }
 
@@ -26,15 +27,29 @@ export function startGame(host: GameHost, kind: 'daily' | 'placeit' | 'quiz'): v
 // ================= Place it! =================
 function placeItSetup(host: GameHost): void {
   const recs = store.progress.placeit;
-  const body = h('div', { class: 'diff-grid' }, ...(Object.keys(DIFFS) as Difficulty[]).map(d =>
-    h('button', { class: 'diff', 'data-testid': 'diff-' + d, onclick: () => { closeModal('placeit-setup'); void runPlaceIt(host, d); } },
+  let region: PlaceItRegion = 'world';
+  const regionLabel = (r: PlaceItRegion) => (r === 'world' ? t('placeitRegionWorld') : CONTINENT_NAMES[r][lang()]);
+  const regionBar = h('div', { class: 'passport-filter-row', 'data-testid': 'placeit-regions', role: 'radiogroup', 'aria-label': t('placeitRegionLabel') });
+  const drawRegions = () => {
+    regionBar.replaceChildren(...PLACEIT_REGIONS.map(r => h('button', {
+      type: 'button',
+      class: 'pill pill-sm' + (r === region ? ' on' : ''),
+      role: 'radio',
+      'aria-checked': String(r === region),
+      'data-testid': 'placeit-region-' + r,
+      onclick: () => { region = r; drawRegions(); },
+    }, regionLabel(r))));
+  };
+  drawRegions();
+  const grid = h('div', { class: 'diff-grid' }, ...(Object.keys(DIFFS) as Difficulty[]).map(d =>
+    h('button', { class: 'diff', 'data-testid': 'diff-' + d, onclick: () => { closeModal('placeit-setup'); void runPlaceIt(host, d, Math.random, region); } },
       h('strong', {}, t(d)), h('small', { html: icon('bulb', 14) }, ` × ${DIFFS[d].hints}`), recs[d] ? h('small', {}, `${t('best')}: ${fmtNum(recs[d].best)}`) : null)));
-  openModal('placeit-setup', t('placeit'), body);
+  openModal('placeit-setup', t('placeit'), h('div', { class: 'placeit-setup-wrap' }, regionBar, grid));
 }
 
-async function runPlaceIt(host: GameHost, diff: Difficulty, rnd: () => number = Math.random): Promise<void> {
+async function runPlaceIt(host: GameHost, diff: Difficulty, rnd: () => number = Math.random, region: PlaceItRegion = 'world'): Promise<void> {
   const cfg = DIFFS[diff];
-  const rounds = pickRounds(CATALOGUE, diff, rnd);
+  const rounds = pickRounds(CATALOGUE, diff, rnd, ROUNDS, region);
   const g = host.globe;
   host.setGameMode(true, cfg.names);
   let hints = cfg.hints, total = 0, r = 0;
@@ -112,6 +127,8 @@ async function runPlaceIt(host: GameHost, diff: Difficulty, rnd: () => number = 
       const mid = slerpLatLon(guess, [it.lat, it.lon], 0.5);
       g.flyTo(mid[0], mid[1], Math.max(0.8, Math.min(4, km / 2500 + 0.8)));
       const v = verdict(score);
+      const brg = km > 25 ? bearingDeg(guess[0], guess[1], it.lat, it.lon) : null;
+      const dirHint = brg !== null ? ` · ${arrow8(brg)} ${((Math.round(brg) % 360) + 360) % 360}°` : '';
       if (score >= 700) sfx.good(); else if (score === 0) sfx.bad(); else sfx.pop();
       hud.replaceChildren(
         h('div', { class: 'hud-top' },
@@ -121,7 +138,7 @@ async function runPlaceIt(host: GameHost, diff: Difficulty, rnd: () => number = 
           createModelPreview(it, { width: 112, height: 72, id: 'placeit-preview' }),
           h('div', { class: 'hud-info' },
             h('div', { class: 'hud-target' }, h('span', { class: 'hud-emoji' }, it.emoji), h('strong', {}, tr(it.name, lang()))),
-            h('p', { class: 'result', 'data-testid': 'placeit-result' }, h('b', {}, t(v)), ' ', t('distance', { d: formatKm(km, lang()) }), ' · +', t('points', { p: fmtNum(score) }))),
+            h('p', { class: 'result', 'data-testid': 'placeit-result' }, h('b', {}, t(v)), ' ', t('distance', { d: formatKm(km, lang()) }), dirHint, ' · +', t('points', { p: fmtNum(score) }))),
           h('div', { class: 'hud-actions' },
             h('button', { class: 'cta', 'data-testid': 'placeit-next', onclick: () => { g.clearPins(); resolve(); } }, r + 1 >= ROUNDS ? t('results') : t('next')))));
     }
@@ -133,10 +150,15 @@ async function runPlaceIt(host: GameHost, diff: Difficulty, rnd: () => number = 
   }
   quit();
   let isNew = false;
-  updateProgress(p => { const u = updateRecord(p.placeit[diff], total); p.placeit[diff] = u.rec; isNew = u.isNew; });
+  if (region === 'world') {
+    updateProgress(p => { const u = updateRecord(p.placeit[diff], total); p.placeit[diff] = u.rec; isNew = u.isNew; });
+  } else {
+    updateProgress(p => { const prev = p.placeit[diff] ?? { best: 0, plays: 0 }; p.placeit[diff] = { best: prev.best, plays: prev.plays + 1 }; });
+  }
   if (isNew) { confetti(); sfx.fanfare(); }
   const runStats = summarizePlaceItRun(results);
-  const shareCard = placeItShareText(diff, total, results, `Terrastra ${t('placeit')}`);
+  const regSuffix = region === 'world' ? '' : ` · ${CONTINENT_NAMES[region][lang()]}`;
+  const shareCard = placeItShareText(diff, total, results, `Terrastra ${t('placeit')}${regSuffix}`);
   openModal('placeit-results', t('results'), h('div', { class: 'results', 'data-testid': 'placeit-results' },
     h('p', { class: 'big-score' }, fmtNum(total), h('small', {}, ` / ${fmtNum(ROUNDS * 1000)}`)),
     h('p', { class: 'muted', 'data-testid': 'placeit-summary' }, t('placeitSummary', {
@@ -145,7 +167,7 @@ async function runPlaceIt(host: GameHost, diff: Difficulty, rnd: () => number = 
       mean: formatKm(runStats.meanKm, lang()),
       best: formatKm(runStats.bestKm, lang()),
     })),
-    isNew ? h('p', { class: 'record' }, '🏆 ' + t('newRecord')) : h('p', { class: 'muted' }, `${t('best')}: ${fmtNum(store.progress.placeit[diff].best)}`),
+    isNew ? h('p', { class: 'record' }, '🏆 ' + t('newRecord')) : h('p', { class: 'muted' }, `${t('best')}: ${fmtNum(store.progress.placeit[diff]?.best ?? 0)}`),
     h('ol', { class: 'round-list' }, ...results.map(x => h('li', {},
       h('button', {
         type: 'button',
@@ -154,7 +176,7 @@ async function runPlaceIt(host: GameHost, diff: Difficulty, rnd: () => number = 
         onclick: () => { closeModal('placeit-results'); g.flyTo(x.item.lat, x.item.lon, 1.4); },
       }, `${x.item.emoji} ${tr(x.item.name, lang())} — ${formatKm(x.km, lang())} · ${fmtNum(x.score)}`)))),
     h('div', { class: 'row' },
-      h('button', { class: 'cta', onclick: () => { closeModal('placeit-results'); void runPlaceIt(host, diff); } }, t('playAgain')),
+      h('button', { class: 'cta', onclick: () => { closeModal('placeit-results'); void runPlaceIt(host, diff, Math.random, region); } }, t('playAgain')),
       h('button', {
         class: 'pill',
         'data-testid': 'placeit-share',
@@ -247,14 +269,26 @@ function runQuiz(host: GameHost, names: string[], set: QuizSet, level: QuizLevel
     const medals = ['🥇', '🥈', '🥉', '🎖️'];
     const qTot = store.progress.quiz;
     const lifePct = Math.round((qTot.correct / Math.max(1, qTot.answered)) * 100);
+    const perPlayer = Math.ceil(qs.length / players.length);
+    const quizCard = quizShareText(ranked, perPlayer, set, level, `Terrastra ${t('quiz')}`);
     openModal('quiz-results', t('results'), h('div', { class: 'results', 'data-testid': 'quiz-results' },
       h('div', { class: 'podium' }, ...ranked.slice(0, 3).map((p, k) => h('div', { class: 'step s' + (k + 1) }, h('span', {}, medals[k]), h('strong', {}, p.name), h('span', {}, String(p.score))))),
       h('table', { class: 'rank' }, h('thead', {}, h('tr', {}, h('th', {}, '#'), h('th', {}, t('players')), h('th', {}, t('score')), h('th', {}, '🔥'))),
-        h('tbody', {}, ...ranked.map((p, k) => h('tr', {}, h('td', {}, String(k + 1)), h('td', {}, p.name), h('td', {}, `${p.score} / ${Math.ceil(qs.length / players.length)}`), h('td', {}, String(p.bestStreak)))))),
+        h('tbody', {}, ...ranked.map((p, k) => h('tr', {}, h('td', {}, String(k + 1)), h('td', {}, p.name), h('td', {}, `${p.score} / ${perPlayer}`), h('td', {}, String(p.bestStreak)))))),
       missedQs.length > 0 ? h('div', { class: 'quiz-missed-box', 'data-testid': 'quiz-missed-box' },
         h('strong', {}, t('quiz.missedTitle', { n: missedQs.length })),
         h('ul', { class: 'quiz-missed-list' }, ...missedQs.map(mq =>
-          h('li', {}, `${tr(mq.prompt, lang())} → `, h('strong', {}, mq.options[mq.answer]))))) : null,
+          h('li', {},
+            `${tr(mq.prompt, lang())} → `,
+            h('strong', {}, mq.options[mq.answer]),
+            mq.focus ? h('button', {
+              type: 'button',
+              class: 'round-list-btn',
+              title: t('quizFlyMissed'),
+              'aria-label': t('quizFlyMissed'),
+              'data-testid': 'quiz-missed-fly',
+              onclick: () => { closeModal('quiz-results'); host.globe.flyTo(mq.focus!.lat, mq.focus!.lon, 1.45); },
+            }, ' ⌖') : null)))) : null,
       h('p', { class: 'muted', 'data-testid': 'quiz-summary' }, t('quizLifetimeAcc', { pct: lifePct, c: fmtNum(qTot.correct), n: fmtNum(qTot.answered) })),
       h('div', { class: 'row' },
         missedQs.length > 0 ? h('button', {
@@ -262,6 +296,15 @@ function runQuiz(host: GameHost, names: string[], set: QuizSet, level: QuizLevel
           'data-testid': 'quiz-retry-missed',
           onclick: () => { closeModal('quiz-results'); runQuiz(host, [names[0]], set, level, missedQs); },
         }, t('quiz.retryMissed', { n: missedQs.length })) : null,
+        h('button', {
+          class: 'pill',
+          'data-testid': 'quiz-share',
+          html: icon('share', 15),
+          onclick: async () => {
+            if (navigator.share) await navigator.share({ text: quizCard }).catch(() => {});
+            else await copyText(quizCard, t('copied'));
+          },
+        }, ' ' + t('share')),
         h('button', { class: 'cta', onclick: () => { closeModal('quiz-results'); runQuiz(host, names, set, level); } }, t('playAgain')))));
   };
   void players;
@@ -275,6 +318,15 @@ function guessables(): Guessable[] {
   const l = lang();
   const out: Guessable[] = LANDMARKS.map(i => ({ key: i.key, label: tr(i.name, l), lat: i.lat, lon: i.lon, aliases: Object.values(i.name).map(s => s!.toLowerCase()) }));
   for (const [name, cc, lat, lon] of CITIES) out.push({ key: 'city:' + name, label: `${cityName(name, l)} (${countryName(cc, l)})`, lat, lon, aliases: [name.toLowerCase(), ...(CITY_ZH[name] ? [CITY_ZH[name]] : [])] });
+  for (const gz of GAZETTEER) {
+    out.push({
+      key: gz.key,
+      label: tr(gz.name, l),
+      lat: gz.lat,
+      lon: gz.lon,
+      aliases: [gz.name.en.toLowerCase(), gz.name.zh.toLowerCase(), ...(gz.aliases ?? []).map(a => a.toLowerCase())],
+    });
+  }
   return out;
 }
 
@@ -337,7 +389,20 @@ function openDaily(host: GameHost): void {
     const s = state!;
     rows.replaceChildren(...s.guesses.map(g => {
       const label = labelOf(g.key);
-      return h('li', { class: 'band-' + g.band }, h('span', {}, BAND_EMOJI[g.band]), h('span', { class: 'grow' }, label), h('span', {}, formatKm(g.km, lang())), h('span', {}, g.arrow));
+      const prox = proximityPct(g.km);
+      const found = g.lat !== undefined && g.lon !== undefined ? { lat: g.lat, lon: g.lon } : list.find(x => x.key === g.key);
+      const brgTip = g.bearing !== undefined ? `${g.arrow} ${g.bearing}°` : g.arrow;
+      return h('li', {
+        class: 'band-' + g.band,
+        style: found ? 'cursor:pointer' : '',
+        title: brgTip,
+        onclick: () => { if (found) host.globe.flyTo(found.lat, found.lon, 1.8); },
+      },
+        h('span', {}, BAND_EMOJI[g.band]),
+        h('span', { class: 'grow' }, label),
+        h('span', { class: 'daily-prox', 'data-testid': 'daily-prox' }, `${prox}%`),
+        h('span', {}, formatKm(g.km, lang())),
+        h('span', {}, g.arrow));
     }), ...Array.from({ length: MAX_GUESSES - s.guesses.length }, () => h('li', { class: 'empty' }, '·')));
     const misses = s.guesses.filter(g => g.band !== 'hit').length;
     const hs = hintsUnlocked(misses);

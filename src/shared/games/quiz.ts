@@ -237,7 +237,69 @@ const TEMPLATES: Template[] = [
     const ds = shuffle(by(c, 'discovery').filter(d => d.facts?.depthM), c.rnd).slice(0, c.nOpts);
     if (ds.length < c.nOpts) return null;
     const top = ds.reduce((a, b) => (a.facts!.depthM! >= b.facts!.depthM! ? a : b));
-    return build('sec_deepest', 'secrets', { en: 'Which of these lies deepest underwater?', zh: '下面哪一个位于最深的海底？' }, nm(c, top), ds.map(d => nm(c, d)), c);
+    return build('sec_deepest', 'secrets', { en: 'Which of these lies deepest underwater?', zh: '下面哪一个位于最深的海底？' }, nm(c, top), ds.map(d => nm(c, d)), c, top);
+  } },
+  { id: 'geo_ocean_sea', set: 'geo', make: c => {
+    const oceans: Record<'pacific' | 'atlantic' | 'indian' | 'arctic' | 'southern', I18n> = {
+      pacific: { en: 'Pacific Ocean', zh: '太平洋' },
+      atlantic: { en: 'Atlantic Ocean', zh: '大西洋' },
+      indian: { en: 'Indian Ocean', zh: '印度洋' },
+      arctic: { en: 'Arctic Ocean', zh: '北冰洋' },
+      southern: { en: 'Southern Ocean', zh: '南大洋' },
+    };
+    const seas: [GazetteerEntry['key'], keyof typeof oceans][] = [
+      ['geo:mediterranean-sea', 'atlantic'],
+      ['geo:caribbean-sea', 'atlantic'],
+      ['geo:north-sea', 'atlantic'],
+      ['geo:baltic-sea', 'atlantic'],
+      ['geo:sargasso-sea', 'atlantic'],
+      ['geo:south-china-sea', 'pacific'],
+      ['geo:east-china-sea', 'pacific'],
+      ['geo:bering-sea', 'pacific'],
+      ['geo:coral-sea', 'pacific'],
+      ['geo:arabian-sea', 'indian'],
+      ['geo:red-sea', 'indian'],
+    ];
+    const [key, oc] = pick(seas, c.rnd);
+    const gz = GAZETTEER_BY_KEY.get(key);
+    if (!gz) return null;
+    return build(
+      'geo_ocean_sea',
+      'geo',
+      { en: `Which ocean basin is the ${gz.name.en} connected to as a marginal sea?`, zh: `${gz.name.zh}属于哪个大洋的边缘海或附属海？` },
+      tr(oceans[oc], c.lang),
+      Object.values(oceans).map(o => tr(o, c.lang)),
+      c,
+      { lat: gz.lat, lon: gz.lon },
+    );
+  } },
+  { id: 'dino_oldest', set: 'animals', make: c => {
+    const dinos = shuffle(by(c, 'dino').filter(d => d.facts?.mya), c.rnd).slice(0, c.nOpts);
+    if (dinos.length < c.nOpts) return null;
+    const oldest = dinos.reduce((a, b) => (a.facts!.mya! >= b.facts!.mya! ? a : b));
+    return build(
+      'dino_oldest',
+      'animals',
+      { en: 'Which of these prehistoric creatures lived earliest in Earth’s history?', zh: '下面哪种古生物生活在距今最久远的地质年代？' },
+      nm(c, oldest),
+      dinos.map(d => nm(c, d)),
+      c,
+      oldest,
+    );
+  } },
+  { id: 'volcano_tallest', set: 'geo', make: c => {
+    const vs = shuffle(by(c, 'volcano').filter(v => v.facts?.heightM), c.rnd).slice(0, c.nOpts);
+    if (vs.length < c.nOpts) return null;
+    const top = vs.reduce((a, b) => (a.facts!.heightM! >= b.facts!.heightM! ? a : b));
+    return build(
+      'volcano_tallest',
+      'geo',
+      { en: 'Which of these volcanoes has the highest summit elevation?', zh: '下面哪座火山的山顶海拔最高？' },
+      nm(c, top),
+      vs.map(v => nm(c, v)),
+      c,
+      top,
+    );
   } },
 ];
 
@@ -265,4 +327,21 @@ export function applyAnswer(p: PlayerScore, correct: boolean): PlayerScore {
 }
 export function ranking(players: PlayerScore[]): PlayerScore[] {
   return players.slice().sort((a, b) => b.score - a.score || b.bestStreak - a.bestStreak);
+}
+
+/** Shareable compact text summary for a completed Quiz round. */
+export function quizShareText(
+  ranked: readonly PlayerScore[],
+  perPlayer: number,
+  set: QuizSet,
+  level: QuizLevel,
+  title = 'Terrastra Quiz',
+): string {
+  const medals = ['🥇', '🥈', '🥉', '🎖️'];
+  const lines = ranked.map((p, idx) => {
+    const pct = perPlayer > 0 ? Math.round((p.score / perPlayer) * 100) : 0;
+    const streak = p.bestStreak >= 2 ? ` 🔥×${p.bestStreak}` : '';
+    return `${medals[idx] ?? '•'} ${p.name}: ${p.score}/${perPlayer} (${pct}%)${streak}`;
+  });
+  return [`${title} (${set} · ${level})`, ...lines].join('\n');
 }

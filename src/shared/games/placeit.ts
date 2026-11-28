@@ -30,10 +30,21 @@ export function verdict(score: number): 'perfect' | 'great' | 'good' | 'tryAgain
   return score >= 1000 ? 'perfect' : score >= 700 ? 'great' : score >= 300 ? 'good' : 'tryAgain';
 }
 
-export function pickRounds(pool: CatalogueItem[], diff: Difficulty, rnd: () => number = Math.random, n = ROUNDS): CatalogueItem[] {
+export const PLACEIT_REGIONS = ['world', 'asia', 'europe', 'africa', 'north-america', 'south-america', 'oceania'] as const;
+export type PlaceItRegion = typeof PLACEIT_REGIONS[number];
+
+export function pickRounds(
+  pool: CatalogueItem[],
+  diff: Difficulty,
+  rnd: () => number = Math.random,
+  n = ROUNDS,
+  region: PlaceItRegion = 'world',
+): CatalogueItem[] {
   const cfg = DIFFS[diff];
-  const eligible = pool.filter(i => !i.route && i.tier <= cfg.tiers);
-  const src = eligible.length >= n ? eligible : pool.filter(i => !i.route);
+  const base = region === 'world' ? pool : pool.filter(i => i.continent === region);
+  const sourcePool = base.filter(i => !i.route).length >= n ? base : pool;
+  const eligible = sourcePool.filter(i => !i.route && i.tier <= cfg.tiers);
+  const src = eligible.length >= n ? eligible : sourcePool.filter(i => !i.route);
   return shuffle(src, rnd).slice(0, n);
 }
 

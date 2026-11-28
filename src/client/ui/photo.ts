@@ -1,5 +1,6 @@
 import { h, openModal, closeModal, toast } from './dom.ts';
 import { t } from '../lib/i18n.ts';
+import { load, save } from '../lib/storage.ts';
 import { sfx } from '../lib/sfx.ts';
 import { icon } from './icons.ts';
 
@@ -90,9 +91,28 @@ export function photoFilename(p: Pick<Photo, 'id' | 'at' | 'place'>): string {
 
 export function openPhotoMode(shot: Shot): void {
   document.body.classList.add('photo-mode');
+  let gridOn = load<boolean>('photoGrid', false);
   const exit = () => { document.body.classList.remove('photo-mode'); bar.remove(); frame.remove(); document.removeEventListener('keydown', onKey, true); };
-  const frame = h('div', { class: 'viewfinder', 'aria-hidden': 'true' }, h('i', { class: 'c tl' }), h('i', { class: 'c tr' }), h('i', { class: 'c bl' }), h('i', { class: 'c br' }));
+  const frame = h('div', { class: 'viewfinder' + (gridOn ? ' grid-on' : ''), 'aria-hidden': 'true' },
+    h('i', { class: 'c tl' }), h('i', { class: 'c tr' }), h('i', { class: 'c bl' }), h('i', { class: 'c br' }),
+    h('div', { class: 'vf-thirds' }, h('span', { class: 'vf-v1' }), h('span', { class: 'vf-v2' }), h('span', { class: 'vf-h1' }), h('span', { class: 'vf-h2' })));
   let busy = false;
+  const gridBtn = h('button', {
+    type: 'button',
+    class: 'pill' + (gridOn ? ' on' : ''),
+    'aria-pressed': String(gridOn),
+    'data-testid': 'photo-grid-btn',
+    html: icon('grid', 16),
+    onclick: () => toggleGrid(),
+  }, ' ' + t('photoGrid')) as HTMLButtonElement;
+  const toggleGrid = () => {
+    gridOn = !gridOn;
+    save('photoGrid', gridOn);
+    frame.classList.toggle('grid-on', gridOn);
+    gridBtn.classList.toggle('on', gridOn);
+    gridBtn.setAttribute('aria-pressed', String(gridOn));
+    sfx.tap();
+  };
   const snap = async () => {
     if (busy) return;
     busy = true;
@@ -109,6 +129,12 @@ export function openPhotoMode(shot: Shot): void {
   };
   const onKey = (e: KeyboardEvent) => {
     if (e.key === 'Escape') { e.stopPropagation(); exit(); return; }
+    if ((e.key === 'g' || e.key === 'G') && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleGrid();
+      return;
+    }
     const tgt = e.target instanceof HTMLElement ? e.target : null;
     if ((e.key === ' ' || e.key === 'Enter') && !tgt?.closest('button, a')) {
       e.preventDefault();
@@ -119,6 +145,7 @@ export function openPhotoMode(shot: Shot): void {
   document.addEventListener('keydown', onKey, true);
   const bar = h('div', { class: 'photo-bar' },
     h('button', { class: 'pill', 'data-testid': 'photo-album', onclick: () => { exit(); void openAlbum(); }, html: icon('image', 16) }, ' ' + t('album')),
+    gridBtn,
     h('button', { class: 'shutter', 'aria-label': t('shutter'), 'data-testid': 'shutter', onclick: () => void snap() }),
     h('button', { class: 'pill', 'data-testid': 'photo-exit', onclick: exit }, t('close')));
   document.body.append(frame, bar);
@@ -134,12 +161,15 @@ export async function openAlbum(): Promise<void> {
   const grid = h('div', { class: 'album-grid', 'data-testid': 'album-grid' });
   if (failed) grid.append(h('p', { class: 'muted', role: 'alert' }, t('albumFail')));
   else if (!list.length) grid.append(h('p', { class: 'muted' }, t('noPhotos')));
-  for (const p of list) {
-    grid.append(h('button', { class: 'thumb', onclick: () => view(p) }, h('img', { src: p.url, alt: p.place || t('photoAlt'), loading: 'lazy' })));
-  }
+  list.forEach((p, idx) => {
+    grid.append(h('button', { class: 'thumb', onclick: () => viewAt(idx) }, h('img', { src: p.url, alt: p.place || t('photoAlt'), loading: 'lazy' })));
+  });
   wrap.append(grid);
   openModal('album', t('album'), wrap, { wide: true });
-  function view(p: Photo) {
+  function viewAt(idx: number) {
+    const p = list[((idx % list.length) + list.length) % list.length];
+    if (!p) return;
+    const normIdx = ((idx % list.length) + list.length) % list.length;
     const fname = photoFilename(p);
     const dl = h('a', { class: 'pill', href: p.url, download: fname, 'data-testid': 'photo-download', html: icon('download', 16) }, ' ' + t('save'));
     const canCopyImg = typeof ClipboardItem !== 'undefined' && !!navigator.clipboard?.write;
@@ -168,8 +198,29 @@ export async function openAlbum(): Promise<void> {
       const blob = await (await fetch(p.url)).blob();
       await navigator.share({ files: [new File([blob], fname, { type: blob.type })], title: t('title') }).catch(() => {});
     }, html: icon('share', 16) }, ' ' + t('share')) : null;
+    const prevBtn = list.length > 1 ? h('button', {
+      type: 'button',
+      class: 'pill',
+      'data-testid': 'photo-prev',
+      'aria-label': t('photoPrev'),
+      onclick: () => { closeModal('photo-view'); viewAt(normIdx - 1); },
+    }, '← ' + t('photoPrev')) : null;
+    const nextBtn = list.length > 1 ? h('button', {
+      type: 'button',
+      class: 'pill',
+      'data-testid': 'photo-next',
+      'aria-label': t('photoNext'),
+      onclick: () => { closeModal('photo-view'); viewAt(normIdx + 1); },
+    }, t('photoNext') + ' →') : null;
+    const onViewKey = (e: KeyboardEvent) => {
+      if (list.length <= 1 || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (document.querySelector('.modal:last-of-type')?.id !== 'photo-view') return;
+      if (e.key === 'ArrowLeft') { e.preventDefault(); closeModal('photo-view'); viewAt(normIdx - 1); }
+      else if (e.key === 'ArrowRight') { e.preventDefault(); closeModal('photo-view'); viewAt(normIdx + 1); }
+    };
+    document.addEventListener('keydown', onViewKey);
     openModal('photo-view', p.place || t('album'), h('div', { class: 'photo-view' }, h('img', { src: p.url, alt: p.place || t('photoAlt') }),
-      h('p', { class: 'muted' }, new Date(p.at).toLocaleString()),
-      h('div', { class: 'row' }, dl, copyBtn, share, h('button', { class: 'pill danger', onclick: async () => { try { await photos.del(p.id); } catch { toast('⚠️ ' + t('albumFail')); return; } closeModal('photo-view'); closeModal('album'); void openAlbum(); }, html: icon('trash', 16) }, ' ' + t('del')))), { wide: true });
+      h('p', { class: 'muted' }, `${normIdx + 1} / ${list.length} · ${new Date(p.at).toLocaleString()}`),
+      h('div', { class: 'row' }, prevBtn, nextBtn, dl, copyBtn, share, h('button', { class: 'pill danger', onclick: async () => { try { await photos.del(p.id); } catch { toast('⚠️ ' + t('albumFail')); return; } closeModal('photo-view'); closeModal('album'); void openAlbum(); }, html: icon('trash', 16) }, ' ' + t('del')))), { wide: true, onClose: () => document.removeEventListener('keydown', onViewKey) });
   }
 }

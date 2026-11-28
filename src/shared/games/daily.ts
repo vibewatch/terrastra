@@ -4,6 +4,7 @@ import type { CatalogueItem } from '../data/types.ts';
 
 export const MAX_GUESSES = 6;
 const HIT_KM = 200;
+export const EARTH_HALF_CIRCUM_KM = 20015;
 const EPOCH = Date.UTC(2026, 0, 1);
 const SEED = 4242;
 const MIN_NEIGHBOUR_KM = 1200;
@@ -34,12 +35,36 @@ export function puzzleFor(pool: CatalogueItem[], day: number): CatalogueItem {
 type Band = 'hit' | 'warm' | 'mild' | 'cold';
 export const BAND_EMOJI: Record<Band, string> = { hit: '🟩', warm: '🟨', mild: '🟧', cold: '🟥' };
 
-export interface GuessResult { key: string; km: number; band: Band; arrow: string }
+export interface GuessResult {
+  key: string;
+  km: number;
+  band: Band;
+  arrow: string;
+  bearing?: number;
+  lat?: number;
+  lon?: number;
+}
+
+/** Antipodal-scaled proximity score (0–100%), reaching 100% inside the hit radius. */
+export function proximityPct(km: number): number {
+  if (!Number.isFinite(km) || km <= HIT_KM) return 100;
+  if (km >= EARTH_HALF_CIRCUM_KM) return 0;
+  return Math.max(1, Math.min(99, Math.round((1 - km / EARTH_HALF_CIRCUM_KM) * 100)));
+}
 
 export function evaluate(target: { lat: number; lon: number }, guess: { key: string; lat: number; lon: number }): GuessResult {
   const km = haversineKm(guess.lat, guess.lon, target.lat, target.lon);
   const band: Band = km <= HIT_KM ? 'hit' : km > 3000 ? 'cold' : km > 1000 ? 'mild' : 'warm';
-  return { key: guess.key, km, band, arrow: band === 'hit' ? '🎯' : arrow8(bearingDeg(guess.lat, guess.lon, target.lat, target.lon)) };
+  const brg = band === 'hit' ? undefined : ((Math.round(bearingDeg(guess.lat, guess.lon, target.lat, target.lon)) % 360) + 360) % 360;
+  return {
+    key: guess.key,
+    km,
+    band,
+    arrow: band === 'hit' ? '🎯' : arrow8(bearingDeg(guess.lat, guess.lon, target.lat, target.lon)),
+    bearing: brg,
+    lat: guess.lat,
+    lon: guess.lon,
+  };
 }
 
 /** Hints unlock after 2, 4 and 5 misses. */

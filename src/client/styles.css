@@ -907,6 +907,13 @@ body.photo-mode .topbar, body.photo-mode .bl, body.photo-mode .br, body.photo-mo
 .viewfinder .c { position: absolute; width: 40px; height: 40px; border: 3px solid var(--accent); }
 .viewfinder .tl { left: 0; top: 0; border-right: 0; border-bottom: 0; } .viewfinder .tr { right: 0; top: 0; border-left: 0; border-bottom: 0; }
 .viewfinder .bl { left: 0; bottom: 0; border-right: 0; border-top: 0; } .viewfinder .br { right: 0; bottom: 0; border-left: 0; border-top: 0; }
+.viewfinder .vf-thirds { display: none; position: absolute; inset: 0; pointer-events: none; }
+.viewfinder.grid-on .vf-thirds { display: block; }
+.viewfinder .vf-thirds span { position: absolute; background: rgba(255, 255, 255, 0.26); }
+.viewfinder .vf-v1 { top: 0; bottom: 0; left: 33.333%; width: 1px; }
+.viewfinder .vf-v2 { top: 0; bottom: 0; left: 66.667%; width: 1px; }
+.viewfinder .vf-h1 { left: 0; right: 0; top: 33.333%; height: 1px; }
+.viewfinder .vf-h2 { left: 0; right: 0; top: 66.667%; height: 1px; }
 .viewfinder.flash { background: #fff8; }
 .photo-bar { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); display: flex; gap: 16px; align-items: center; z-index: calc(var(--z-photo) + 1); }
 .shutter { width: 72px; height: 72px; border-radius: 50%; border: 5px solid #fff; background: var(--accent); box-shadow: 0 0 24px rgba(125, 211, 252, 0.6); }

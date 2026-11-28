@@ -9,7 +9,7 @@ import { t, lang, onLang } from '../lib/i18n.ts';
 import { load, save } from '../lib/storage.ts';
 import { store, canUsePro, effectivePlan, isPaywallEnabled, scheduleSync } from '../store.ts';
 import { classroomLink } from '../lib/classroom.ts';
-import { narrate, narrationSupported, splitSentences, type Narration } from '../lib/narrate.ts';
+import { cycleNarrationRate, getNarrationRate, narrate, narrationSupported, splitSentences, type Narration } from '../lib/narrate.ts';
 import { closeTutorial } from './tutorial.ts';
 import { isFreeTour, maskLicenseEmail } from '../../shared/lib/entitlements.ts';
 import { skyEvents } from '../../shared/lib/astro/events.ts';
@@ -164,6 +164,32 @@ export const TOURS: Tour[] = [
           '认识一下尼尔·阿姆斯特朗，或者到太阳系的月球上找找阿波罗11号着陆点和其他阿波罗任务。'] },
     ],
   },
+  {
+    id: 'ring-of-fire', icon: 'volcano', minutes: 4,
+    title: ['The Pacific Ring of Fire', '环太平洋火山地震带'],
+    blurb: ['Follow the 40,000-km horseshoe of ocean trenches and stratovolcanoes encircling the Pacific Plate.', '沿着环绕太平洋板块 4 万公里的马蹄形海沟与层状火山弧巡航。'],
+    steps: () => [
+      { title: ['A horseshoe of subduction', '马蹄形的俯冲边界'],
+        run: x => { x.earth(12, 165, 3.2); x.path([[-41, 175], [-6.1, 105.4], [11.35, 142.2], [35.36, 138.73], [54, -165], [46.19, -122.19], [-0.68, -78.44], [-33, -70]]); },
+        body: ['Around the rim of the Pacific Ocean, dense oceanic crust dives beneath neighbouring plates. Roughly three-quarters of Earth\'s active volcanoes and 90% of major earthquakes cluster along this 40,000-km belt.',
+          '在太平洋边缘，密度较大的大洋地壳俯冲到相邻板块之下。全球约四分之三的活火山和 90% 的强烈地震都集中在这条约 4 万公里长的构造带上。'] },
+      { title: ['Challenger Deep', '挑战者深渊'], run: x => x.item('dc_challenger'),
+        body: ['Where the Pacific Plate bends downward beneath the Mariana Plate, the seafloor plunges nearly 11 km into the Mariana Trench — deeper below sea level than Mount Everest rises above it.',
+          '在太平洋板块向马里亚纳板块下方弯曲俯冲的地方，海床骤降近 11 公里，形成马里亚纳海沟——它低于海平面的深度超过了珠穆朗玛峰的高度。'] },
+      { title: ['Krakatoa & island arcs', '喀拉喀托与岛弧火山'], run: x => x.item('vo_krakatoa'),
+        body: ['As subducting slabs carry seawater down ~100 km, water lowers the melting point of mantle rock. Rising magma builds volcanic island arcs like Indonesia\'s Sunda Arc and Krakatoa.',
+          '当俯冲板片把海水带到地下约 100 公里深处时，水分降低了地幔岩石的熔点，岩浆上涌便造就了印度尼西亚巽他弧和喀拉喀托这样的火山岛弧。'] },
+      { title: ['Mount Fuji', '富士山'], run: x => x.item('fuji'),
+        body: ['At a rare triple junction where the Pacific, Philippine Sea, and Okhotsk/Eurasian plates meet, centuries of ash and lava flows built Mount Fuji\'s symmetric 3,776-m cone.',
+          '在太平洋板块、菲律宾海板块与欧亚侧板块交汇的罕见三联点附近，数千年的火山灰与熔岩层层堆积，塑造出富士山 3,776 米高的对称锥体。'] },
+      { title: ['Cascades & Andes', '喀斯喀特与安第斯山脉'], run: x => x.item('vo_cotopaxi'),
+        body: ['Across the ocean, subduction along the Americas powers Mount St. Helens in the Cascades and lifts snow-capped equatorial stratovolcanoes like Cotopaxi (5,897 m) high in the Andes.',
+          '跨过大洋，美洲西岸的俯冲作用不仅孕育了北美喀斯喀特山脉的圣海伦斯火山，更在南美安第斯山脉托起了赤道雪峰科托帕希火山（5,897 米）。'] },
+      { title: ['Hotspot in the middle: Kīlauea', '板块中央的热点：基拉韦厄'], run: x => x.item('vo_kilauea'),
+        body: ['Not every Pacific volcano sits on the rim! Hawaii\'s Kīlauea rises right in the middle of the Pacific Plate over a deep mantle plume, pouring fluid basalt rather than explosive subduction ash.',
+          '并非所有太平洋火山都在边缘！夏威夷的基拉韦厄火山矗立在太平洋板块正中央的深部地幔热柱之上，喷出的是流动性极强的玄武岩浆，而非剧烈爆炸的俯冲带火山灰。'] },
+    ],
+  },
 ];
 
 /** "20 July 1969, 20:17 UTC · T+102:45" (mission elapsed time in hours:minutes). */
@@ -279,10 +305,30 @@ export function startTour(id: string, host: TourHost): void {
       html: icon(tourSpeech ? 'pause' : 'sound', 15),
       onclick: (ev: Event) => toggleSpeech(ev.currentTarget as HTMLButtonElement),
     }) as HTMLButtonElement : null;
+    const rateBtn = narrationSupported() ? h('button', {
+      type: 'button',
+      class: 'narrate-rate-pill',
+      'data-testid': 'tour-rate',
+      title: t('listenRate', { r: getNarrationRate() }),
+      'aria-label': t('listenRate', { r: getNarrationRate() }),
+      onclick: (ev: Event) => {
+        const nextR = cycleNarrationRate();
+        const b = ev.currentTarget as HTMLButtonElement;
+        b.textContent = `${nextR}×`;
+        const lbl = t('listenRate', { r: nextR });
+        b.title = lbl;
+        b.setAttribute('aria-label', lbl);
+        if (tourSpeech && speakBtn) {
+          stopSpeech();
+          toggleSpeech(speakBtn);
+        }
+      },
+    }, `${getNarrationRate()}×`) : null;
     card.replaceChildren(
       h('header', { class: 'tour-head' },
         h('span', { class: 'tour-kicker', html: icon(tour.icon, 14) }, h('span', {}, `${L(tour.title)} · ${t('tutStep', { i: i + 1, n: steps.length })}`)),
         speakBtn,
+        rateBtn,
         h('button', { class: 'icon-btn tour-x', 'aria-label': t('tourExit'), 'data-testid': 'tour-exit', html: icon('close', 16), onclick: () => stop() })),
       h('h2', { id: 'tour-title' }, L(st.title)),
       st.when !== undefined ? h('p', { class: 'tour-when', 'data-testid': 'tour-when' }, missionTime(st.when, tour.t0)) : '',
@@ -326,6 +372,10 @@ export function startTour(id: string, host: TourHost): void {
     const tgt = e.target instanceof HTMLElement ? e.target : null;
     if (tgt?.closest('input, textarea, select, [contenteditable]')) return;
     if (e.key === 'Escape') { e.preventDefault(); stop(); return; }
+    if (e.key === 's' || e.key === 'S') {
+      const sb = card.querySelector<HTMLButtonElement>('[data-testid="tour-speak"]');
+      if (sb) { e.preventDefault(); sb.click(); return; }
+    }
     if (tgt?.tagName === 'CANVAS') return;
     if (e.key === 'ArrowLeft' && i > 0) { e.preventDefault(); go(i - 1); }
     else if (e.key === 'ArrowRight') { e.preventDefault(); if (i === steps.length - 1) finish(); else go(i + 1); }

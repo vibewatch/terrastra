@@ -164,3 +164,103 @@ describe('game sharecards, daily win rate, and postcard filenames', async () => 
   });
 });
 
+describe('Wave 19 games, tours, passport route & radio search', async () => {
+  const { proximityPct, evaluate, EARTH_HALF_CIRCUM_KM } = await import('../../src/shared/games/daily.ts');
+  const { pickRounds } = await import('../../src/shared/games/placeit.ts');
+  const { generateQuiz, quizShareText } = await import('../../src/shared/games/quiz.ts');
+  const { planPassportRoute } = await import('../../src/shared/data/passports.ts');
+  const { TOURS, formatTourStudyGuideMarkdown } = await import('../../src/client/ui/tours.ts');
+  const { filterRadioStations } = await import('../../src/client/ui/radio.ts');
+  const { mulberry32 } = await import('../../src/shared/lib/rng.ts');
+
+  it('computes Daily Planet proximity percentages and bearing degrees', () => {
+    expect(proximityPct(0)).toBe(100);
+    expect(proximityPct(180)).toBe(100);
+    expect(proximityPct(10000)).toBe(50);
+    expect(proximityPct(EARTH_HALF_CIRCUM_KM)).toBe(0);
+    expect(proximityPct(25000)).toBe(0);
+    const miss = evaluate({ lat: 48.858, lon: 2.294 }, { key: 'rome', lat: 41.89, lon: 12.492 });
+    expect(miss.band).not.toBe('hit');
+    expect(miss.bearing).toBeGreaterThanOrEqual(0);
+    expect(miss.bearing).toBeLessThan(360);
+    expect(miss.lat).toBeCloseTo(41.89, 2);
+    const hit = evaluate({ lat: 48.858, lon: 2.294 }, { key: 'eiffel', lat: 48.86, lon: 2.295 });
+    expect(hit.band).toBe('hit');
+    expect(hit.bearing).toBeUndefined();
+  });
+
+  it('scopes Place-It rounds by continent when a regional filter is chosen', () => {
+    const asiaRounds = pickRounds(CATALOGUE, 'medium', mulberry32(7), 10, 'asia');
+    expect(asiaRounds).toHaveLength(10);
+    expect(asiaRounds.every(r => r.continent === 'asia')).toBe(true);
+    const europeRounds = pickRounds(CATALOGUE, 'hard', mulberry32(9), 10, 'europe');
+    expect(europeRounds).toHaveLength(10);
+    expect(europeRounds.every(r => r.continent === 'europe')).toBe(true);
+  });
+
+  it('generates valid quiz questions across all sets/levels and formats shareable Quiz scorecards', () => {
+    const qsEn = generateQuiz(CATALOGUE, 'geo', 'hard', 20, 'en', cc => cc, mulberry32(101));
+    const qsZh = generateQuiz(CATALOGUE, 'animals', 'normal', 15, 'zh', cc => cc, mulberry32(202));
+    expect(qsEn.length).toBeGreaterThanOrEqual(15);
+    expect(qsZh.length).toBeGreaterThanOrEqual(10);
+    for (const q of [...qsEn, ...qsZh]) {
+      expect(q.answer).toBeGreaterThanOrEqual(0);
+      expect(q.answer).toBeLessThan(q.options.length);
+    }
+    const card = quizShareText(
+      [
+        { name: 'Ada', score: 9, streak: 4, bestStreak: 6 },
+        { name: 'Lin', score: 7, streak: 1, bestStreak: 3 },
+      ],
+      10,
+      'geo',
+      'normal',
+    );
+    expect(card).toContain('Terrastra Quiz (geo · normal)');
+    expect(card).toContain('🥇 Ada: 9/10 (90%) 🔥×6');
+  });
+
+  it('plans greedy nearest-neighbour passport routes across unstamped items', () => {
+    const wonders = PASSPORTS.find(b => b.id === 'wonders')!;
+    const full = planPassportRoute(wonders, {}, [41.9, 12.5]); // starting near Rome -> Colosseum first
+    expect(full.stops).toHaveLength(wonders.keys.length);
+    expect(full.stops[0].item.key).toBe('colosseum');
+    expect(full.stops[0].legKm).toBeLessThan(30);
+    expect(full.totalKm).toBeGreaterThan(15000);
+    const allSeen = Object.fromEntries(wonders.keys.map(k => [k, 1]));
+    expect(planPassportRoute(wonders, allSeen, [0, 0])).toEqual({ stops: [], totalKm: 0 });
+  });
+
+  it('includes the Pacific Ring of Fire tour with verified catalogue stops', () => {
+    const rof = TOURS.find(t => t.id === 'ring-of-fire');
+    expect(rof).toBeDefined();
+    const visitedItems: string[] = [];
+    const noopHost = {
+      earth: () => {},
+      go: () => {},
+      sky: () => {},
+      path: () => {},
+      item: (k: string) => { visitedItems.push(k); },
+      solarAt: () => {},
+    };
+    for (const st of rof!.steps()) st.run(noopHost);
+    expect(visitedItems.length).toBeGreaterThanOrEqual(4);
+    for (const k of visitedItems) expect(BY_KEY.has(k), k).toBe(true);
+    expect(formatTourStudyGuideMarkdown(rof!, 'zh', null)).toContain('# 环太平洋火山地震带');
+  });
+
+  it('filters radio stations by name, country, ISO code, and EN/ZH genre tags while respecting hidden URLs', () => {
+    const sample = [
+      { name: 'Radio Jazz Paris', cc: 'FR', url: 'https://a.example/jazz', tags: ['jazz', 'smooth'] },
+      { name: 'NHK Classical Tokyo', cc: 'JP', url: 'https://b.example/nhk', tags: ['classical', 'orchestra'] },
+      { name: 'Talk News Daily', cc: 'US', url: 'https://c.example/news', tags: ['news', 'talk'] },
+    ];
+    const ccNames: Record<string, string> = { FR: 'France', JP: 'Japan', US: 'United States' };
+    expect(filterRadioStations(sample, 'JP', c => ccNames[c] ?? c).map(h => h.station.cc)).toEqual(['JP']);
+    expect(filterRadioStations(sample, '爵士', c => ccNames[c] ?? c).map(h => h.station.cc)).toEqual(['FR']);
+    expect(filterRadioStations(sample, 'classical', c => ccNames[c] ?? c, new Set(['https://b.example/nhk']))).toEqual([]);
+    // Empty query returns non-hidden music stations only
+    expect(filterRadioStations(sample, '', c => ccNames[c] ?? c).map(h => h.station.cc)).toEqual(['FR', 'JP']);
+  });
+});
+
