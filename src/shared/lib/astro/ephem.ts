@@ -465,6 +465,27 @@ export function opticalAirMass(altDeg: number): number {
   return Math.round((1 / denom) * 100) / 100;
 }
 
+/**
+ * Visual-band atmospheric extinction Δm (magnitudes dimmed) at apparent altitude `altDeg`,
+ * using Kasten & Young (1989) airmass and standard sea-level clear-sky zenith coefficient `kZenith` (mag/airmass).
+ */
+export function atmosphericExtinctionMag(altDeg: number, kZenith = 0.20): number {
+  const x = opticalAirMass(altDeg);
+  if (!Number.isFinite(x)) return Infinity;
+  return Math.round(Math.max(0, kZenith) * x * 100) / 100;
+}
+
+/**
+ * Apparent equatorial angular diameter (arcseconds) of a planet as seen from Earth at UTC `ms`.
+ */
+export function planetDiskArcsec(id: PlanetId, ms: number): number {
+  const g = planetGeo(id, ms);
+  const distKm = Math.max(1e4, g.distAu * AU_KM);
+  const rKm = BODY[id].radiusKm;
+  const arcsec = 2 * Math.asin(Math.min(1, rKm / distKm)) * R2D * 3600;
+  return Math.round(arcsec * 10) / 10;
+}
+
 // -------------------------------------------------------------------------------------------------- solvers
 
 /** Root of `f` in [a, b] (f(a), f(b) of opposite sign) by bisection to `tol` ms. */

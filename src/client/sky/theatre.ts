@@ -78,6 +78,7 @@ export class Theatre {
   private hintEl = h('div', { class: 'sky-hint' });
   private noticeEl = h('p', { class: 'sky-notice' });
   private zoomEl = h('div', { class: 'sky-zoom' });
+  private recenterBtn: HTMLButtonElement;
   private solarBtn: HTMLButtonElement;
   private playBtn: HTMLButtonElement;
   private rateEl = h('b', { class: 'sky-rate' });
@@ -116,7 +117,19 @@ export class Theatre {
     const orbit = new OrbitControls(this.cv, this.space.camera);
     const morbit = new OrbitControls(this.cv, this.model.camera);
     this.ctx = { ground: this.ground, space: this.space, model: this.model, look, orbit, morbit, user: false };
-    look.onUser = orbit.onUser = morbit.onUser = () => { this.ctx.user = true; };
+    this.recenterBtn = h('button', {
+      class: 'sky-btn sky-btn-sq sky-recenter',
+      'data-testid': 'sky-recenter',
+      title: s('recenter'),
+      'aria-label': s('recenter'),
+      hidden: true,
+      html: icon('compass', 18),
+      onclick: () => this.recenter(),
+    });
+    look.onUser = orbit.onUser = morbit.onUser = () => {
+      this.ctx.user = true;
+      this.recenterBtn.hidden = false;
+    };
 
     this.solarBtn = h('button', { class: 'sky-btn sky-solar', 'data-testid': 'sky-solar', onclick: () => this.toSolar() },
       h('span', { html: icon('planet', 18) }), h('span', {}, s('openSolar')));
@@ -155,6 +168,7 @@ export class Theatre {
         this.viewsEl,
         h('div', { class: 'sky-site' }, this.siteSel.el),
         ...(opts.onPhoto ? [h('button', { class: 'sky-btn sky-btn-sq sky-photo', 'data-testid': 'sky-photo', title: s('photo'), 'aria-label': s('photo'), html: icon('camera', 18), onclick: () => opts.onPhoto!() })] : []),
+        this.recenterBtn,
         this.calBtn));
     const side = h('div', { class: 'sky-side' },
       h('div', { class: 'sky-card' }, h('span', { class: 'sky-card-k' }, s('telemetry')), this.readEl),
@@ -299,6 +313,7 @@ export class Theatre {
       }
     }
     this.ctx.user = false;
+    this.recenterBtn.hidden = true;
     look.enabled = v === 'ground';
     orbit.enabled = v === 'space' || v === 'moon';
     morbit.enabled = v === 'model';
@@ -322,6 +337,21 @@ export class Theatre {
     a.enter(v, this.ctx);
     this.uiAcc = 1;
     this.cut = true;
+  }
+
+  /** Re-engage automatic target tracking after manual camera pan/orbit. */
+  recenter(): void {
+    this.ctx.user = false;
+    this.recenterBtn.hidden = true;
+    if (this.view === 'ground') {
+      const a = this.act;
+      this.ctx.look.aim(this.ctx.look.az, this.ctx.look.alt, a.fov[a.fov.start], false);
+      this.markZoom();
+    } else {
+      this.act.enter(this.view, this.ctx);
+    }
+    this.cut = true;
+    this.uiAcc = 1;
   }
 
   private zoomTo(z: 'tele' | 'eye'): void {
@@ -381,18 +411,44 @@ export class Theatre {
     if (e.key === ' ') { e.preventDefault(); e.stopPropagation(); this.setPlaying(!this.playing); }
     else if (e.key === '+' || e.key === '=' || e.key === ']') { e.stopPropagation(); this.setRate(1); }
     else if (e.key === '-' || e.key === '[') { e.stopPropagation(); this.setRate(-1); }
-    else if (!e.metaKey && !e.ctrlKey && !e.altKey && e.key.toLowerCase() === 'c') {
+    else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      if (e.target === this.range) return;
+      e.preventDefault();
       e.stopPropagation();
-      this.toggleCal();
-    } else if (e.key === ',' || e.key === '.') {
-      e.stopPropagation();
-      const marks = this.tm?.marks ?? [];
-      if (!marks.length) return;
-      const sorted = [...marks].sort((a, b) => a.t - b.t);
-      const target = e.key === '.'
-        ? sorted.find(m => m.t > this.t + 1000)
-        : [...sorted].reverse().find(m => m.t < this.t - 1000);
-      if (target) this.seek(target.t, this.playing);
+      const span = (this.tm?.t1 ?? 0) - (this.tm?.t0 ?? 0);
+      if (span > 0) {
+        const step = span * (e.shiftKey ? 0.1 : 0.02) * (e.key === 'ArrowRight' ? 1 : -1);
+        this.seek(this.t + step, this.playing);
+      }
+    } else if (!e.metaKey && !e.ctrlKey && !e.altKey) {
+      const k = e.key.toLowerCase();
+      if (k === 'c') {
+        e.stopPropagation();
+        this.toggleCal();
+      } else if (k === 'r') {
+        e.stopPropagation();
+        this.recenter();
+      } else if (k === 'z' && this.view === 'ground' && this.act && this.act.fov.tele !== this.act.fov.eye) {
+        e.stopPropagation();
+        const f = this.ctx.look.targetFov, a = this.act;
+        const cur = Math.abs(Math.log(f / a.fov.tele)) < Math.abs(Math.log(f / a.fov.eye)) ? 'tele' : 'eye';
+        this.zoomTo(cur === 'tele' ? 'eye' : 'tele');
+      } else if (k >= '1' && k <= '4' && this.act) {
+        const targetView = this.act.views[Number(k) - 1];
+        if (targetView) {
+          e.stopPropagation();
+          this.setView(targetView);
+        }
+      } else if (e.key === ',' || e.key === '.') {
+        e.stopPropagation();
+        const marks = this.tm?.marks ?? [];
+        if (!marks.length) return;
+        const sorted = [...marks].sort((a, b) => a.t - b.t);
+        const target = e.key === '.'
+          ? sorted.find(m => m.t > this.t + 1000)
+          : [...sorted].reverse().find(m => m.t < this.t - 1000);
+        if (target) this.seek(target.t, this.playing);
+      }
     }
   };
 

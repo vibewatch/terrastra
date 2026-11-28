@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import {
-  deltaT, eclipsePath, findLunarEclipses, findSolarEclipses, gast, localSolar, moonEcef, moonGeo, moonPhase, planetGeo, skyEvents,
+  atmosphericExtinctionMag, deltaT, eclipsePath, findLunarEclipses, findSolarEclipses, gast, localSolar, lunarDanjonL, lunarSaros,
+  moonEcef, moonGeo, moonPhase, planetDiskArcsec, planetGeo, skyEvents, solarSaros,
   sunEcef, sunGeo, topocentric, type GeoPoint, type SolarEclipse,
 } from '../../src/shared/lib/astro/index.ts';
+import { nearestConstellation } from '../../src/shared/lib/sky.ts';
 import { SHOWERS } from '../../src/shared/data/showers.ts';
 
 const D2R = Math.PI / 180;
@@ -237,3 +239,67 @@ describe('sky clocks', async () => {
     expect(siteClock(Date.parse('2026-07-01T12:00Z'), { tz: -6, est: true })).toBe('06:00 (≈UTC−6)');
   });
 });
+
+describe('Saros series, Danjon L scale, extinction, planet discs, constellations & calendar helpers', async () => {
+  const { isVisibleAtSite, skyEventsToMarkdown } = await import('../../src/client/sky/panel.ts');
+
+  it('assigns canonical NASA Saros series numbers and Danjon L values to solar and lunar eclipses', () => {
+    const solar = findSolarEclipses(Date.UTC(2024, 0, 1), Date.UTC(2028, 0, 1));
+    const s2024 = solar.find(e => day(e.t) === '2024-04-08')!;
+    const s2026 = solar.find(e => day(e.t) === '2026-08-12')!;
+    const s2027 = solar.find(e => day(e.t) === '2027-08-02')!;
+    expect(s2024.saros).toBe(139);
+    expect(s2026.saros).toBe(126);
+    expect(s2027.saros).toBe(136);
+    expect(solarSaros(s2024.t)).toBe(139);
+
+    const lunar = findLunarEclipses(Date.UTC(2025, 0, 1), Date.UTC(2027, 0, 1));
+    const l2025 = lunar.find(e => day(e.t) === '2025-09-07')!;
+    const l2026Mar = lunar.find(e => day(e.t) === '2026-03-03')!;
+    const l2026Aug = lunar.find(e => day(e.t) === '2026-08-28')!;
+    expect(l2025.saros).toBe(128);
+    expect(l2026Mar.saros).toBe(133);
+    expect(lunarSaros(l2025.t)).toBe(128);
+    expect(l2025.danjonL).toBe(2);
+    expect(l2026Mar.danjonL).toBe(3);
+    expect(l2026Aug.danjonL).toBeUndefined();
+    expect(lunarDanjonL(0.95)).toBeNull();
+    expect(lunarDanjonL(1.03)).toBe(4);
+    expect(lunarDanjonL(1.15)).toBe(3);
+    expect(lunarDanjonL(1.45)).toBe(2);
+    expect(lunarDanjonL(1.75)).toBe(1);
+  });
+
+  it('computes V-band atmospheric extinction, planet disk arcseconds, and 88-IAU constellation nearest lookup', () => {
+    expect(atmosphericExtinctionMag(90)).toBeCloseTo(0.2, 2);
+    expect(atmosphericExtinctionMag(30)).toBeCloseTo(0.4, 1);
+    expect(atmosphericExtinctionMag(-2)).toBe(Infinity);
+
+    // Jupiter near opposition is ~44–49″; Mars at 2027 opposition is ~14″
+    const jup = planetDiskArcsec('jupiter', Date.UTC(2026, 0, 10));
+    expect(jup).toBeGreaterThan(43);
+    expect(jup).toBeLessThan(50);
+    const mars = planetDiskArcsec('mars', Date.UTC(2027, 1, 19));
+    expect(mars).toBeGreaterThan(12.5);
+    expect(mars).toBeLessThan(16);
+
+    // Orion Nebula (RA 83.82°, Dec −5.39°), Polaris (RA 37.95°, Dec +89.26°), Andromeda M31 (RA 10.68°, Dec +41.27°)
+    expect(nearestConstellation(83.82, -5.39).id).toBe('ori');
+    expect(nearestConstellation(37.95, 89.26).id).toBe('umi');
+    expect(nearestConstellation(10.68, 41.27).id).toBe('and');
+  });
+
+  it('filters site-visible sky events and exports Markdown ephemeris tables', () => {
+    const ev2024 = skyEvents(Date.UTC(2024, 3, 1), Date.UTC(2024, 3, 15), { kinds: ['solar-eclipse'] });
+    expect(ev2024.length).toBe(1);
+    const dallas = { name: 'Dallas', lat: 32.78, lon: -96.8, tz: -5, zone: 'America/Chicago' };
+    const sydney = { name: 'Sydney', lat: -33.87, lon: 151.21, tz: 10, zone: 'Australia/Sydney' };
+    expect(isVisibleAtSite(ev2024[0], dallas)).toBe(true);
+    expect(isVisibleAtSite(ev2024[0], sydney)).toBe(false);
+
+    const md = skyEventsToMarkdown(ev2024, dallas, 2024);
+    expect(md).toContain('2024 (Dallas)');
+    expect(md).toContain('| 2024-04-08');
+  });
+});
+

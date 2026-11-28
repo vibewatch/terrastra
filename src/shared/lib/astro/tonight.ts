@@ -4,15 +4,19 @@
  * when this place can see it. No weather: clouds are not modelled and the caller must say so.
  */
 import type { GeoPoint, SkyEvent } from './types.ts';
-import { gast, moonGeo, moonPhase, planetGeo, planetVisualMag, topocentric, type LunarStage, type PlanetId } from './ephem.ts';
+import { findRoot, gast, moonGeo, moonPhase, planetDiskArcsec, planetGeo, planetVisualMag, topocentric, type LunarStage, type PlanetId } from './ephem.ts';
 import { localSolar } from './eclipses.ts';
 import { skyEvents } from './events.ts';
 import { SHOWERS } from '../../data/showers.ts';
 import { CONSTELLATIONS } from '../../data/constellations.ts';
+import { MESSIER, type ScaleId } from '../../data/cosmos.ts';
+import { galToRadec, nearestConstellation } from '../sky.ts';
 
 const D2R = Math.PI / 180;
 const STEP = 10 * 60_000;
 const NAKED_EYE: PlanetId[] = ['mercury', 'venus', 'mars', 'jupiter', 'saturn'];
+/** Showpiece Messier numbers visible in binoculars / small backyard telescopes under dark skies. */
+const SHOWPIECE_MESSIER = new Set([1, 8, 11, 13, 16, 17, 20, 22, 27, 31, 33, 35, 42, 44, 45, 51, 57, 64, 81, 82, 101, 104]);
 
 /**
  * Fold a single RFC 5545 property line so each physical line is ≤ 75 UTF-8 octets,
@@ -49,9 +53,29 @@ function altAz(ra: number, dec: number, ms: number, obs: GeoPoint): { alt: numbe
   return { alt: alt / D2R, az: ((az / D2R) + 360) % 360 };
 }
 
-export interface PlanetTonight { id: PlanetId; best: number; alt: number; az: number; mag: number; when: 'evening' | 'morning' | 'all' | 'night' }
+export interface PlanetTonight {
+  id: PlanetId;
+  best: number;
+  alt: number;
+  az: number;
+  mag: number;
+  when: 'evening' | 'morning' | 'all' | 'night';
+  constellationId: string;
+  elongDeg: number;
+  diskArcsec: number;
+}
 export interface ShowerTonight { key: string; peak: number; daysToPeak: number; zhr: number; radiantAlt: number; best: number; rate: number; moonlitRate: number }
 export interface ConstellationTonight { id: string; alt: number; az: number; brightestMag: number; starIndex: number }
+export interface DeepSkyTonight {
+  key: string;
+  messier: number;
+  scale: ScaleId;
+  kind: string;
+  alt: number;
+  az: number;
+  best: number;
+  constellationId: string;
+}
 export interface EventAhead {
   ev: SkyEvent;
   /** Can this place see it at the peak moment? 'up' = yes; 'day' = the Sun is up; 'below' = under the horizon; 'none' = not from here at all. */
@@ -61,11 +85,28 @@ export interface EventAhead {
 export interface Tonight {
   /** Start and end of the night (Sun below the horizon) and of real darkness (Sun 12° down); null where it never happens. */
   night: [number, number] | null;
+  /** Civil-dark window (Sun < −6°), nautical-dark window (`dark`, Sun < −12°), and true astronomical darkness (Sun < −18°). */
+  civilDark: [number, number] | null;
   dark: [number, number] | null;
+  astroDark: [number, number] | null;
   polar?: 'day' | 'night';
-  moon: { illum: number; waxing: boolean; stage: LunarStage; ageDays: number; distKm: number; upFrac: number; maxAlt: number; washout: boolean };
+  moon: {
+    illum: number;
+    waxing: boolean;
+    stage: LunarStage;
+    ageDays: number;
+    distKm: number;
+    diamArcmin: number;
+    constellationId: string;
+    riseMs: number | null;
+    setMs: number | null;
+    upFrac: number;
+    maxAlt: number;
+    washout: boolean;
+  };
   planets: PlanetTonight[];
   constellations: ConstellationTonight[];
+  deepSky: DeepSkyTonight[];
   showers: ShowerTonight[];
   events: EventAhead[];
 }
@@ -96,13 +137,36 @@ export function tonight(obs: GeoPoint, now: number, aheadDays = 30): Tonight {
   if (!night) polar = 'day';
   else if (night[0] === ts[0] && night[1] === ts[ts.length - 1]) { polar = 'night'; night = [now, now + 24 * 3600_000]; }
   const inNight = (t: number) => !!night && t >= night[0] && t <= night[1];
+  const civilOk = sun.map((a, i) => a < -6 && inNight(ts[i]));
   const darkOk = sun.map((a, i) => a < -12 && inNight(ts[i]));
+  const astroOk = sun.map((a, i) => a < -18 && inNight(ts[i]));
+  const civilDark = run(ts, civilOk, start);
   const dark = run(ts, darkOk, start);
+  const astroDark = run(ts, astroOk, start);
 
   const idx = ts.map((t, i) => [t, i] as const).filter(([t]) => inNight(t)).map(([, i]) => i);
   const midMs = night ? (night[0] + night[1]) / 2 : now;
   const ph = moonPhase(midMs);
-  const mDistKm = Math.round(moonGeo(midMs).distKm);
+  const mGeo = moonGeo(midMs);
+  const mDistKm = Math.round(mGeo.distKm);
+  const mTopo = topocentric(midMs, obs);
+  const diamArcmin = Math.round(mTopo.moon.radius * 120 * 10) / 10;
+  const moonConId = nearestConstellation(mGeo.ra, mGeo.dec).id;
+  // Topocentric upper-limb moonrise / moonset (refraction ~34′ minus ~16′ semi-diameter => h0 ≈ −0.30°)
+  const moonH0 = -0.30;
+  const moonSpan0 = night ? night[0] - 6 * 3600_000 : now - 12 * 3600_000;
+  const moonSpan1 = night ? night[1] + 6 * 3600_000 : now + 12 * 3600_000;
+  let riseMs: number | null = null, setMs: number | null = null;
+  let prevM = topocentric(moonSpan0, obs).moon.alt - moonH0;
+  for (let t = moonSpan0 + STEP; t <= moonSpan1; t += STEP) {
+    const curM = topocentric(t, obs).moon.alt - moonH0;
+    if (riseMs === null && prevM < 0 && curM >= 0) {
+      riseMs = Math.round(findRoot(u => topocentric(u, obs).moon.alt - moonH0, t - STEP, t, 5_000));
+    } else if (setMs === null && prevM >= 0 && curM < 0) {
+      setMs = Math.round(findRoot(u => topocentric(u, obs).moon.alt - moonH0, t - STEP, t, 5_000));
+    }
+    prevM = curM;
+  }
   const moonUp = idx.filter(i => moon[i] > 0).length;
   const upFrac = idx.length ? moonUp / idx.length : 0;
   const maxAlt = idx.length ? Math.max(...idx.map(i => moon[i])) : -90;
@@ -118,8 +182,18 @@ export function tonight(obs: GeoPoint, now: number, aheadDays = 30): Tonight {
     });
     if (best < 0) continue;
     const share = seen / twilight.length;
-    planets.push({ id, best, alt: bestAlt, az: bestAz, mag: planetVisualMag(id, best),
-      when: share > 0.7 ? 'all' : firstHalf / seen > 0.8 ? 'evening' : firstHalf / seen < 0.2 ? 'morning' : 'night' });
+    const gBest = planetGeo(id, best);
+    planets.push({
+      id,
+      best,
+      alt: bestAlt,
+      az: bestAz,
+      mag: planetVisualMag(id, best),
+      when: share > 0.7 ? 'all' : firstHalf / seen > 0.8 ? 'evening' : firstHalf / seen < 0.2 ? 'morning' : 'night',
+      constellationId: nearestConstellation(gBest.ra, gBest.dec).id,
+      elongDeg: Math.round(Math.abs(gBest.elong)),
+      diskArcsec: planetDiskArcsec(id, best),
+    });
   }
 
   // Prominent constellations high overhead during prime stargazing (mid-darkness, or mid-night when twilight persists)
@@ -150,6 +224,42 @@ export function tonight(obs: GeoPoint, now: number, aheadDays = 30): Tonight {
     for (const s of scored.slice(0, 5)) constellations.push(s.item);
   }
 
+  // Showpiece Messier deep-sky targets reaching ≥ 25° altitude during dark / nautical-twilight hours
+  const deepSky: DeepSkyTonight[] = [];
+  const dsoSamples = idx.filter(i => darkOk[i]);
+  const dsoPool = dsoSamples.length ? dsoSamples : twilight;
+  if (polar !== 'day' && dsoPool.length > 0) {
+    const dsoStep = Math.max(1, Math.floor(dsoPool.length / 6));
+    const checkIdx = dsoPool.filter((_, k) => k % dsoStep === 0 || k === dsoPool.length - 1);
+    const scoredDso: { item: DeepSkyTonight; score: number }[] = [];
+    for (const obj of MESSIER) {
+      if (!obj.messier || obj.kind === 'blackhole') continue;
+      const [ra, dec] = galToRadec(obj.l, obj.b);
+      let best = -1, bestAlt = 25, bestAz = 0;
+      for (const i of checkIdx) {
+        const p = altAz(ra, dec, ts[i], obs);
+        if (p.alt > bestAlt) { bestAlt = p.alt; bestAz = p.az; best = ts[i]; }
+      }
+      if (best < 0) continue;
+      const bonus = (SHOWPIECE_MESSIER.has(obj.messier) ? 35 : 0) + (obj.rank ?? 0) * 14;
+      scoredDso.push({
+        item: {
+          key: obj.key,
+          messier: obj.messier,
+          scale: obj.scale,
+          kind: obj.kind,
+          alt: bestAlt,
+          az: bestAz,
+          best,
+          constellationId: nearestConstellation(ra, dec).id,
+        },
+        score: bonus + bestAlt,
+      });
+    }
+    scoredDso.sort((a, b) => b.score - a.score);
+    for (const d of scoredDso.slice(0, 6)) deepSky.push(d.item);
+  }
+
   const showers: ShowerTonight[] = [];
   const peaks = skyEvents(now - 40 * 864e5, now + 40 * 864e5, { kinds: ['meteor-shower'] });
   const darkIdx = idx.filter(i => darkOk[i]);
@@ -178,7 +288,9 @@ export function tonight(obs: GeoPoint, now: number, aheadDays = 30): Tonight {
 
   return {
     night,
+    civilDark,
     dark,
+    astroDark,
     polar,
     moon: {
       illum: ph.illumination,
@@ -186,12 +298,17 @@ export function tonight(obs: GeoPoint, now: number, aheadDays = 30): Tonight {
       stage: ph.stage,
       ageDays: Math.round(ph.ageDays * 10) / 10,
       distKm: mDistKm,
+      diamArcmin,
+      constellationId: moonConId,
+      riseMs,
+      setMs,
       upFrac,
       maxAlt,
       washout: ph.illumination > 0.5 && upFrac > 0.4,
     },
     planets,
     constellations,
+    deepSky,
     showers,
     events,
   };

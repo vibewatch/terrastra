@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { tonight, activeOn, foldIcsLine } from '../../src/shared/lib/astro/tonight.ts';
-import { lunarPhaseStage, planetVisualMag, refractionArcmin, opticalAirMass } from '../../src/shared/lib/astro/ephem.ts';
+import { lunarPhaseStage, planetVisualMag, refractionArcmin, opticalAirMass, topocentric } from '../../src/shared/lib/astro/ephem.ts';
 import { nearestSite } from '../../src/client/sky/text.ts';
 import { buildObservingIcs, formatTonightPlanMarkdown } from '../../src/client/ui/tonight.ts';
 
@@ -100,5 +100,49 @@ describe('tonight from a city', () => {
     });
     expect(md).toContain('# Beijing');
     expect(md).toContain('20:00–04:00');
+    expect(md).toContain('M42');
+  });
+
+  it('separates civil, nautical, and astronomical twilight, bisects moonrise/moonset, and ranks Messier targets', () => {
+    const r = tonight(BEIJING, Date.parse('2026-12-13T10:00:00Z'));
+    expect(r.night).not.toBeNull();
+    expect(r.civilDark).not.toBeNull();
+    expect(r.dark).not.toBeNull();
+    expect(r.astroDark).not.toBeNull();
+    expect(r.civilDark![0]).toBeGreaterThanOrEqual(r.night![0]);
+    expect(r.dark![0]).toBeGreaterThanOrEqual(r.civilDark![0]);
+    expect(r.astroDark![0]).toBeGreaterThanOrEqual(r.dark![0]);
+    expect(r.astroDark![1]).toBeLessThanOrEqual(r.dark![1]);
+    expect(r.dark![1]).toBeLessThanOrEqual(r.civilDark![1]);
+    expect(r.civilDark![1]).toBeLessThanOrEqual(r.night![1]);
+
+    // London near June solstice gets nautical darkness (-12 deg) but never true astronomical darkness (-18 deg)
+    const londonJune = tonight({ lat: 51.5, lon: -0.12 }, Date.parse('2026-06-21T12:00:00Z'));
+    expect(londonJune.dark).not.toBeNull();
+    expect(londonJune.astroDark).toBeNull();
+
+    // Moon telemetry: apparent diameter ~29–34′, constellation ID, and accurate upper-limb rise/set crossing
+    expect(r.moon.diamArcmin).toBeGreaterThan(28.5);
+    expect(r.moon.diamArcmin).toBeLessThan(34.5);
+    expect(r.moon.constellationId.length).toBeGreaterThanOrEqual(3);
+    if (r.moon.riseMs !== null) {
+      expect(Math.abs(topocentric(r.moon.riseMs, BEIJING).moon.alt - (-0.30))).toBeLessThan(0.05);
+    }
+    if (r.moon.setMs !== null) {
+      expect(Math.abs(topocentric(r.moon.setMs, BEIJING).moon.alt - (-0.30))).toBeLessThan(0.05);
+    }
+
+    // Planet telescope telemetry & winter Messier deep-sky targets (M42 Orion Nebula / M45 Pleiades)
+    expect(r.planets.length).toBeGreaterThan(0);
+    for (const p of r.planets) {
+      expect(p.constellationId.length).toBeGreaterThanOrEqual(3);
+      expect(p.elongDeg).toBeGreaterThanOrEqual(0);
+      expect(p.elongDeg).toBeLessThanOrEqual(180);
+      expect(p.diskArcsec).toBeGreaterThan(2);
+    }
+    expect(r.deepSky.length).toBeGreaterThan(0);
+    expect(r.deepSky.every(d => d.alt >= 25)).toBe(true);
+    const messierNums = r.deepSky.map(d => d.messier);
+    expect(messierNums.some(n => n === 42 || n === 45 || n === 31)).toBe(true);
   });
 });

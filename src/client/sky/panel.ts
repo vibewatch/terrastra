@@ -1,7 +1,7 @@
 /** The sky-events calendar: a year of events, filters, countdowns and what each one looks like from your site. */
-import { skyEvents, localSolar, topocentric, foldIcsLine, type SkyEvent, type SkyEventKind } from '../../shared/lib/astro/index.ts';
+import { skyEvents, localSolar, topocentric, gast, planetGeo, foldIcsLine, type PlanetId, type SkyEvent, type SkyEventKind } from '../../shared/lib/astro/index.ts';
 import { SHOWERS } from '../../shared/data/showers.ts';
-import { h } from '../ui/dom.ts';
+import { h, toast } from '../ui/dom.ts';
 import { icon } from '../ui/icons.ts';
 import { openPaywall } from '../ui/paywall.ts';
 import { lang, t } from '../lib/i18n.ts';
@@ -98,6 +98,65 @@ function icsEsc(str: string): string {
   return str.replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\n/g, '\\n');
 }
 
+/** Whether `site` can actually observe `e` above the horizon during its observable window. */
+export function isVisibleAtSite(e: SkyEvent, site: Site | null): boolean {
+  if (!site) return true;
+  if (e.kind === 'solar-eclipse') {
+    const L = localSolar(e.solar!, site);
+    return L.visible && L.type !== 'none';
+  }
+  if (e.kind === 'lunar-eclipse') {
+    const l = e.lunar!;
+    return [l.u1 ?? l.p1, l.t, l.u4 ?? l.p4].some(t => topocentric(t, site).moon.alt > 0);
+  }
+  if (e.kind === 'transit') return topocentric(e.t, site).sun.alt > 0;
+  if (e.kind === 'meteor-shower') {
+    const sh = SHOWERS.find(x => x.key === e.shower);
+    if (!sh) return true;
+    const d2r = Math.PI / 180;
+    for (let u = e.t - 12 * 3600_000; u <= e.t + 12 * 3600_000; u += 3600_000) {
+      if (topocentric(u, site).sun.alt >= -6) continue;
+      const H = (gast(u) + site.lon - sh.ra) * d2r;
+      const alt = Math.asin(Math.sin(site.lat * d2r) * Math.sin(sh.dec * d2r) + Math.cos(site.lat * d2r) * Math.cos(sh.dec * d2r) * Math.cos(H)) / d2r;
+      if (alt > 5) return true;
+    }
+    return false;
+  }
+  if (e.kind === 'opposition' || e.kind === 'conjunction' || e.kind === 'elongation') {
+    const body = (e.bodies ?? []).find(b => b !== 'sun' && b !== 'earth' && b !== 'moon') as PlanetId | undefined;
+    if (!body) return true;
+    const d2r = Math.PI / 180;
+    const g = planetGeo(body, e.t);
+    for (let u = e.t - 12 * 3600_000; u <= e.t + 12 * 3600_000; u += 2 * 3600_000) {
+      if (topocentric(u, site).sun.alt >= -4) continue;
+      const H = (gast(u) + site.lon - g.ra) * d2r;
+      const alt = Math.asin(Math.sin(site.lat * d2r) * Math.sin(g.dec * d2r) + Math.cos(site.lat * d2r) * Math.cos(g.dec * d2r) * Math.cos(H)) / d2r;
+      if (alt > 5) return true;
+    }
+    return false;
+  }
+  return true;
+}
+
+/** Format a list of sky events as a clean bilingual Markdown ephemeris table. */
+export function skyEventsToMarkdown(events: readonly SkyEvent[], site: Site | null, year: number): string {
+  const zh = lang() === 'zh';
+  const place = site?.name ?? s('bestSpot');
+  const lines = [
+    `# Terrastra ${s('title')} · ${year} (${place})`,
+    '',
+    zh ? '| 日期 (UTC) | 天象 | 观测提示 |' : '| Date (UTC) | Event | Circumstances |',
+    '| --- | --- | --- |',
+  ];
+  for (const e of events) {
+    const iso = new Date(e.t).toISOString().slice(0, 16).replace('T', ' ');
+    const title = eventTitle(e).replace(/\|/g, '\\|');
+    const note = (seenFrom(e, site) || '—').replace(/\|/g, '\\|');
+    lines.push(`| ${iso} | ${title} | ${note} |`);
+  }
+  return lines.join('\n') + '\n';
+}
+
 /** Format a list of sky events as an RFC 5545 iCalendar (.ics) document. */
 export function skyEventsToIcs(events: readonly SkyEvent[], site: Site | null, year: number): string {
   const stamp = icsUtc(Date.now());
@@ -136,7 +195,10 @@ export class Calendar {
   private yearEl: HTMLElement;
   private chips: HTMLElement;
   private searchInput: HTMLInputElement;
+  private hereBtn: HTMLButtonElement;
+  private countEl: HTMLElement;
   private query = '';
+  private onlyVisibleHere = false;
   private year = new Date().getFullYear();
   private filter: Filter = 'top';
   active: string | null = null;
@@ -155,6 +217,18 @@ export class Calendar {
         this.renderListOnly();
       },
     }) as HTMLInputElement;
+    this.hereBtn = h('button', {
+      class: 'skycal-chip skycal-here',
+      'data-testid': 'skycal-here',
+      'aria-pressed': 'false',
+      onclick: () => {
+        this.onlyVisibleHere = !this.onlyVisibleHere;
+        this.hereBtn.classList.toggle('on', this.onlyVisibleHere);
+        this.hereBtn.setAttribute('aria-pressed', String(this.onlyVisibleHere));
+        this.renderListOnly();
+      },
+    }, s('calVisibleHere')) as HTMLButtonElement;
+    this.countEl = h('small', { class: 'skycal-count', 'data-testid': 'skycal-count' });
     this.list = h('ol', { class: 'skycal-list', style: 'position:relative' });
     this.el = h('aside', { class: 'skycal', 'aria-label': s('list') },
       h('header', { class: 'skycal-head' },
@@ -164,9 +238,12 @@ export class Calendar {
           h('button', { class: 'sky-btn sky-btn-sq', 'aria-label': '−1', html: icon('collapse', 18), onclick: () => this.go(-1) }),
           this.yearEl,
           h('button', { class: 'sky-btn sky-btn-sq', 'aria-label': '+1', html: icon('chevron', 18), onclick: () => this.go(1) }),
+          h('button', { class: 'sky-btn sky-btn-sq', 'data-testid': 'skycal-md', title: s('calCopyMd'), 'aria-label': s('calCopyMd'), html: icon('copy', 15), onclick: () => void this.copyMd() }),
           h('button', { class: 'sky-btn sky-btn-sq', 'data-testid': 'skycal-ics', title: s('calExportIcs'), 'aria-label': s('calExportIcs'), html: icon('calendar', 16), onclick: () => this.exportIcs() }))),
       this.chips,
-      h('div', { class: 'skycal-search-wrap' }, this.searchInput),
+      h('div', { class: 'skycal-search-wrap' },
+        this.searchInput,
+        h('div', { class: 'skycal-subbar' }, this.hereBtn, this.countEl)),
       this.list,
       h('p', { class: 'skycal-tz' }, s('calTz', { z: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' })));
     this.render();
@@ -178,6 +255,7 @@ export class Calendar {
     const q = this.query;
     return [...eventsOf(y - 1), ...eventsOf(y), ...eventsOf(y + 1)].filter(e => {
       if (new Date(e.t).getFullYear() !== y || !match(e, this.filter)) return false;
+      if (this.onlyVisibleHere && site && !isVisibleAtSite(e, site)) return false;
       if (!q) return true;
       return (
         eventTitle(e).toLowerCase().includes(q) ||
@@ -185,6 +263,18 @@ export class Calendar {
         e.kind.toLowerCase().includes(q)
       );
     });
+  }
+
+  private async copyMd(): Promise<void> {
+    const evs = this.currentYearEvents();
+    if (!evs.length) return;
+    const md = skyEventsToMarkdown(evs, this.site(), this.year);
+    try {
+      await navigator.clipboard.writeText(md);
+    } catch {
+      // ignore clipboard denial in non-secure contexts
+    }
+    toast(s('calMdCopied'));
   }
 
   private exportIcs(): void {
@@ -215,9 +305,12 @@ export class Calendar {
   showYear(y: number): void { if (y !== this.year) { this.year = y; this.render(); } }
 
   render(): void {
+    const hasSite = !!this.site();
     this.yearEl.textContent = String(this.year);
     this.searchInput.placeholder = s('calSearch');
     this.searchInput.setAttribute('aria-label', s('calSearch'));
+    this.hereBtn.textContent = s('calVisibleHere');
+    this.hereBtn.hidden = !hasSite;
     this.chips.replaceChildren(...FILTERS.map(f => h('button', {
       class: 'skycal-chip' + (f === this.filter ? ' on' : ''), role: 'tab', 'aria-selected': String(f === this.filter),
       onclick: () => { this.filter = f; this.render(); },
@@ -228,6 +321,7 @@ export class Calendar {
   private renderListOnly(): void {
     const now = Date.now(), site = this.site();
     const evs = this.currentYearEvents();
+    this.countEl.textContent = s('calCount', { n: evs.length });
     if (!evs.length) { this.list.replaceChildren(h('li', { class: 'skycal-empty' }, s('empty'))); return; }
     const l = lang(), nextIdx = evs.findIndex(e => e.t > now);
     this.list.replaceChildren(...evs.map((e, i) => {

@@ -11,6 +11,7 @@ import { predictIssPasses } from '../lib/iss.ts';
 import { tr } from '../../shared/data/types.ts';
 import { SHOWERS } from '../../shared/data/showers.ts';
 import { CONSTELLATIONS } from '../../shared/data/constellations.ts';
+import { MESSIER, type ScaleId } from '../../shared/data/cosmos.ts';
 import { tonight, foldIcsLine, type EventAhead, type Tonight } from '../../shared/lib/astro/tonight.ts';
 import { SITES, nearestSite } from '../sky/text.ts';
 import { eventTitle, bodyName } from '../sky/acts.ts';
@@ -20,6 +21,19 @@ const DIRS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
 const dir = (az: number) => t('dir_' + DIRS[Math.round(az / 45) % 8]);
 const LASTS = new Set(['opposition', 'conjunction', 'elongation', 'supermoon']);
 const fmtMag = (m: number) => (m > 0 ? `+${m.toFixed(1)}` : m.toFixed(1));
+const DAY_MS = 86_400_000;
+const SCALE_ROUTE_HEAD: Record<ScaleId, string> = {
+  solar: 'solar',
+  stars: 'nearbystars',
+  galaxy: 'milkyway',
+  group: 'localgroup',
+  laniakea: 'laniakea',
+  universe: 'universe',
+};
+const conLabel = (id: string, l: 'en' | 'zh') => {
+  const c = CONSTELLATIONS.find(x => x.id === id);
+  return c ? tr(c.name, l) : id.toUpperCase();
+};
 
 function icsUtc(ms: number): string {
   return new Date(ms).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
@@ -85,7 +99,7 @@ export function formatTonightPlanMarkdown(opts: {
   if (opts.data.planets.length) {
     lines.push('', `## ${t('tnPlanetsT')}`);
     for (const p of opts.data.planets) {
-      lines.push(`- **${bodyName(p.id)}** (${t('tnMag', { m: fmtMag(p.mag) })}) · ${t('tnWhen_' + p.when)} · ${t('tnLook', { d: dir(p.az), a: Math.round(p.alt) })} · ${t('tnBest', { t: opts.hm(p.best) })}`);
+      lines.push(`- **${bodyName(p.id)}** (${t('tnMag', { m: fmtMag(p.mag) })} · ${t('tnPlanetTele', { d: p.diskArcsec.toFixed(1), e: p.elongDeg })} · ${t('tnInConst', { c: conLabel(p.constellationId, l) })}) · ${t('tnWhen_' + p.when)} · ${t('tnLook', { d: dir(p.az), a: Math.round(p.alt) })} · ${t('tnBest', { t: opts.hm(p.best) })}`);
     }
   }
   if (opts.data.constellations.length) {
@@ -98,6 +112,14 @@ export function formatTonightPlanMarkdown(opts: {
         ? t('tnConstStar', { s: tr(star, l), m: fmtMag(c.brightestMag) })
         : t('tnConstMag', { m: fmtMag(c.brightestMag) });
       lines.push(`- **${tr(con.name, l)}** · ${starNote} · ${t('tnLook', { d: dir(c.az), a: Math.round(c.alt) })}`);
+    }
+  }
+  if (opts.data.deepSky.length) {
+    lines.push('', `## ${t('tnDeepSkyT')}`);
+    for (const d of opts.data.deepSky) {
+      const obj = MESSIER.find(x => x.key === d.key);
+      if (!obj) continue;
+      lines.push(`- **M${d.messier} ${tr(obj.name, l)}** (${t('tnInConst', { c: conLabel(d.constellationId, l) })}) · ${t('tnLook', { d: dir(d.az), a: Math.round(d.alt) })} · ${t('tnBest', { t: opts.hm(d.best) })}`);
     }
   }
   const activeShowers = opts.data.showers.filter(x => x.rate >= 1 || Math.abs(x.daysToPeak) < 3);
@@ -118,15 +140,16 @@ export function openTonight(
   globeCenter?: () => { lat: number; lon: number },
 ): void {
   let siteId = load<string>('tonightSite', '');
+  let dayOffset = 0;
   let forecast: NightCloudForecast | null = null;
-  let forecastSiteId = '';
+  let forecastKey = '';
   let loadingForecast = false;
   let reqSeq = 0;
 
   const body = h('div', { class: 'tn-body', 'aria-live': 'polite' });
   const selectObj = new Select({ testid: 'tn-city', label: t('tnCity'), icon: 'pin', className: 'xsel-wide', value: siteId, placeholder: t('tnPick'),
     options: SITES.map(x => ({ value: x.id, label: tr(x.name, lang()) })),
-    onChange: v => { reqSeq++; siteId = v; forecast = null; forecastSiteId = ''; loadingForecast = false; save('tonightSite', siteId); render(); } });
+    onChange: v => { reqSeq++; siteId = v; forecast = null; forecastKey = ''; loadingForecast = false; save('tonightSite', siteId); render(); } });
   const select = selectObj.el;
   const matchGlobeBtn = globeCenter ? h('button', {
     class: 'pill pill-sm',
@@ -139,17 +162,28 @@ export function openTonight(
       siteId = nearest.id;
       selectObj.value = siteId;
       forecast = null;
-      forecastSiteId = '';
+      forecastKey = '';
       loadingForecast = false;
       save('tonightSite', siteId);
       render();
     },
   }, h('span', { html: icon('globe', 14) }), h('span', {}, t('tnNearestGlobe'))) : null;
 
+  const stepDay = (nextOffset: number) => {
+    sfx.tap();
+    reqSeq++;
+    dayOffset = Math.max(-365, Math.min(365, nextOffset));
+    forecast = null;
+    forecastKey = '';
+    loadingForecast = false;
+    render();
+  };
+
   const render = () => {
     const site = SITES.find(x => x.id === siteId);
     if (!site) { body.replaceChildren(h('p', { class: 'muted', 'data-testid': 'tn-empty' }, t('tnChoose'))); return; }
-    const r = tonight(site, now);
+    const targetNow = now + dayOffset * DAY_MS;
+    const r = tonight(site, targetNow);
     const l = lang();
     const sp = l === 'zh' ? '' : ' ';
     const clock = (ms: number, date = false) => localClock(ms, zoneOffset(site.zone, ms), date, l);
@@ -158,17 +192,52 @@ export function openTonight(
       h('section', { class: 'tn-sec', 'data-testid': 'tn-' + id }, h('h3', { html: icon(ic, 16) }, h('span', {}, title)), ...kids);
     const li = (...kids: (Node | string | null)[]) => h('li', {}, ...kids);
 
+    const localDow = new Date(now + zoneOffset(site.zone, now) * 3600_000).getUTCDay();
+    const satOffset = (6 - localDow + 7) % 7;
+    const dateStepper = h('div', { class: 'tn-dates', 'data-testid': 'tn-dates' },
+      h('button', { class: 'pill pill-sm', 'data-testid': 'tn-prev-day', onclick: () => stepDay(dayOffset - 1) }, t('tnDate.prev')),
+      h('button', { class: 'pill pill-sm' + (dayOffset === 0 ? ' active' : ''), 'aria-pressed': String(dayOffset === 0), 'data-testid': 'tn-tonight', onclick: () => stepDay(0) }, t('tnDate.tonight')),
+      h('button', { class: 'pill pill-sm', 'data-testid': 'tn-next-day', onclick: () => stepDay(dayOffset + 1) }, t('tnDate.next')),
+      satOffset > 0 ? h('button', { class: 'pill pill-sm' + (dayOffset === satOffset ? ' active' : ''), 'aria-pressed': String(dayOffset === satOffset), 'data-testid': 'tn-weekend', onclick: () => stepDay(satOffset) }, t('tnDate.weekend')) : null,
+    );
+
+    const spanStr = (pair: [number, number] | null, fallback: string) => pair ? `${hm(pair[0])}–${hm(pair[1])}` : fallback;
     const night = r.polar === 'day' ? t('tnPolarDay') : r.polar === 'night' ? t('tnPolarNight')
       : t('tnNight', { a: hm(r.night![0]), b: hm(r.night![1]) }) + sp + (r.dark ? t('tnDark', { a: hm(r.dark[0]), b: hm(r.dark[1]) }) : t('tnNoDark'));
+    const twilightNote = !r.polar && r.night ? h('p', { class: 'muted small tn-twilight', 'data-testid': 'tn-twilight' },
+      t('tnTwilightStages', {
+        c: spanStr(r.civilDark, '—'),
+        n: spanStr(r.dark, '—'),
+        a: spanStr(r.astroDark, t('tnNoAstroDark')),
+      })) : null;
     const m = r.moon;
+    const moonRiseSet = m.riseMs !== null && m.setMs !== null
+      ? t('tnMoonRiseSet', { r: hm(m.riseMs), s: hm(m.setMs) })
+      : m.riseMs !== null
+        ? t('tnMoonRiseOnly', { r: hm(m.riseMs) })
+        : m.setMs !== null
+          ? t('tnMoonSetOnly', { s: hm(m.setMs) })
+          : '';
     const moonTxt = t('tnMoon', { p: Math.round(m.illum * 100), phase: t(`tnStage_${m.stage}`) })
       + sp + t('tnMoonAgeDist', { age: m.ageDays.toFixed(1), dist: fmtNum(m.distKm) })
+      + sp + t('tnMoonDiam', { d: m.diamArcmin.toFixed(1) })
+      + sp + `(${t('tnInConst', { c: conLabel(m.constellationId, l) })})`
+      + (moonRiseSet ? sp + moonRiseSet : '')
       + sp + (m.maxAlt <= 0 ? t('tnMoonDown') : t('tnMoonUp', { p: Math.round(m.upFrac * 100) }))
       + (m.washout ? sp + t('tnWashout') : '');
 
     const planets = r.planets.length ? h('ul', { class: 'tn-list' }, ...r.planets.map(p => li(
-      h('b', {}, bodyName(p.id)), ' · ', t('tnMag', { m: fmtMag(p.mag) }), ' · ', t('tnWhen_' + p.when), ' · ',
-      t('tnLook', { d: dir(p.az), a: Math.round(p.alt) }), ' · ', t('tnBest', { t: hm(p.best) }))))
+      h('button', {
+        class: 'link tn-ev',
+        'data-testid': 'tn-planet-link',
+        onclick: () => { sfx.tap(); closeModal('tonight'); open('solar/' + p.id); },
+      }, bodyName(p.id)),
+      ' · ', t('tnMag', { m: fmtMag(p.mag) }),
+      ' · ', t('tnPlanetTele', { d: p.diskArcsec.toFixed(1), e: p.elongDeg }),
+      ' · ', t('tnInConst', { c: conLabel(p.constellationId, l) }),
+      ' · ', t('tnWhen_' + p.when),
+      ' · ', t('tnLook', { d: dir(p.az), a: Math.round(p.alt) }),
+      ' · ', t('tnBest', { t: hm(p.best) }))))
       : h('p', { class: 'muted' }, t('tnNoPlanets'));
 
     const constList = r.constellations.length ? h('ul', { class: 'tn-list' }, ...r.constellations.map(c => {
@@ -182,6 +251,23 @@ export function openTonight(
         t('tnLook', { d: dir(c.az), a: Math.round(c.alt) }),
       );
     })) : h('p', { class: 'muted' }, t('tnNoConst'));
+
+    const deepSkyList = r.deepSky.length ? h('ul', { class: 'tn-list' }, ...r.deepSky.map(d => {
+      const obj = MESSIER.find(x => x.key === d.key)!;
+      const kindKey = `tnDsoKind_${d.kind}` as Parameters<typeof t>[0];
+      const route = `${SCALE_ROUTE_HEAD[d.scale]}/${d.key}`;
+      return li(
+        h('button', {
+          class: 'link tn-ev',
+          'data-testid': 'tn-dso',
+          onclick: () => { sfx.tap(); closeModal('tonight'); open(route); },
+        }, `${obj.emoji} M${d.messier} ${tr(obj.name, l)}`),
+        ' · ', t(kindKey),
+        ' · ', t('tnInConst', { c: conLabel(d.constellationId, l) }),
+        ' · ', t('tnLook', { d: dir(d.az), a: Math.round(d.alt) }),
+        ' · ', t('tnBest', { t: hm(d.best) }),
+      );
+    })) : h('p', { class: 'muted' }, t('tnNoDeepSky'));
 
     const showers = r.showers.filter(x => x.rate >= 1 || Math.abs(x.daysToPeak) < 3);
     const showerList = showers.length ? h('ul', { class: 'tn-list' }, ...showers.map(x => {
@@ -205,7 +291,7 @@ export function openTonight(
       h('span', { class: 'tn-here tn-' + e.here }, where(e)))))
       : h('p', { class: 'muted' }, t('tnNoEvents'));
 
-    const win = r.dark ?? r.night ?? [now + 2 * 3600_000, now + 5 * 3600_000] as [number, number];
+    const win = r.dark ?? r.night ?? [targetNow + 2 * 3600_000, targetNow + 5 * 3600_000] as [number, number];
     const winLabel = r.polar === 'day'
       ? t('tnPolarDay')
       : t('tnPlanner.window', { a: hm(win[0]), b: hm(win[1]) });
@@ -219,10 +305,13 @@ export function openTonight(
 
     const topTargets = [
       ...r.planets.slice(0, 3).map(p => bodyName(p.id)),
+      ...r.deepSky.slice(0, 2).map(d => `M${d.messier}`),
       ...showers.slice(0, 2).map(x => tr(SHOWERS.find(y => y.key === x.key)!.name, lang())),
     ];
 
-    const fc = forecastSiteId === site.id ? forecast : null;
+    const curFcKey = `${site.id}:${dayOffset}`;
+    const canForecast = dayOffset >= 0 && dayOffset <= 6 && !classroom();
+    const fc = forecastKey === curFcKey ? forecast : null;
     const bestWinStr = fc?.bestWindow ? `${hm(fc.bestWindow[0])}–${hm(fc.bestWindow[1])}` : `${hm(win[0])}–${hm(win[1])}`;
     const fcTone = fc ? (fc.verdictKey === 'wxClear' ? 'excellent' : fc.verdictKey === 'wxPartly' ? 'fair' : 'poor') : 'good';
     const forecastEl = fc
@@ -232,26 +321,26 @@ export function openTonight(
       : null;
 
     const loadForecast = async () => {
-      if (loadingForecast || classroom()) return;
+      if (loadingForecast || !canForecast) return;
       sfx.tap();
       const seq = ++reqSeq;
-      const targetSiteId = site.id;
+      const targetKey = curFcKey;
       loadingForecast = true;
       render();
       try {
         const res = await fetchNightCloudForecast(site.lat, site.lon, win[0], win[1]);
-        if (seq !== reqSeq || siteId !== targetSiteId) return;
+        if (seq !== reqSeq || `${siteId}:${dayOffset}` !== targetKey) return;
         forecast = res;
-        forecastSiteId = targetSiteId;
+        forecastKey = targetKey;
       } finally {
-        if (seq === reqSeq && siteId === targetSiteId) {
+        if (seq === reqSeq && `${siteId}:${dayOffset}` === targetKey) {
           loadingForecast = false;
           render();
         }
       }
     };
 
-    const issPasses = predictIssPasses(site.lat, site.lon, now, 24, 10);
+    const issPasses = predictIssPasses(site.lat, site.lon, targetNow, 24, 10);
     const issShown = issPasses.slice(0, 3);
     const issList = issShown.length
       ? h('ul', { class: 'tn-list tn-iss-list' }, ...issShown.map(p => li(
@@ -313,7 +402,7 @@ export function openTonight(
       const cityName = tr(site.name, l);
       const md = formatTonightPlanMarkdown({
         city: cityName,
-        dateStr: clock(now, true),
+        dateStr: clock(targetNow, true),
         winLabel,
         skySummary: t(skyKey),
         moonSummary: moonTxt,
@@ -333,7 +422,7 @@ export function openTonight(
       topTargets.length ? h('p', { class: 'muted small' }, `${t('tnPlanner.targets')}: ${topTargets.join(' · ')}`) : null,
       forecastEl,
       h('div', { class: 'tn-planner-actions' },
-        !classroom() ? h('button', {
+        canForecast ? h('button', {
           class: 'pill pill-sm',
           'data-testid': 'tn-forecast-btn',
           disabled: loadingForecast,
@@ -351,12 +440,15 @@ export function openTonight(
         }, h('span', { html: icon('copy', 14) }), h('span', {}, t('tnPlanner.copyMd')))));
 
     body.replaceChildren(
-      h('p', { class: 'tn-when' }, t('tnFor', { c: tr(site.name, l), d: clock(now, true) })),
+      h('div', { class: 'tn-when-row' },
+        h('p', { class: 'tn-when' }, t('tnFor', { c: tr(site.name, l), d: clock(targetNow, true) })),
+        dateStepper),
       plannerSec,
-      sec('night', 'clock', t('tnNightT'), h('p', {}, night)),
+      sec('night', 'clock', t('tnNightT'), h('p', {}, night), twilightNote),
       sec('moon', 'eclipse', t('tnMoonT'), h('p', {}, moonTxt)),
       sec('planets', 'planet', t('tnPlanetsT'), planets),
       sec('constellations', 'star', t('tnConstT'), constList),
+      sec('deepsky', 'telescope', t('tnDeepSkyT'), deepSkyList),
       issSec,
       sec('showers', 'star', t('tnShowersT'), showerList),
       sec('events', 'calendar', t('tnEventsT'), h('p', { class: 'muted small' }, t('tnEventsNote')), events),

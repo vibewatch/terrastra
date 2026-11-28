@@ -4,6 +4,7 @@
  * orbits.ts. Both get mapped to three.js as (x, z, −y), so each frame's "plane" is three's XZ plane and its north +Y.
  */
 import type { Vec3 } from './orbits.ts';
+import { CONSTELLATIONS, type Constellation } from '../data/constellations.ts';
 
 const D2R = Math.PI / 180;
 const EPS = 23.4392911 * D2R;
@@ -80,3 +81,28 @@ export function fmtRadec(raDeg: number, decDeg: number): string {
 
 /** The north celestial pole in galactic coordinates (for sky "north" when orienting galaxy discs). */
 export const NCP_GAL: Vec3 = eqToGal([0, 0, 1]);
+
+/**
+ * Nearest IAU constellation to J2000 equatorial coordinates (`raDeg`, `decDeg`)
+ * by angular separation to the 88 stick-figure star positions.
+ */
+export function nearestConstellation(raDeg: number, decDeg: number): Constellation {
+  const cd = Math.cos(decDeg * D2R);
+  const ux = cd * Math.cos(raDeg * D2R);
+  const uy = cd * Math.sin(raDeg * D2R);
+  const uz = Math.sin(decDeg * D2R);
+  let best = CONSTELLATIONS[0];
+  let bestDot = -2;
+  for (const con of CONSTELLATIONS) {
+    for (const [ra, dec] of con.stars) {
+      const scd = Math.cos(dec * D2R);
+      const dot = ux * scd * Math.cos(ra * D2R) + uy * scd * Math.sin(ra * D2R) + uz * Math.sin(dec * D2R);
+      if (dot > bestDot) {
+        bestDot = dot;
+        best = con;
+      }
+    }
+  }
+  return best;
+}
+

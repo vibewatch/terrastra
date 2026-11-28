@@ -28,6 +28,8 @@ export interface SolarEclipse {
   /** First and last contact of the penumbra with the Earth (UTC ms). */
   p1: number;
   p4: number;
+  /** NASA / van den Bergh Saros series number (e.g. 139 for 2024-04-08, 126 for 2026-08-12). */
+  saros?: number;
 }
 
 export interface LunarEclipse {
@@ -43,6 +45,10 @@ export interface LunarEclipse {
   p1: number; u1?: number; u2?: number; u3?: number; u4?: number; p4: number;
   /** Point where the Moon is at the zenith at greatest eclipse (centre of the hemisphere that sees it). */
   subMoon: GeoPoint;
+  /** NASA / van den Bergh Lunar Saros series number (e.g. 133 for 2026-03-03). */
+  saros?: number;
+  /** Estimated Danjon luminosity scale L (1..4) for umbral lunar eclipses, or undefined for penumbral-only. */
+  danjonL?: 1 | 2 | 3 | 4;
 }
 
 /** One sample along a central solar eclipse's path. */

@@ -5,8 +5,11 @@
  */
 import * as THREE from 'three';
 import {
-  topocentric, localSolar, eclipsePath, planetGeo, moonGeo, sunGeo, moonPhase, gast, nextPhase, type PlanetId, type SkyEvent, type GeoPoint,
+  topocentric, localSolar, eclipsePath, planetGeo, moonGeo, sunGeo, moonPhase, gast, nextPhase,
+  opticalAirMass, atmosphericExtinctionMag, solarSaros, lunarSaros, lunarDanjonL,
+  type PlanetId, type SkyEvent, type GeoPoint,
 } from '../../shared/lib/astro/index.ts';
+import { nearestConstellation } from '../../shared/lib/sky.ts';
 import { SHOWERS } from '../../shared/data/showers.ts';
 import { lang } from '../lib/i18n.ts';
 import { tr } from '../../shared/data/types.ts';
@@ -216,6 +219,7 @@ function solarAct(ev: SkyEvent, pick: Site | null): Act {
       if (view === 'model') return eclipseModelFrame(ms, ev.t, false);
       const read: [string, string][] = [[s('localTime'), siteClock(ms, site, false, lang())]];
       if (view === 'space') {
+        read.push([s('saros'), `#${e.saros ?? solarSaros(e.t)}`]);
         read.push([s('magnitude'), e.magnitude.toFixed(3)]);
         if (e.durationS) read.push([e.type === 'annular' ? s('durationAnn') : s('duration'), fmtDur(e.durationS)]);
         if (e.pathWidthKm) read.push([s('pathWidth'), `${Math.round(e.pathWidthKm)} km`]);
@@ -227,6 +231,7 @@ function solarAct(ev: SkyEvent, pick: Site | null): Act {
       read.push([s('sunAlt'), deg(st.sunAlt)], [s('covered'), pct(1 - st.vis)]);
       read.push([site.name, s(typeKey, { n: Math.round(L.obscuration * 100) })]);
       if (L.c2 && L.c3) read.push([L.type === 'annular' ? s('durationAnn') : s('duration'), fmtDur((L.c3 - L.c2) / 1000)]);
+      read.push([s('saros'), `#${e.saros ?? solarSaros(e.t)}`]);
       let cap = s('cap_solar_partial');
       if (L.c1 && ms < L.c1) cap = s('cap_solar_pre');
       else if (st.tot > 0.5) cap = s('cap_solar_total');
@@ -285,6 +290,9 @@ function lunarAct(ev: SkyEvent, pick: Site | null): Act {
       const read: [string, string][] = [[s('localTime'), siteClock(ms, site, false, lang())]];
       read.push([s('magnitude'), l.umbralMagnitude > 0 ? l.umbralMagnitude.toFixed(2) : l.penumbralMagnitude.toFixed(2)]);
       if (l.u2 && l.u3) read.push([s('duration'), fmtDur((l.u3 - l.u2) / 1000)]);
+      read.push([s('saros'), `#${l.saros ?? lunarSaros(l.t)}`]);
+      const dL = l.danjonL ?? lunarDanjonL(l.umbralMagnitude);
+      if (dL !== null) read.push([s('danjon'), `L = ${dL}`]);
       const inUmbra = l.u1 !== undefined && ms > l.u1 && ms < (l.u4 ?? 0);
       const total = l.u2 !== undefined && ms > l.u2 && ms < (l.u3 ?? 0);
       let cap = ms > l.p1 && ms < l.p4 ? s('cap_lunar_pen') : s('cap_full');
@@ -564,7 +572,20 @@ function planetAct(ev: SkyEvent, pick: Site | null): Act {
         read.push([s('separation'), deg(Math.acos(Math.min(1, p[0] * q[0] + p[1] * q[1] + p[2] * q[2])) / D2R, 2)]);
       }
       const st = c.ground.state.planets[main];
-      if (st) read.push([lang() === 'zh' ? '亮度' : 'Magnitude', st.mag.toFixed(1)]);
+      if (st) {
+        read.push([lang() === 'zh' ? '亮度' : 'Magnitude', st.mag.toFixed(1)]);
+        if (st.alt > 0) {
+          const xAir = opticalAirMass(st.alt);
+          const ext = atmosphericExtinctionMag(st.alt);
+          if (Number.isFinite(xAir) && Number.isFinite(ext)) {
+            read.push([s('airmassExt'), `X ${xAir.toFixed(2)} · +${ext.toFixed(2)}m`]);
+          }
+        }
+      }
+      if (g) {
+        const con = nearestConstellation(g.ra, g.dec);
+        read.push([s('constellation'), tr(con.name, lang())]);
+      }
       return { caption: cap, read };
     },
   };

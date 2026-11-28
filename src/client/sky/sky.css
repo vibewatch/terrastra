@@ -34,6 +34,8 @@
 .sky-btn:focus-visible, .sky-seg:focus-visible, .sky-mark:focus-visible, .skycal-item:focus-visible, .skycal-chip:focus-visible { outline: 2px solid var(--sig); outline-offset: 2px; }
 .sky-btn-sq { width: 44px; padding: 0; }
 .sky-btn.on, .sky-zbtn.on { color: var(--sig-hi); --edge: var(--sig-line); border-color: var(--sig-line); background: var(--pp-cuts), rgba(40, 26, 6, 0.85); }
+.sky-btn[hidden] { display: none; }
+.sky-recenter { color: var(--sig-hi); --edge: var(--sig-line); border-color: var(--sig-line); }
 .sky-btn .ico { flex: none; }
 
 /* ---- astrolabe frame ---- */
@@ -187,7 +189,11 @@
 .skycal-years .sky-btn { width: 40px; min-height: 40px; }
 .skycal-year { min-width: 56px; text-align: center; font: 700 20px/1 var(--font-hud); color: #f8fafc; }
 .skycal-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 12px 10px 16px; border-bottom: 1px solid var(--line); }
-.skycal-search-wrap { padding: 8px 12px 8px 16px; border-bottom: 1px solid var(--line); }
+.skycal-search-wrap { display: grid; gap: 6px; padding: 8px 12px 8px 16px; border-bottom: 1px solid var(--line); }
+.skycal-subbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.skycal-here { min-height: 28px; padding: 0 9px; font-size: 11.5px; }
+.skycal-here[hidden] { display: none; }
+.skycal-count { margin-left: auto; font: 400 11px/1.2 var(--font-data); color: rgba(219, 234, 254, 0.6); }
 .skycal-search {
   width: 100%; height: 32px; padding: 0 10px; border: 1px solid var(--hud-line); border-radius: 4px;
   background: rgba(15, 23, 42, 0.55); color: #f1f5f9; font: 400 12.5px/1 var(--font);

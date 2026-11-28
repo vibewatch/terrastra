@@ -12,6 +12,38 @@ import {
 const K_PEN = 0.272488, K_UMB = 0.272281;
 const E2 = 1 - EARTH_B * EARTH_B;
 const MIN = 6e4, HOUR = 36e5, DAY = 864e5;
+const SYNODIC_MONTH_MS = 29.530588861 * DAY;
+const K0_NEW_MOON_MS = Date.UTC(2000, 0, 6, 18, 14, 0);
+
+/**
+ * Exact van den Bergh (1955) / NASA Five Millennium Canon Solar Saros series number
+ * from the synodic lunation index `k` (`358 * 38 ≡ 1 mod 223`).
+ */
+export function solarSaros(tMs: number): number {
+  const k = Math.round((tMs - K0_NEW_MOON_MS) / SYNODIC_MONTH_MS);
+  return (((38 * k) % 223) + 223 + 112) % 223;
+}
+
+/**
+ * Exact van den Bergh (1955) / NASA Five Millennium Canon Lunar Saros series number
+ * from the full-moon lunation index `k - 0.5`.
+ */
+export function lunarSaros(tMs: number): number {
+  const kFull = Math.round((tMs - K0_NEW_MOON_MS) / SYNODIC_MONTH_MS - 0.5);
+  return (((38 * kFull) % 223) + 223 + 124) % 223;
+}
+
+/**
+ * Geometric baseline Danjon luminosity scale `L` for total lunar eclipses (`1` = dark brown-copper
+ * central totality, `4` = bright copper-orange grazing totality), or `null` when not total (`< 1`).
+ */
+export function lunarDanjonL(umbralMagnitude: number): 1 | 2 | 3 | 4 | null {
+  if (!(umbralMagnitude >= 1)) return null;
+  if (umbralMagnitude >= 1.6) return 1;
+  if (umbralMagnitude >= 1.3) return 2;
+  if (umbralMagnitude >= 1.08) return 3;
+  return 4;
+}
 
 const dot = (a: Vec3, b: Vec3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 
@@ -108,13 +140,14 @@ function solarAt(tNew: number): SolarEclipse | null {
     return {
       kind: 'solar', type, t, gamma, magnitude: (L1 - L2) / (L1 + L2), greatest: ecefToGeo(qE),
       durationS: c2 !== undefined && c3 !== undefined ? (c3 - c2) / 1000 : undefined, pathWidthKm: ((2 * Math.abs(L2)) / wt) * EARTH_KM, p1, p4,
+      saros: solarSaros(t),
     };
   }
   // Non-central: the point of the Earth's outline nearest the axis.
   const th = Math.atan2(b.y / b.rho1, b.x), xi = Math.cos(th), eta = b.rho1 * Math.sin(th), d = Math.hypot(b.x - xi, b.y - eta);
   const type = d < Math.abs(b.l2) ? (b.l2 < 0 ? 'total' : 'annular') : 'partial';
   const q: Vec3 = [xi * b.X[0] + eta * b.Y[0], xi * b.X[1] + eta * b.Y[1], xi * b.X[2] + eta * b.Y[2]];
-  return { kind: 'solar', type, t, gamma, magnitude: (b.l1 - d) / (b.l1 + b.l2), greatest: geoOf(q, b.th), p1, p4 };
+  return { kind: 'solar', type, t, gamma, magnitude: (b.l1 - d) / (b.l1 + b.l2), greatest: geoOf(q, b.th), p1, p4, saros: solarSaros(t) };
 }
 
 const nearNode = (t: number) => Math.abs(Math.sin(lunarArgs(centuries(t)).F * D2R)) < 0.36;
@@ -213,12 +246,15 @@ function lunarAt(tFull: number): LunarEclipse | null {
   const contact = (r: (g: LunarGeom) => number, dir: number) => rootFrom((tt) => { const c = lunarGeom(tt); return c.d - r(c); }, t, dir * 10 * MIN, 60, 200);
   const rP = (c: LunarGeom) => c.rp + c.sm, rU = (c: LunarGeom) => c.ru + c.sm, rT = (c: LunarGeom) => c.ru - c.sm;
   const m = moonGeo(t), r = (g.distKm * Math.sin(g.d * D2R)) / EARTH_KM;
+  const dL = lunarDanjonL(umb);
   return {
     kind: 'lunar', type: umb >= 1 ? 'total' : umb > 0 ? 'partial' : 'penumbral', t, gamma: g.v < 0 ? -r : r,
     umbralMagnitude: umb, penumbralMagnitude: pen, p1: contact(rP, -1)!, p4: contact(rP, 1)!,
     u1: umb > 0 ? contact(rU, -1) : undefined, u4: umb > 0 ? contact(rU, 1) : undefined,
     u2: umb >= 1 ? contact(rT, -1) : undefined, u3: umb >= 1 ? contact(rT, 1) : undefined,
     subMoon: { lat: m.dec, lon: norm180(m.ra - gast(t)) },
+    saros: lunarSaros(t),
+    ...(dL !== null ? { danjonL: dL } : {}),
   };
 }
 

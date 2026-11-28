@@ -171,7 +171,16 @@ const S = {
   loading: { en: 'Computing the sky…', zh: '正在计算天空…' },
   calToday: { en: 'Current year', zh: '回到今年' },
   calExportIcs: { en: 'Export .ics calendar', zh: '导出 .ics 日历' },
+  calCopyMd: { en: 'Copy Markdown table', zh: '复制 Markdown 星历表' },
+  calMdCopied: { en: 'Sky events Markdown table copied', zh: '已复制天象星历表 (.md)' },
   calSearch: { en: 'Search events…', zh: '搜索天象…' },
+  calVisibleHere: { en: 'Visible here', zh: '本地可见' },
+  calCount: { en: '{n} events', zh: '共 {n} 场' },
+  recenter: { en: 'Re-center camera (R)', zh: '重回目标中心 (R)' },
+  saros: { en: 'Saros series', zh: '沙罗周期' },
+  danjon: { en: 'Danjon luminosity', zh: '丹戎亮度' },
+  airmassExt: { en: 'Airmass · extinction', zh: '大气质量 · 消光' },
+  constellation: { en: 'Constellation', zh: '所在星座' },
 } satisfies Record<string, Pair>;
 
 export type SkyKey = keyof typeof S;
