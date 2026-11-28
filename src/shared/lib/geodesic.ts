@@ -100,12 +100,73 @@ export function greatCirclePeakLatDeg(
   return Math.asin(Math.max(-1, Math.min(1, bestZ))) / D;
 }
 
+export interface Waypoint {
+  /** Percentage along the shortest great-circle arc (0..100). */
+  pct: number;
+  lat: number;
+  lon: number;
+}
+
+/** Equally spaced spherical-linear-interpolated waypoints along the shortest great-circle arc A→B. */
+export function greatCircleWaypoints(
+  a: { lat: number; lon: number },
+  b: { lat: number; lon: number },
+  segments = 4,
+): Waypoint[] {
+  const n = Math.max(1, Math.min(64, Math.round(segments)));
+  const out: Waypoint[] = [];
+  for (let i = 0; i <= n; i++) {
+    const t = i / n;
+    const [lat, lon] = i === 0 ? [a.lat, wrapLon(a.lon)] : i === n ? [b.lat, wrapLon(b.lon)] : slerpLatLon([a.lat, a.lon], [b.lat, b.lon], t);
+    out.push({ pct: Math.round(t * 100), lat, lon });
+  }
+  return out;
+}
+
+/**
+ * Geodesic surface area (km²) of a GeoJSON Polygon or MultiPolygon on a spherical Earth (R = 6,371.0088 km).
+ * Integrates Δλ · (sin φ₁ + sin φ₂) / 2 with antimeridian-safe longitude wrapping, subtracting interior holes.
+ */
+export function sphericalPolygonAreaKm2(
+  geom: { type: 'Polygon'; coordinates: readonly (readonly (readonly number[])[])[] }
+      | { type: 'MultiPolygon'; coordinates: readonly (readonly (readonly (readonly number[])[])[])[] },
+): number {
+  const D = Math.PI / 180;
+  const R2 = 6371.0088 * 6371.0088;
+  const ringAreaKm2 = (ring: readonly (readonly number[])[]): number => {
+    if (ring.length < 3) return 0;
+    let sum = 0;
+    for (let i = 0; i < ring.length; i++) {
+      const p1 = ring[i], p2 = ring[(i + 1) % ring.length];
+      const dLon = wrapLon(p2[0] - p1[0]) * D;
+      const sin1 = Math.sin(Math.max(-90, Math.min(90, p1[1])) * D);
+      const sin2 = Math.sin(Math.max(-90, Math.min(90, p2[1])) * D);
+      sum += dLon * (sin1 + sin2) * 0.5;
+    }
+    return Math.abs(sum) * R2;
+  };
+  const polys = geom.type === 'Polygon' ? [geom.coordinates] : geom.coordinates;
+  let total = 0;
+  for (const rings of polys) {
+    if (!rings.length) continue;
+    let polyArea = ringAreaKm2(rings[0]);
+    for (let h = 1; h < rings.length; h++) polyArea = Math.max(0, polyArea - ringAreaKm2(rings[h]));
+    total += polyArea;
+  }
+  return Math.round(total);
+}
+
 export interface GreatCircleSummary {
   distanceKm: number;
   chordKm: number;
   circumferencePct: number;
   bearingDeg: number;
   compassDir: CompassDir8;
+  /** Forward compass azimuth [0, 360) upon arriving at B along the great-circle path. */
+  finalBearingDeg: number;
+  finalCompassDir: CompassDir8;
+  /** Unsteered compass heading change (0..180°) between departure at A and arrival at B due to Earth's curvature. */
+  courseTurnDeg: number;
   midpoint: [number, number];
   solarOffsetHours: number;
   /** Signed latitude of the furthest poleward point along the shortest arc A→B. */
@@ -132,6 +193,8 @@ export function greatCircleSummary(
   const centralAngleRad = Math.min(Math.PI, distanceKm / 6371);
   const chordKm = 2 * 6371 * Math.sin(centralAngleRad / 2);
   const brg = distanceKm < 0.01 ? 0 : bearingDeg(a.lat, a.lon, b.lat, b.lon);
+  const finalBrg = distanceKm < 0.01 ? 0 : (bearingDeg(b.lat, b.lon, a.lat, a.lon) + 180) % 360;
+  const courseTurnDeg = distanceKm < 0.01 ? 0 : Math.round(Math.abs(((finalBrg - brg + 540) % 360) - 180));
   const lonA = wrapLon(a.lon), lonB = wrapLon(b.lon);
   const crossesEquator = (a.lat > 0 && b.lat < 0) || (a.lat < 0 && b.lat > 0);
   const crossesDateLine = Math.abs(lonB - lonA) > 180;
@@ -141,6 +204,9 @@ export function greatCircleSummary(
     circumferencePct: (distanceKm / EARTH_CIRCUMFERENCE_KM) * 100,
     bearingDeg: brg,
     compassDir: compassDir8(brg),
+    finalBearingDeg: finalBrg,
+    finalCompassDir: compassDir8(finalBrg),
+    courseTurnDeg,
     midpoint: slerpLatLon([a.lat, a.lon], [b.lat, b.lon], 0.5),
     solarOffsetHours: solarTimeOffsetHours(a.lon, b.lon),
     peakLatDeg: greatCirclePeakLatDeg(a, b),
@@ -188,8 +254,8 @@ export function formatGeodesicBriefMarkdown(input: GeodesicBriefInput): string {
       `- **墨卡托恒向线**：${rhumbKm} km${summary.rhumb.detourKm >= 1 ? `（比大圆多绕 ${detourKm} km）` : '（与大圆航线重合）'}`,
       `- **地壳内部直线弦长**：${chord} km`,
       `- **航线最高纬度**：${peakStr}`,
-      `- **初始方位角**：${Math.round(summary.bearingDeg)}° ${summary.compassDir} · **地方太阳时差**：${solar} 小时`,
-      `- **球面大圆中点**：${formatCoordPair(summary.midpoint[0], summary.midpoint[1])}`,
+      `- **初始方位角**：${Math.round(summary.bearingDeg)}° ${summary.compassDir} → **抵达航向**：${Math.round(summary.finalBearingDeg)}° ${summary.finalCompassDir}（球面自然转向 ${summary.courseTurnDeg}°）`,
+      `- **地方太阳时差**：${solar} 小时 · **球面大圆中点**：${formatCoordPair(summary.midpoint[0], summary.midpoint[1])}`,
       `- **${nameA} 的对跖点**：${formatCoordPair(antiLat, antiLon)}`,
     ].join('\n');
   }
@@ -201,8 +267,8 @@ export function formatGeodesicBriefMarkdown(input: GeodesicBriefInput): string {
     `- **Mercator rhumb line**: ${rhumbKm} km${summary.rhumb.detourKm >= 1 ? ` (+${detourKm} km detour)` : ' (matches great circle)'}`,
     `- **Straight interior chord**: ${chord} km`,
     `- **Highest latitude on arc**: ${peakStr}`,
-    `- **Initial bearing**: ${Math.round(summary.bearingDeg)}° ${summary.compassDir} · **Solar time offset**: ${solar} h`,
-    `- **Spherical midpoint**: ${formatCoordPair(summary.midpoint[0], summary.midpoint[1])}`,
+    `- **Initial bearing**: ${Math.round(summary.bearingDeg)}° ${summary.compassDir} → **Arrival heading**: ${Math.round(summary.finalBearingDeg)}° ${summary.finalCompassDir} (${summary.courseTurnDeg}° spherical turn)`,
+    `- **Solar time offset**: ${solar} h · **Spherical midpoint**: ${formatCoordPair(summary.midpoint[0], summary.midpoint[1])}`,
     `- **Antipode of ${nameA}**: ${formatCoordPair(antiLat, antiLon)}`,
   ].join('\n');
 }

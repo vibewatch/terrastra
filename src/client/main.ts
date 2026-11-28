@@ -641,7 +641,7 @@ async function boot(): Promise<void> {
       return data.regions;
     },
     onSelect: it => { if (sceneMode.inMap) { if (it) flatMap?.focus(it); else flatMap?.markDirty(); } },
-    escape: () => { if (!sceneMode.inMap) return false; closeMap(); return true; },
+    escape: () => { if (!sceneMode.inMap) return false; if (flatMap?.clearTransient()) return true; closeMap(); return true; },
     overview: () => solar?.overview(),
     toHome: () => { if (sceneMode.inSolar) leaveSolar(globe.lat, globe.lon); },
   });

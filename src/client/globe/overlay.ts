@@ -1,12 +1,26 @@
 import { CATALOGUE } from '../../shared/data/catalogue.ts';
-import { CITIES } from '../../shared/data/cities.ts';
+import { CITIES, cityName } from '../../shared/data/cities.ts';
 import { type GeoKind } from '../../shared/data/gazetteer.ts';
 import { CONTINENT_NAMES } from '../../shared/data/iso.ts';
 import type { Lang } from '../../shared/data/types.ts';
+import { sphericalPolygonAreaKm2 } from '../../shared/lib/geodesic.ts';
 import type { CountryInfo } from './painter.ts';
 
 let byCountryCache: Map<string, number> | null = null;
 let capitalByCountryCache: Map<string, string> | null = null;
+const areaByFeatureId = new Map<string, number>();
+
+export function formatCountryAreaKm2(km2: number, l: Lang): string {
+  if (!(km2 > 0) || !Number.isFinite(km2)) return '';
+  if (l === 'zh') {
+    if (km2 >= 1_000_000) return `${Math.round(km2 / 10_000)}万 km²`;
+    if (km2 >= 10_000) return `${+(km2 / 10_000).toFixed(1)}万 km²`;
+    return `${Math.round(km2).toLocaleString('zh-CN')} km²`;
+  }
+  if (km2 >= 1_000_000) return `${+(km2 / 1_000_000).toFixed(2)}M km²`;
+  if (km2 >= 10_000) return `${Math.round(km2 / 1_000).toLocaleString('en-US')}k km²`;
+  return `${Math.round(km2).toLocaleString('en-US')} km²`;
+}
 
 /** Number of Terrastra catalogue items located in ISO alpha-2 country `a2`. */
 export function countryCatalogueCount(a2: string): number {
@@ -98,10 +112,19 @@ export function fillCountryTag(tag: HTMLElement, c: CountryInfo, l: Lang): void 
   tag.replaceChildren(document.createTextNode(countryDisplayName(c, l)));
   const cont = c.a2 !== 'AQ' ? CONTINENT_NAMES[c.continent]?.[l] ?? CONTINENT_NAMES[c.continent]?.en : '';
   const cap = c.a2 !== 'AQ' ? countryCapitalCity(c.a2) : undefined;
-  const capLabel = cap ? `🏛️ ${cap}` : '';
+  const capLabel = cap ? `🏛️ ${cityName(cap, l)}` : '';
+  let areaTxt = '';
+  if (c.a2 && c.a2 !== 'AQ' && c.feature?.geometry) {
+    let km2 = areaByFeatureId.get(c.id);
+    if (km2 === undefined) {
+      km2 = sphericalPolygonAreaKm2(c.feature.geometry);
+      areaByFeatureId.set(c.id, km2);
+    }
+    if (km2 >= 500) areaTxt = formatCountryAreaKm2(km2, l);
+  }
   const count = countryCatalogueCount(c.a2);
   const countLabel = count > 0 ? (l === 'zh' ? `${count} 处发现` : `${count} ${count === 1 ? 'place' : 'places'}`) : '';
-  const subText = [cont, capLabel, countLabel].filter(Boolean).join(' · ');
+  const subText = [cont, capLabel, areaTxt, countLabel].filter(Boolean).join(' · ');
   if (subText) {
     const sub = document.createElement('small');
     sub.textContent = subText;

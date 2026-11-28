@@ -18,7 +18,10 @@ import { loadRelief } from '../lib/relief.ts';
 import { url } from '../lib/env.ts';
 import { h } from '../ui/dom.ts';
 import { icon } from '../ui/icons.ts';
-import { EXTENT, PROJ_GLSL, PROJ_IDS, PROJ_INDEX, boundsInView, forward, inverse, phiOf, projDistortion, wrapPi, wraps, xScale, yOf, type ProjId } from './proj.ts';
+import { subsolar } from '../../shared/lib/sun.ts';
+import { slerpLatLon } from '../../shared/lib/geo.ts';
+import { greatCircleSummary } from '../../shared/lib/geodesic.ts';
+import { EXTENT, PROJ_GLSL, PROJ_IDS, PROJ_INDEX, boundsInView, forward, inverse, phiOf, projDistortion, tissotCircle, wrapPi, wraps, xScale, yOf, type ProjId } from './proj.ts';
 
 const D = Math.PI / 180;
 const R_KM = 6371;
@@ -104,8 +107,8 @@ const MAP_FRAG = /* glsl */ `
   uniform sampler2D uRelief;
   uniform sampler2D uSea;
   uniform vec2 uReliefTexel;
-  uniform float uReliefMix, uLandMix, uLon0, uCy, uK, uDpr;
-  uniform vec2 uView;
+  uniform float uReliefMix, uLandMix, uLon0, uCy, uK, uDpr, uNightMix;
+  uniform vec2 uView, uSunRad;
   uniform vec3 uOceanDeep, uOceanMid, uBg, uRim;
   ${PROJ_GLSL}
   void main() {
@@ -148,6 +151,17 @@ const MAP_FRAG = /* glsl */ `
       vec3 L = normalize(vec3(-0.55, 0.65, 0.8));
       float shade = dot(N, L) - L.z;
       col *= 1.0 + (shade / (1.0 + abs(shade) * 1.6)) * 1.6 * rel * mix(0.4, 1.0, landMask);
+    }
+
+    if (uNightMix > 0.001) {
+      float lonW = lam + uLon0;
+      float cosZ = sin(phi) * sin(uSunRad.y) + cos(phi) * cos(uSunRad.y) * cos(lonW - uSunRad.x);
+      float dayLit = smoothstep(-0.18, 0.08, cosZ);
+      float twilight = exp(-pow(cosZ / 0.065, 2.0));
+      vec3 nightCol = col * vec3(0.28, 0.36, 0.54) + vec3(0.008, 0.014, 0.032);
+      col = mix(col, mix(nightCol, col, dayLit) + vec3(0.26, 0.11, 0.04) * twilight * 0.45, uNightMix);
+      float termLine = 1.0 - smoothstep(0.0, 0.006, abs(cosZ));
+      col = mix(col, vec3(0.99, 0.78, 0.34), termLine * 0.34 * uNightMix);
     }
 
     // anti-aliased edge of the map, with a thin bright rim
@@ -244,6 +258,18 @@ export class FlatMap {
   private hl = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   private hlCase = document.createElementNS('http://www.w3.org/2000/svg', 'path');
   private hlLine = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  private vectorsSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  private tissotPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  private rulerRhumbPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  private rulerGcCasePath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  private rulerGcPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  private rulerDotA = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+  private rulerDotB = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+  private tissot = load<boolean>('mapTissot', false);
+  private measuring = false;
+  private measurePts: [number, number][] = [];
+  private lastSunMs = 0;
+  private lastNightOn = false;
   private tag = h('div', { class: 'country-tag', 'data-testid': 'map-country-tag', hidden: true });
   private tagFor = '';
   private hoverC: CountryInfo | null = null;
@@ -262,8 +288,23 @@ export class FlatMap {
     this.hlCase.setAttribute('class', 'fm-hl-case');
     this.hlLine.setAttribute('class', 'fm-hl-line');
     this.hl.append(this.hlCase, this.hlLine);
+    this.vectorsSvg.setAttribute('class', 'fm-vectors');
+    this.vectorsSvg.setAttribute('aria-hidden', 'true');
+    this.tissotPath.setAttribute('class', 'fm-tissot');
+    this.tissotPath.setAttribute('data-testid', 'map-tissot-layer');
+    this.rulerRhumbPath.setAttribute('class', 'fm-ruler-rhumb');
+    this.rulerGcCasePath.setAttribute('class', 'fm-ruler-gc-case');
+    this.rulerGcPath.setAttribute('class', 'fm-ruler-gc');
+    for (const [dot, col] of [[this.rulerDotA, '#ffb347'], [this.rulerDotB, '#38bdf8']] as const) {
+      dot.setAttribute('r', '5');
+      dot.setAttribute('fill', col);
+      dot.setAttribute('stroke', '#020617');
+      dot.setAttribute('stroke-width', '1.8');
+      dot.style.display = 'none';
+    }
+    this.vectorsSvg.append(this.tissotPath, this.rulerRhumbPath, this.rulerGcCasePath, this.rulerGcPath, this.rulerDotA, this.rulerDotB);
     this.el = h('div', { class: 'flatmap hidden', 'data-testid': 'flatmap', role: 'region', 'aria-label': t('flatMapLabel') },
-      this.canvas, this.hl, this.labelsEl, this.pinsEl, this.tag, this.scaleEl, this.bar);
+      this.canvas, this.hl, this.vectorsSvg, this.labelsEl, this.pinsEl, this.tag, this.scaleEl, this.bar);
 
     const q = host.quality;
     this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: q.msaa && !host.lowfx, powerPreference: 'high-performance' });
@@ -275,6 +316,7 @@ export class FlatMap {
       uLand: { value: flat(0) }, uRelief: { value: flat(0) }, uSea: { value: flat(255) },
       uReliefTexel: { value: new THREE.Vector2(1 / q.reliefW, 2 / q.reliefW) },
       uReliefMix: { value: 0 }, uLandMix: { value: 1 }, uDpr: { value: this.renderer.getPixelRatio() },
+      uNightMix: { value: 0 }, uSunRad: { value: new THREE.Vector2(0, 0) },
       uOceanDeep: { value: new THREE.Color('#0c2340') }, uOceanMid: { value: new THREE.Color('#163a63') },
       uBg: { value: new THREE.Color('#050b16') }, uRim: { value: new THREE.Color('#7dd3fc') },
     };
@@ -310,6 +352,24 @@ export class FlatMap {
   get isOpen(): boolean { return this.shown; }
 
   markDirty(): void { this.dirty = true; }
+
+  /** Dismisses an active ruler measurement before letting Escape close the entire map. */
+  clearTransient(): boolean {
+    if (this.measurePts.length > 0) {
+      this.measurePts = [];
+      this.renderBar();
+      this.dirty = true;
+      return true;
+    }
+    if (this.measuring) {
+      this.measuring = false;
+      this.canvas.style.cursor = '';
+      this.renderBar();
+      this.dirty = true;
+      return true;
+    }
+    return false;
+  }
 
   setAdminData(data: AdminData): void {
     if (this.adminData === data) return;
@@ -556,7 +616,13 @@ export class FlatMap {
       this.lastLayout = now;
     } else if (now - this.lastLayout > 500) {
       // settings, language, the selection or the time machine may have changed what is shown
+      const sunMs = this.host.globe.simTime ?? Date.now();
+      const nightOn = Boolean(this.host.globe.settings.shadows || this.host.globe.forceNight);
+      if (nightOn !== this.lastNightOn || (nightOn && Math.abs(sunMs - this.lastSunMs) > 20_000)) {
+        this.dirty = true;
+      }
       this.syncSources();
+      if (this.dirty) { this.dirty = false; this.draw(); }
       this.layout();
       this.lastLayout = now;
     }
@@ -596,6 +662,15 @@ export class FlatMap {
     const mode = s.surfaceMode;
     this.mapU.uLandMix.value = mode === 'minimal' ? 0 : 1;
     this.mapU.uReliefMix.value = !this.reliefReady ? 0 : mode === 'realistic' ? 1 : 0.6;
+    const sunMs = this.host.globe.simTime ?? Date.now();
+    const nightOn = Boolean(s.shadows || this.host.globe.forceNight);
+    this.lastSunMs = sunMs;
+    this.lastNightOn = nightOn;
+    this.mapU.uNightMix.value = nightOn ? 1 : 0;
+    if (nightOn) {
+      const [sunLat, sunLon] = subsolar(sunMs);
+      (this.mapU.uSunRad.value as THREE.Vector2).set(sunLon * D, sunLat * D);
+    }
     const z = this.zoom;
     const step = gridStep(z);
     if (step !== this.gridStepNow) {
@@ -629,6 +704,7 @@ export class FlatMap {
     const s = this.host.globe.settings, z = this.zoom;
     this.layoutLabels(s.names, s.graticule, z);
     this.drawHighlight();
+    this.drawVectors();
     this.updateTag();
     this.updateScale();
     const [lat, lon] = this.center();
@@ -824,6 +900,84 @@ export class FlatMap {
     this.hl.style.display = '';
   }
 
+  /** Renders Tissot indicatrix circles and/or the two-point geodesic vs rhumb ruler in projected screen space. */
+  private drawVectors(): void {
+    const polyToSvg = (pts: readonly [number, number][], close = false): string => {
+      let d = '', pl = 0, open = false;
+      for (let i = 0; i < pts.length; i++) {
+        const [la, lo] = pts[i];
+        const lam = wrapPi(lo * D - this.v.lon0);
+        const [x, y] = this.toScreen(la, lo);
+        const jump = open && Math.abs(lam - pl) > Math.PI * 0.9;
+        if (!open || jump) { d += `M${x.toFixed(1)} ${y.toFixed(1)}`; open = true; }
+        else d += `L${x.toFixed(1)} ${y.toFixed(1)}`;
+        pl = lam;
+      }
+      if (close && open && d && !d.includes('M', 1)) d += 'Z';
+      return d;
+    };
+
+    if (this.tissot) {
+      let td = '';
+      for (let la = -60; la <= 60; la += 30) {
+        for (let lo = -150; lo <= 180; lo += 30) {
+          const ring = tissotCircle(la, lo, 4.5, 36);
+          // Skip circles straddling the projection cut so SVG fill never spans the viewport
+          let crossesCut = false;
+          for (let i = 1; i < ring.length; i++) {
+            if (Math.abs(wrapPi(ring[i][1] * D - this.v.lon0) - wrapPi(ring[i - 1][1] * D - this.v.lon0)) > Math.PI) {
+              crossesCut = true;
+              break;
+            }
+          }
+          if (!crossesCut) td += polyToSvg(ring, true);
+        }
+      }
+      this.tissotPath.setAttribute('d', td);
+      this.tissotPath.style.display = '';
+    } else {
+      this.tissotPath.style.display = 'none';
+    }
+
+    const pts = this.measurePts;
+    if (pts.length >= 1) {
+      const [ax, ay] = this.toScreen(pts[0][0], pts[0][1]);
+      this.rulerDotA.setAttribute('cx', ax.toFixed(1));
+      this.rulerDotA.setAttribute('cy', ay.toFixed(1));
+      this.rulerDotA.style.display = '';
+    } else {
+      this.rulerDotA.style.display = 'none';
+    }
+    if (pts.length >= 2) {
+      const [a, b] = pts;
+      const [bx, by] = this.toScreen(b[0], b[1]);
+      this.rulerDotB.setAttribute('cx', bx.toFixed(1));
+      this.rulerDotB.setAttribute('cy', by.toFixed(1));
+      this.rulerDotB.style.display = '';
+      const gcPts: [number, number][] = [];
+      for (let i = 0; i <= 48; i++) gcPts.push(slerpLatLon(a, b, i / 48));
+      const gcD = polyToSvg(gcPts, false);
+      this.rulerGcCasePath.setAttribute('d', gcD);
+      this.rulerGcPath.setAttribute('d', gcD);
+      this.rulerGcCasePath.style.display = this.rulerGcPath.style.display = '';
+      // Sample constant-bearing Mercator rhumb line
+      const rhPts: [number, number][] = [];
+      const dLon = ((b[1] - a[1] + 540) % 360) - 180;
+      const mercY = (deg: number) => Math.log(Math.tan(Math.PI / 4 + Math.max(-85, Math.min(85, deg)) * D * 0.5));
+      const mercLat = (y: number) => (2 * Math.atan(Math.exp(y)) - Math.PI / 2) / D;
+      const yA = mercY(a[0]), yB = mercY(b[0]);
+      for (let i = 0; i <= 32; i++) {
+        const u = i / 32;
+        rhPts.push([mercLat(yA + (yB - yA) * u), a[1] + dLon * u]);
+      }
+      this.rulerRhumbPath.setAttribute('d', polyToSvg(rhPts, false));
+      this.rulerRhumbPath.style.display = '';
+    } else {
+      this.rulerDotB.style.display = 'none';
+      this.rulerGcCasePath.style.display = this.rulerGcPath.style.display = this.rulerRhumbPath.style.display = 'none';
+    }
+  }
+
   private updateTag(): void {
     const c = this.shownCountry(), tag = this.tag;
     let p: { x: number; y: number } | null = null;
@@ -868,13 +1022,47 @@ export class FlatMap {
     );
   }
 
+  private setTissot(on: boolean): void {
+    this.tissot = on;
+    save('mapTissot', on);
+    this.renderBar();
+    this.dirty = true;
+  }
+
+  private setMeasuring(on: boolean): void {
+    this.measuring = on;
+    if (!on) this.measurePts = [];
+    this.canvas.style.cursor = on ? 'crosshair' : '';
+    this.renderBar();
+    this.dirty = true;
+  }
+
   private renderBar(): void {
     const names: Record<ProjId, string> = { equalearth: t('projEqualEarth'), mercator: t('projMercator'), plate: t('projPlate') };
     const notes: Record<ProjId, string> = { equalearth: t('projEqualEarthNote'), mercator: t('projMercatorNote'), plate: t('projPlateNote') };
     const totalCountries = this.host.shapes()?.filter(c => c.a2 !== 'AQ').length ?? 0;
+    let measureRow: HTMLElement | null = null;
+    if (this.measuring) {
+      if (this.measurePts.length >= 2) {
+        const [a, b] = this.measurePts;
+        const sum = greatCircleSummary({ lat: a[0], lon: a[1] }, { lat: b[0], lon: b[1] });
+        const detour = sum.rhumb.detourKm >= 5 ? t('mapMeasureDetour', { extra: fmtNum(Math.round(sum.rhumb.detourKm)) }) : '';
+        measureRow = h('div', { class: 'fm-measure-chip', 'data-testid': 'map-measure-readout', role: 'status', 'aria-live': 'polite' },
+          h('span', {}, '📏 ' + t('mapMeasureReadout', {
+            km: fmtNum(Math.round(sum.distanceKm)),
+            deg: Math.round(sum.bearingDeg),
+            dir: t('dir_' + sum.compassDir),
+            detour,
+          })),
+          h('button', { class: 'pill pill-sm', 'data-testid': 'map-measure-clear', onclick: () => { this.measurePts = []; this.renderBar(); this.dirty = true; } }, t('mapMeasureClear')));
+      } else {
+        measureRow = h('span', { class: 'fm-quiz-hint', 'data-testid': 'map-measure-hint', role: 'status', 'aria-live': 'polite' }, t('mapMeasureHint'));
+      }
+    }
     this.bar.replaceChildren(
       h('p', { class: 'fm-note' }, notes[this.proj],
         h('button', { class: 'fm-learn', 'data-testid': 'map-learn', html: icon('bulb', 14), onclick: () => this.host.learn() }, h('span', {}, t('mapLearn')))),
+      ...(measureRow ? [measureRow] : []),
       ...!this.quiz ? []
         : this.revealed.size
           ? [h('button', { class: 'pill pill-sm fm-quiz-reset', 'data-testid': 'map-quiz-reset', onclick: () => this.hideRevealed() },
@@ -886,6 +1074,14 @@ export class FlatMap {
           h('span', { class: 'fm-track', 'aria-hidden': 'true' }),
           h('span', {}, t('mapNames'))),
         h('button', { class: 'pill pill-sm fm-fit', 'data-testid': 'map-fit', onclick: () => this.fitWorld() }, t('mapFitWorld')),
+        h('button', {
+          class: 'pill pill-sm' + (this.tissot ? ' on' : ''), 'data-testid': 'map-tissot', 'aria-pressed': String(this.tissot),
+          onclick: () => this.setTissot(!this.tissot),
+        }, t('mapTissot')),
+        h('button', {
+          class: 'pill pill-sm' + (this.measuring ? ' on' : ''), 'data-testid': 'map-measure', 'aria-pressed': String(this.measuring),
+          onclick: () => this.setMeasuring(!this.measuring),
+        }, t('mapMeasure')),
         h('div', { class: 'seg fm-proj', role: 'radiogroup', 'aria-label': t('mapProjection') },
           ...PROJ_IDS.map(p => h('button', {
             class: p === this.proj ? 'on' : '', role: 'radio', 'aria-checked': String(p === this.proj), 'data-testid': 'proj-' + p,
@@ -995,6 +1191,8 @@ export class FlatMap {
       else if (k === '2') this.setProj('mercator');
       else if (k === '3') this.setProj('plate');
       else if (k === 'q' || k === 'Q') this.setQuiz(!this.quiz);
+      else if (k === 't' || k === 'T') this.setTissot(!this.tissot);
+      else if (k === 'r' || k === 'R') this.setMeasuring(!this.measuring);
       else return;
       e.preventDefault();
     });
@@ -1010,12 +1208,12 @@ export class FlatMap {
   }
 
   private hoverAt(x: number, y: number): void {
-    const gh = !this.quiz && !this.host.globe.gameMode ? pickGeoLabel(this.geoHits, x, y, 2) : null;
+    const gh = !this.measuring && !this.quiz && !this.host.globe.gameMode ? pickGeoLabel(this.geoHits, x, y, 2) : null;
     this.setHoveredGeo(gh?.key ?? null);
-    this.canvas.style.cursor = gh ? 'pointer' : '';
+    this.canvas.style.cursor = this.measuring ? 'crosshair' : gh ? 'pointer' : '';
     this.cursor = { x, y };
     this.updateScale();
-    if (!this.countryUi()) return;
+    if (this.measuring || !this.countryUi()) return;
     const ll = this.toLatLon(x, y);
     const c = ll ? countryAt(this.host.shapes(), ll[0], ll[1]) : null;
     if (c !== this.hoverC) { this.hoverC = c; this.drawHighlight(); }
@@ -1024,6 +1222,16 @@ export class FlatMap {
 
   private tapAt(x: number, y: number): void {
     this.host.hover(null, null);
+    if (this.measuring) {
+      const ll = this.toLatLon(x, y);
+      if (ll) {
+        if (this.measurePts.length >= 2) this.measurePts = [ll];
+        else this.measurePts.push(ll);
+        this.renderBar();
+        this.dirty = true;
+      }
+      return;
+    }
     if (!this.quiz && !this.host.globe.gameMode && this.host.pickGeo) {
       const gh = pickGeoLabel(this.geoHits, x, y, 2);
       const gz = gh ? GAZETTEER_BY_KEY.get(gh.key) : undefined;

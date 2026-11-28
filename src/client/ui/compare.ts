@@ -6,9 +6,17 @@ import { t, lang, fmtNum } from '../lib/i18n.ts';
 import { tr } from '../../shared/data/types.ts';
 import { CATALOGUE, BY_KEY } from '../../shared/data/catalogue.ts';
 import { sfx } from '../lib/sfx.ts';
-import { compareGroups, earthPlaces, groupOf, ratio, drawn, type Group, type Thing } from '../lib/compare.ts';
+import { compareGroups, earthPlaces, groupOf, ratio, volumeRatio, drawn, type Group, type Thing } from '../lib/compare.ts';
 import { resolvePlaceByKey, type SearchPlaces } from '../lib/search.ts';
-import { antipodeOf, formatCoordPair, formatGeodesicBriefMarkdown, greatCircleSummary, nearestCatalogueItem } from '../../shared/lib/geodesic.ts';
+import {
+  antipodeOf,
+  formatCoordPair,
+  formatGeodesicBriefMarkdown,
+  greatCircleSummary,
+  greatCircleWaypoints,
+  nearestCatalogueItem,
+  oceanDepthPhysics,
+} from '../../shared/lib/geodesic.ts';
 
 export interface CompareOptions {
   onShowArc?: (a: [number, number], b: [number, number]) => void;
@@ -17,7 +25,7 @@ export interface CompareOptions {
 }
 
 const SVG = 'http://www.w3.org/2000/svg';
-const W = 520, H = 250, BASE = 228, MAX = 200;
+const W = 520, H = 250, BASE = 228, MAX = 200, SURF = 34, MAX_DEEP = 180;
 const COL = ['#ffb347', '#6cc6ff'];
 
 function s<K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string, string | number>, text?: string): SVGElementTagNameMap[K] {
@@ -25,6 +33,28 @@ function s<K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string, s
   for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, String(v));
   if (text !== undefined) el.textContent = text;
   return el;
+}
+
+/** Exports the live SVG stage as a standalone dark-themed vector diagram for classroom worksheets or slides. */
+function downloadStageSvg(stage: SVGSVGElement, slug: string): void {
+  const clone = stage.cloneNode(true) as SVGSVGElement;
+  clone.setAttribute('xmlns', SVG);
+  clone.setAttribute('width', String(W));
+  clone.setAttribute('height', String(H));
+  const styleEl = s('style', {}, [
+    '.cmp-lbl{font:600 12px system-ui,-apple-system,sans-serif}',
+    '.cmp-x{font:700 13px system-ui,-apple-system,sans-serif;fill:#081220}',
+    '.cmp-badge{font:600 11px system-ui,-apple-system,sans-serif;fill:#94a3b8}',
+    '.cmp-ground{stroke:rgba(148,163,184,0.45);stroke-width:1.5}',
+  ].join(''));
+  const bg = s('rect', { x: 0, y: 0, width: W, height: H, rx: 10, fill: '#081220' });
+  clone.prepend(styleEl, bg);
+  const xml = '<?xml version="1.0" encoding="UTF-8"?>\n' + new XMLSerializer().serializeToString(clone);
+  const blob = new Blob([xml], { type: 'image/svg+xml;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = h('a', { href: url, download: `terrastra-${slug}.svg` });
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function formatDurationHours(hours: number, l: 'en' | 'zh'): string {
@@ -128,6 +158,11 @@ export function openCompare(start?: string, opts?: CompareOptions): void {
           void copyText(md, t('cmpDist.copied'), t('cmpDist.copyBrief'));
         },
       }, h('span', { html: icon('copy', 13) }), ' ', t('cmpDist.copyBrief')),
+      h('button', {
+        class: 'pill pill-sm',
+        'data-testid': 'cmp-download-svg',
+        onclick: () => { sfx.tap(); downloadStageSvg(stage, `distance-${a.key}-${b.key}`); },
+      }, h('span', { html: icon('download', 13) }), ' ', t('cmpSvgDownload')),
     );
     ratioP.textContent = a.key === b.key
       ? t('cmpDist.samePlace', { a: nameA })
@@ -209,6 +244,7 @@ export function openCompare(start?: string, opts?: CompareOptions): void {
       : t('cmpDist.rhumbEqual', { km: rhumbKmFmt });
     const peakLatStr = `${Math.abs(summary.peakLatDeg).toFixed(1)}°${summary.peakLatDeg >= 0 ? 'N' : 'S'}`;
     const crossTags = (summary.crossesEquator ? t('cmpDist.crossEq') : '') + (summary.crossesDateLine ? t('cmpDist.crossDl') : '');
+    const quarterWps = summary.distanceKm >= 50 ? greatCircleWaypoints(a, b, 4).slice(1, 4) : [];
 
     distDetails.classList.remove('hidden');
     distDetails.replaceChildren(
@@ -219,10 +255,31 @@ export function openCompare(start?: string, opts?: CompareOptions): void {
       h('div', { class: 'cmp-antipode-card', 'data-testid': 'cmp-antipode-card' },
         h('div', { class: 'cmp-antipode-text' },
           h('strong', {}, t('cmpDist.antipodeTitle', { a: nameA })),
+          summary.distanceKm >= 10 ? h('p', { class: 'muted small', 'data-testid': 'cmp-course-turn' }, t('cmpDist.courseTurn', {
+            deg0: Math.round(summary.bearingDeg),
+            dir0: t('dir_' + summary.compassDir),
+            deg1: Math.round(summary.finalBearingDeg),
+            dir1: t('dir_' + summary.finalCompassDir),
+            turn: summary.courseTurnDeg.toFixed(1),
+          })) : null,
           h('p', { class: 'muted small', 'data-testid': 'cmp-rhumb-line' }, rhumbLine),
           h('p', { class: 'muted small', 'data-testid': 'cmp-arc-peak' }, t('cmpDist.arcPeak', { lat: peakLatStr, cross: crossTags })),
           h('p', { class: 'muted small', 'data-testid': 'cmp-midpoint-line' },
             t('cmpDist.midpointInfo', { coord: formatCoordPair(summary.midpoint[0], summary.midpoint[1]), chord: chordRounded })),
+          quarterWps.length ? h('div', { class: 'cmp-wp-row', 'data-testid': 'cmp-waypoints' },
+            h('span', { class: 'muted small' }, t('cmpDist.waypoints') + ':'),
+            ...quarterWps.map(wp => {
+              const coord = formatCoordPair(wp.lat, wp.lon);
+              return h('button', {
+                class: 'pill pill-sm',
+                'data-testid': `cmp-wp-${wp.pct}`,
+                onclick: () => {
+                  sfx.tap();
+                  if (opts?.onFlyTo) opts.onFlyTo(wp.lat, wp.lon);
+                  else void copyText(coord, t('cmpDist.copied'), coord);
+                },
+              }, `${wp.pct}% · ${coord}`);
+            })) : null,
           h('p', { class: 'muted small' }, t('cmpDist.antipodeCoord', { coord: formatCoordPair(antiLat, antiLon) })),
           nearAnti ? h('p', { class: 'muted small' }, t('cmpDist.antipodeNear', {
             name: `${nearAnti.item.emoji} ${tr(nearAnti.item.name, l)}`,
@@ -315,17 +372,42 @@ export function openCompare(start?: string, opts?: CompareOptions): void {
           void copyText(md, t('cmpCopiedScale'), t('cmpCopyScale'));
         },
       }, h('span', { html: icon('copy', 13) }), ' ', t('cmpCopyScale')),
+      h('button', {
+        class: 'pill pill-sm',
+        'data-testid': 'cmp-download-svg',
+        onclick: () => { sfx.tap(); downloadStageSvg(stage, `compare-${g.id}-${a.id}-${b.id}`); },
+      }, h('span', { html: icon('download', 13) }), ' ', t('cmpSvgDownload')),
     );
-    const d = drawn(a.size, b.size, bars() ? 440 : MAX, scale);
+    const d = drawn(a.size, b.size, bars() ? 440 : g.id === 'deep' ? MAX_DEEP : MAX, scale);
     const small = r.big ? a : b;
     const tiny = d.tiny[0] ? a : d.tiny[1] ? b : null;
     note.className = 'cmp-note' + (scale === 'zoom' ? ' warn' : '');
-    note.textContent = scale === 'zoom' && a.size !== b.size ? t('cmpZoomNote', { name: name(small), n: fmtNum(r.times) })
+    let baseNote = scale === 'zoom' && a.size !== b.size ? t('cmpZoomNote', { name: name(small), n: fmtNum(r.times) })
       : tiny ? t('cmpTrueNote') + (lang() === 'zh' ? '' : ' ') + t('cmpTiny', { name: name(tiny) }) : t('cmpTrueNote');
+    if (g.id === 'bodies' && r.times >= 1.05) {
+      const vr = volumeRatio(a.size, b.size);
+      baseNote += (lang() === 'zh' ? '' : ' ') + t('cmpVolFit', {
+        n: fmtNum(vr.times),
+        small: name(vr.big ? b : a),
+        big: name(vr.big ? a : b),
+      });
+    } else if (g.id === 'deep') {
+      baseNote += (lang() === 'zh' ? '' : ' ') + t('cmpDeepPress', {
+        a: name(a),
+        pa: fmtNum(oceanDepthPhysics(a.size).pressureAtm),
+        b: name(b),
+        pb: fmtNum(oceanDepthPhysics(b.size).pressureAtm),
+      });
+    }
+    note.textContent = baseNote;
     stage.setAttribute('aria-label', `${ratioP.textContent} ${note.textContent}`);
     stage.setAttribute('data-scale', scale);
 
-    const kids: SVGElement[] = bars() ? [] : [s('line', { x1: 10, x2: W - 10, y1: BASE, y2: BASE, class: 'cmp-ground' })];
+    const kids: SVGElement[] = bars()
+      ? []
+      : g.id === 'deep'
+        ? [s('line', { x1: 10, x2: W - 10, y1: SURF, y2: SURF, stroke: '#38bdf8', 'stroke-width': 2, 'stroke-dasharray': '6 4' })]
+        : [s('line', { x1: 10, x2: W - 10, y1: BASE, y2: BASE, class: 'cmp-ground' })];
     const label = (x: number, y: number, th: Thing, i: number, anchor = 'middle') =>
       kids.push(s('text', { x, y, 'text-anchor': anchor, class: 'cmp-lbl', fill: COL[i] }, `${th.emoji} ${name(th)} · ${fmt(th)}`));
     [a, b].forEach((th, i) => {
@@ -345,6 +427,10 @@ export function openCompare(start?: string, opts?: CompareOptions): void {
         const x = W * (i ? 0.62 : 0.3), w = 54;
         kids.push(s('rect', { x, y: BASE - px, width: w, height: px, rx: 3, fill: COL[i], 'fill-opacity': 0.85, stroke: COL[i], 'stroke-width': 2, ...dashed }));
         label(x + w / 2, Math.max(BASE - px - 8, 14), th, i);
+      } else if (g.id === 'deep') {
+        const x = W * (i ? 0.62 : 0.3), w = 54;
+        kids.push(s('rect', { x, y: SURF, width: w, height: px, rx: 3, fill: COL[i], 'fill-opacity': 0.82, stroke: COL[i], 'stroke-width': 2, ...dashed }));
+        label(x + w / 2, Math.min(H - 10, SURF + px + 16), th, i);
       } else {
         const y = i ? 150 : 70;
         kids.push(s('rect', { x: 40, y, width: px, height: 30, rx: 6, fill: COL[i], 'fill-opacity': 0.85, stroke: COL[i], 'stroke-width': 2, ...dashed }));
@@ -357,7 +443,9 @@ export function openCompare(start?: string, opts?: CompareOptions): void {
             ? [W * (i ? 0.7 : 0.3), BASE - px * 0.38]
             : g.id === 'tall'
               ? [W * (i ? 0.62 : 0.3) + 27, BASE - px / 2]
-              : [40 + px / 2, (i ? 150 : 70) + 20];
+              : g.id === 'deep'
+                ? [W * (i ? 0.62 : 0.3) + 27, SURF + px / 2 + 4]
+                : [40 + px / 2, (i ? 150 : 70) + 20];
         kids.push(s('text', { x, y, 'text-anchor': 'middle', class: 'cmp-x' }, '×' + fmtNum(r.times)));
       }
     });

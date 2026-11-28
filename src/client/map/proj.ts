@@ -98,6 +98,30 @@ export function projDistortion(p: ProjId, latDeg: number): {
   return { areaFactor: sec, shapeRatio: sec, parallelScale: sec, meridianScale: 1, maxAngleDeg: angleFromScales(1, sec) };
 }
 
+/**
+ * Exact closed spherical circle of angular radius `radiusDeg` (~500 km for 4.5°) around `(latDeg, lonDeg)`,
+ * returned as `[latDeg, lonDeg][]` vertices for rendering Tissot's indicatrices on any map projection.
+ */
+export function tissotCircle(latDeg: number, lonDeg: number, radiusDeg = 4.5, steps = 40): [number, number][] {
+  const D = Math.PI / 180;
+  const phi0 = Math.max(-80, Math.min(80, latDeg)) * D;
+  const lam0 = lonDeg * D;
+  const rho = Math.max(0.1, Math.min(30, radiusDeg)) * D;
+  const sinPhi0 = Math.sin(phi0), cosPhi0 = Math.cos(phi0);
+  const sinRho = Math.sin(rho), cosRho = Math.cos(rho);
+  const n = Math.max(8, Math.min(128, Math.round(steps)));
+  const pts: [number, number][] = [];
+  for (let i = 0; i <= n; i++) {
+    const az = (i / n) * Math.PI * 2;
+    const sinPhi = Math.max(-1, Math.min(1, sinPhi0 * cosRho + cosPhi0 * sinRho * Math.cos(az)));
+    const phi = Math.asin(sinPhi);
+    const dLam = Math.atan2(Math.sin(az) * sinRho * cosPhi0, cosRho - sinPhi0 * sinPhi);
+    const lam = wrapPi(lam0 + dLam);
+    pts.push([phi / D, lam / D]);
+  }
+  return pts;
+}
+
 export const wrapPi = (a: number) => a - 2 * Math.PI * Math.floor((a + Math.PI) / (2 * Math.PI));
 
 /** A conservative geographic-bounds test; tiles partly beyond a view or the date line must remain drawable. */

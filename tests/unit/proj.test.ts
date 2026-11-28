@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { EXTENT, MERC_MAX, PROJ_IDS, boundsInView, forward, inverse, projDistortion, wrapPi, xScale, yOf } from '../../src/client/map/proj.ts';
+import { EXTENT, MERC_MAX, PROJ_IDS, boundsInView, forward, inverse, projDistortion, tissotCircle, wrapPi, xScale, yOf } from '../../src/client/map/proj.ts';
+import { haversineKm } from '../../src/shared/lib/geo.ts';
 
 const D = Math.PI / 180;
 
@@ -71,5 +72,18 @@ describe('map projections', () => {
     // Plate carrée at 60°: h=1, k=2 => 2*asin(1/3) ≈ 38.94°
     expect(projDistortion('plate', 60).maxAngleDeg).toBeCloseTo(38.94, 1);
     expect(projDistortion('equalearth', 60).maxAngleDeg).toBeGreaterThan(15);
+  });
+
+  it('samples true spherical Tissot indicatrix circles with uniform geodesic radius', () => {
+    const targetKm = 4.5 * D * 6371;
+    for (const [lat, lon] of [[0, 0], [60, 30], [-45, -120]] as const) {
+      const ring = tissotCircle(lat, lon, 4.5, 36);
+      expect(ring).toHaveLength(37);
+      expect(ring[0][0]).toBeCloseTo(ring[36][0], 6);
+      expect(ring[0][1]).toBeCloseTo(ring[36][1], 6);
+      for (const [pLat, pLon] of ring) {
+        expect(haversineKm(lat, lon, pLat, pLon)).toBeCloseTo(targetKm, 1);
+      }
+    }
   });
 });

@@ -49,7 +49,7 @@ export function earthPlaces(ensureKeys: string[], searchPlaces?: SearchPlaces): 
   return list;
 }
 
-export type GroupId = 'bodies' | 'tall' | 'peaks' | 'long' | 'fast';
+export type GroupId = 'bodies' | 'tall' | 'peaks' | 'deep' | 'long' | 'fast';
 export interface Thing { id: string; name: I18n; emoji: string; /** in the group's unit: km for bodies, km/h for speed, metres otherwise */ size: number }
 export interface Group { id: GroupId; unit: 'km' | 'm' | 'kmh'; things: Thing[]; /** default pair (ids; English names until resolved) */ pair: [string, string] }
 
@@ -61,6 +61,7 @@ const PEAK_SUBS = new Set(['mountain', 'volcano']);
 const SKIP = new Set(['Mont-Saint-Michel', 'Mount Rushmore', 'Hanging Temple', 'Rock Churches of Lalibela', 'Itsukushima Shrine', 'Quetzalcoatlus']);
 const WALKER: Thing = { id: 'walker', name: { en: 'A person walking', zh: '一个人走路' }, emoji: '🚶', size: 5 };
 const CHILD: Thing = { id: 'child', name: { en: 'A child', zh: '一个小朋友' }, emoji: '🧒', size: 1.3 };
+const SCUBA: Thing = { id: 'scuba', name: { en: 'Recreational scuba limit', zh: '休闲水肺潜水极限' }, emoji: '🤿', size: 40 };
 
 const fromItems = (pick: (i: CatalogueItem) => number | undefined): Thing[] =>
   CATALOGUE.flatMap(i => {
@@ -77,6 +78,8 @@ export function compareGroups(): Group[] {
       things: [CHILD, ...fromItems(i => (i.type === 'landmark' || i.type === 'plant') && TALL_SUBS.has(i.sub) ? i.facts?.heightM : undefined)] },
     { id: 'peaks', unit: 'm', pair: ['Mount Everest', 'Mount Fuji'],
       things: fromItems(i => (i.type === 'volcano' || (i.type === 'landmark' && PEAK_SUBS.has(i.sub))) && (i.facts?.heightM ?? 0) >= 300 ? i.facts?.heightM : undefined) },
+    { id: 'deep', unit: 'm', pair: ['Challenger Deep', 'Titanic wreck'],
+      things: [SCUBA, ...fromItems(i => (i.type === 'discovery' || (i.type === 'landmark' && i.sub === 'canyon')) ? i.facts?.depthM : undefined)] },
     { id: 'long', unit: 'm', pair: ['Blue whale', 'Tyrannosaurus rex'],
       things: [CHILD, ...fromItems(i => (i.type === 'animal' || i.type === 'dino') ? i.facts?.lengthM : undefined)] },
     // animals: top speed in a short dash; vehicles: their usual cruising or operating speed (dinosaur speeds are guesses, so none)
@@ -92,7 +95,7 @@ export function compareGroups(): Group[] {
 
 /** The group (and thing) a catalogue key or body id belongs to, for opening the bench from a card. */
 export function groupOf(id: string): Group | undefined {
-  return id === 'child' || id === 'walker' ? undefined : compareGroups().find(g => g.things.some(t => t.id === id));
+  return id === 'child' || id === 'walker' || id === 'scuba' ? undefined : compareGroups().find(g => g.things.some(t => t.id === id));
 }
 
 /** How many times bigger the larger is, rounded for reading aloud: 1 decimal under 10, whole numbers above. */
@@ -100,6 +103,14 @@ export function ratio(a: number, b: number): { big: 0 | 1; times: number } {
   const big = a >= b ? 0 : 1;
   const r = big === 0 ? a / b : b / a;
   return { big, times: r < 10 ? Math.round(r * 10) / 10 : Math.round(r) };
+}
+
+/** Cubic volume ratio `(max / min)³` for comparing two spherical worlds. */
+export function volumeRatio(a: number, b: number): { big: 0 | 1; times: number } {
+  const big = a >= b ? 0 : 1;
+  const lin = big === 0 ? a / b : b / a;
+  const v = lin * lin * lin;
+  return { big, times: v < 10 ? Math.round(v * 10) / 10 : Math.round(v) };
 }
 
 /**

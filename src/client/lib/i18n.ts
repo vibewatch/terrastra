@@ -762,6 +762,19 @@ const en = {
   msort_num: "M1–M110",
   msort_near: "Closest",
   msort_size: "Largest",
+  cmp_deep: "Depths",
+  cmpM_deep: "Depth",
+  cmpVolFit: "By volume, ≈{n} × {small} could fit inside {big}.",
+  cmpDeepPress: "{a}: ≈{pa} atm · {b}: ≈{pb} atm hydrostatic pressure.",
+  cmpSvgDownload: "SVG",
+  "cmpDist.courseTurn": "Spherical heading shift: departs {start}° {sDir} → arrives {end}° {eDir} ({turn}° unsteered turn).",
+  "cmpDist.waypoints": "Great-circle quarter-arc waypoints:",
+  mapTissot: "Tissot (T)",
+  mapMeasure: "Measure (R)",
+  mapMeasureHint: "Click two places on the map to compare the curved great-circle route against a Mercator rhumb line.",
+  mapMeasureReadout: "{km} km · {deg}° {dir}{detour}",
+  mapMeasureDetour: " (rhumb +{extra} km)",
+  mapMeasureClear: "Clear",
 } as const;
 
 export type I18nKey = keyof typeof en;
@@ -1525,6 +1538,19 @@ const zh: Record<I18nKey, string> = {
   msort_num: "M1–M110",
   msort_near: "由近及远",
   msort_size: "尺寸最大",
+  cmp_deep: "海渊与深度",
+  cmpM_deep: "深度",
+  cmpVolFit: "按球体体积换算，{big}约可容纳 {n} 个{small}。",
+  cmpDeepPress: "静水压强换算：{a}约 {pa} 个大气压 · {b}约 {pb} 个大气压。",
+  cmpSvgDownload: "导出 SVG",
+  "cmpDist.courseTurn": "球面航向自然偏转：起飞 {start}° {sDir} → 抵达 {end}° {eDir}（不打方向盘自然转过 {turn}°）。",
+  "cmpDist.waypoints": "大圆航线四等分航路点：",
+  mapTissot: "变形椭圆 (T)",
+  mapMeasure: "测距尺 (R)",
+  mapMeasureHint: "在地图上依次点击两点，即可对比弯曲的球面大圆最短航线与等角恒向线。",
+  mapMeasureReadout: "{km} 公里 · 方位 {deg}° {dir}{detour}",
+  mapMeasureDetour: "（恒向线多绕 {extra} 公里）",
+  mapMeasureClear: "清除",
 };
 
 const DICTS: Record<Lang, Dict> = { en, zh };

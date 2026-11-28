@@ -758,6 +758,8 @@ body:has(.sky) .modal { z-index: var(--z-alert); }
 @media (max-width: 520px) { .cmp-picks { grid-template-columns: 1fr; } }
 .cmp-stage { max-height: 44vh; }
 .cmp-src { display: flex; gap: 6px; align-items: flex-start; margin: 0; }
+.cmp-wp-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }
+.cmp-wp-row .pill-sm { font-size: .74rem; padding: 2px 8px; font-variant-numeric: tabular-nums; }
 
 /* On-demand narration (F10): the sentence being read is highlighted */
 .info-listen { justify-self: start; margin: 2px 0 6px; }

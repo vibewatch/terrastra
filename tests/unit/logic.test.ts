@@ -16,11 +16,11 @@ import { AURA_PRESETS } from '../../src/client/globe/scene.ts';
 import { parseExtract, articleUrl } from '../../src/client/lib/wikipedia.ts';
 import { WIKI } from '../../src/shared/data/wiki.ts';
 import { graticuleStep } from '../../src/client/globe/layers.ts';
-import { antipodeOf, formatGeodesicBriefMarkdown, greatCircleSummary, nearestCatalogueItem, solarTimeOffsetHours, wrapLon, altitudePhysics } from '../../src/shared/lib/geodesic.ts';
+import { antipodeOf, formatGeodesicBriefMarkdown, greatCircleSummary, greatCircleWaypoints, nearestCatalogueItem, solarTimeOffsetHours, sphericalPolygonAreaKm2, wrapLon, altitudePhysics } from '../../src/shared/lib/geodesic.ts';
 import { lightDelaySec, probeTransitHours, apparentArcsec } from '../../src/shared/lib/orbits.ts';
 import { projDistortion } from '../../src/client/map/proj.ts';
 import { skyEventsToIcs } from '../../src/client/sky/panel.ts';
-import { countryCatalogueCount } from '../../src/client/globe/overlay.ts';
+import { countryCatalogueCount, formatCountryAreaKm2 } from '../../src/client/globe/overlay.ts';
 import { lookbackEarthEra } from '../../src/shared/data/cosmos.ts';
 import { formatTourStudyGuideMarkdown, TOURS } from '../../src/client/ui/tours.ts';
 import { stationSolarBadge } from '../../src/client/ui/radio.ts';
@@ -821,6 +821,37 @@ describe('static i18n key coverage, geodesic lab, quake tectonics & explorer fie
     const nearOther = nearestCatalogueItem(eiffel.lat, eiffel.lon, CATALOGUE, 'eiffel');
     expect(nearOther?.item.key).not.toBe('eiffel');
     expect(nearOther?.distanceKm).toBeGreaterThan(0);
+
+    // Final bearing, spherical heading turn, quarter-arc waypoints & spherical polygon area
+    const eqSum = greatCircleSummary({ lat: 0, lon: 0 }, { lat: 0, lon: 40 });
+    expect(eqSum.bearingDeg).toBeCloseTo(90, 2);
+    expect(eqSum.finalBearingDeg).toBeCloseTo(90, 2);
+    expect(eqSum.courseTurnDeg).toBeCloseTo(0, 2);
+
+    const polarSum = greatCircleSummary({ lat: 39.9, lon: 116.4 }, { lat: 40.7, lon: -74.0 });
+    expect(polarSum.courseTurnDeg).toBeGreaterThan(120);
+    expect(briefEn).toContain('Arrival heading');
+    expect(briefZh).toContain('球面自然转向');
+
+    const wps = greatCircleWaypoints(eiffel, liberty, 4);
+    expect(wps).toHaveLength(5);
+    expect(wps[0].pct).toBe(0);
+    expect(wps[2].pct).toBe(50);
+    expect(wps[2].lat).toBeCloseTo(sum.midpoint[0], 4);
+    expect(wps[2].lon).toBeCloseTo(sum.midpoint[1], 4);
+
+    // 10°×10° equatorial patch: area = R^2 * Δλ * (sin 5° - sin(-5°))
+    const patchArea = sphericalPolygonAreaKm2({ type: 'Polygon', coordinates: [[[-5, -5], [5, -5], [5, 5], [-5, 5], [-5, -5]]] });
+    const exactPatch = 6371.0088 ** 2 * ((10 * Math.PI) / 180) * (2 * Math.sin((5 * Math.PI) / 180));
+    expect(patchArea).toBeCloseTo(exactPatch, -3);
+    // Subtracting a 2°×2° interior hole reduces area
+    const withHole = sphericalPolygonAreaKm2({
+      type: 'Polygon',
+      coordinates: [[[-5, -5], [5, -5], [5, 5], [-5, 5], [-5, -5]], [[-1, -1], [1, -1], [1, 1], [-1, 1], [-1, -1]]],
+    });
+    expect(withHole).toBeLessThan(patchArea);
+    expect(formatCountryAreaKm2(551_695, 'en')).toBe('552k km²');
+    expect(formatCountryAreaKm2(9_596_960, 'zh')).toBe('960万 km²');
   });
 
   it('tectonics: identifies subduction trenches, mid-ocean ridges, intraplate quakes, and nearby volcanoes', () => {

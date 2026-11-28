@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { compareGroups, earthPlaces, groupOf, ratio, drawn } from '../../src/client/lib/compare.ts';
+import { compareGroups, earthPlaces, groupOf, ratio, volumeRatio, drawn } from '../../src/client/lib/compare.ts';
 import { BODY } from '../../src/shared/data/solar.ts';
 import { BY_KEY } from '../../src/shared/data/catalogue.ts';
 
@@ -59,5 +59,30 @@ describe('compare bench', () => {
     expect(groupOf('everest')?.id).toBe('peaks');
     expect(groupOf('vo_etna')?.id).toBe('peaks');
     expect(groupOf('burj')?.id).toBe('tall');
+  });
+
+  it('includes Ocean Depths & Trenches group and computes spherical volume ratios for celestial bodies', () => {
+    const deep = compareGroups().find(x => x.id === 'deep')!;
+    expect(deep.unit).toBe('m');
+    expect(deep.pair).toEqual(['dc_challenger', 'dc_titanic']);
+    expect(deep.things[0].id).toBe('dc_challenger');
+    expect(deep.things[0].size).toBeGreaterThanOrEqual(10900);
+    expect(deep.things.some(t => t.id === 'scuba' && t.size === 40)).toBe(true);
+    expect(groupOf('dc_challenger')?.id).toBe('deep');
+    expect(groupOf('dc_titanic')?.id).toBe('deep');
+
+    // Earth (12,742 km) vs Moon (3,475 km) => (12742 / 3475)^3 ≈ 49 Moons fit inside Earth
+    const em = volumeRatio(12742, 3475);
+    expect(em.big).toBe(0);
+    expect(em.times).toBe(49);
+
+    // Earth (12,742 km) vs Mars (6,779 km) => (12742 / 6779)^3 ≈ 6.6 Marses fit inside Earth
+    expect(volumeRatio(12742, 6779)).toEqual({ big: 0, times: 6.6 });
+
+    // Earth (12,742 km) vs Jupiter (139,820 km) => ~1,321 Earths fit inside Jupiter
+    const ej = volumeRatio(12742, 139820);
+    expect(ej.big).toBe(1);
+    expect(ej.times).toBeGreaterThan(1300);
+    expect(ej.times).toBeLessThan(1350);
   });
 });
